@@ -163,6 +163,8 @@ pub fn init_repo(path: String, state: State<'_, AppState>) -> Result<StatusDto, 
     let repo = BasicRepository::init(&path).map_err(|e| e.to_string())?;
     let dto = build_status(&repo).map_err(|e| e.to_string())?;
     state.set_repo(repo);
+    // Ensure extension directories exist
+    let _ = crate::extensions::ensure_dirs(&std::path::PathBuf::from(&path));
     Ok(dto)
 }
 
@@ -1310,6 +1312,34 @@ pub fn ai_conflict_resolve(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Read a file's contents at a specific snapshot (or from working directory).
+/// Returns the text content of the file. For snapshot reads, the file must
+/// exist in that snapshot's manifest.
+#[tauri::command]
+pub fn read_file(
+    path: String,
+    snapshot_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let guard = state.repo.lock().unwrap_or_else(|p| p.into_inner());
+    let repo = guard.as_ref().ok_or("No repository open")?;
+
+    if let Some(prefix) = snapshot_id {
+        let files = repo.resolve_snapshot_files(&prefix).map_err(|e| e.to_string())?;
+        let hash = files
+            .get(&path)
+            .ok_or_else(|| format!("file '{}' is not present in snapshot {}", path,
+                route_core::short_id(&prefix)))?;
+        let blob_path = repo.route_paths().blob_path(hash);
+        std::fs::read_to_string(&blob_path)
+            .map_err(|e| format!("read blob {}: {}", hash, e))
+    } else {
+        let p = repo.project_path().join(&path);
+        std::fs::read_to_string(&p)
+            .map_err(|e| format!("read working-dir file {}: {}", p.display(), e))
+    }
 }
 
 /// Return all verdicts recorded for the given commit.

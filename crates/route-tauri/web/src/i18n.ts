@@ -96,10 +96,12 @@ type DictEntry = {
   brand: string;
   cancelBranch: string;
   clearData: string;
+  clearDataCountdown: string;
   clearDataDone: string;
   clearDataHint: string;
   clearDataHold: string;
   clearDataIrreversible: string;
+  clearDataStart: string;
   clickToCopy: string;
   cliMcpBinaryPath: string;
   cliMcpBuildHint: string;
@@ -112,6 +114,18 @@ type DictEntry = {
   cliMcpOff: string;
   cliMcpOn: string;
   cliMcpStartHint: string;
+  cliStartLabel: string;
+  cliStartHint: string;
+  cliRunning: string;
+  cliStopped: string;
+  mcpStartLabel: string;
+  mcpStartHint: string;
+  mcpRunning: string;
+  mcpStopped: string;
+  aiChat: string;
+  aiChatTitle: string;
+  aiChatPlaceholder: string;
+  aiChatSend: string;
   close: string;
   closeBehaviorHide: string;
   closeBehaviorHint: string;
@@ -240,9 +254,12 @@ type DictEntry = {
   timelineEmpty: string;
   trackAllHint: string;
   trackAllLabel: string;
+  toggleTracking: string;
   trackingOff: string;
+  trackingPending: string;
   trackingRunning: string;
   trackingStarting: string;
+  lastCommit: string;
   trackMemoryBufferHint: string;
   trackMemoryBufferLabel: string;
   trackPrefixesHint: string;
@@ -261,6 +278,54 @@ type DictEntry = {
   workbenchEdit: string;
   workbenchSourceLabel: string;
   workbenchTargetPath: string;
+  standardMode: string;
+  basicMode: string;
+  aiMode: string;
+  backupLocal: string;
+  backupCloud: string;
+  backupNone: string;
+  activeTracking: string;
+  activeTrackingHint: string;
+  activeTrackingRemote: string;
+  activeTrackingInterval: string;
+  activeTrackingLastSync: string;
+  activeTrackingStatus: string;
+  activeTrackingSyncNow: string;
+  extensionsSection: string;
+  skillsSection: string;
+  skillsSectionHint: string;
+  referencesSection: string;
+  referencesSectionHint: string;
+  preInjectionHint: string;
+  cliMcpHint: string;
+  extensionEmpty: string;
+  commitOmitMode: string;
+  commitOmitHint: string;
+  commitOmitOn: string;
+  commitOmitOff: string;
+  permissionStandard: string;
+  permissionHigh: string;
+  permissionHint: string;
+  permissionWarning: string;
+  cliGuideLabel: string;
+  cliGuideHint: string;
+  mcpConfigLabel: string;
+  mcpConfigHint: string;
+  workbenchConfigSection: string;
+  workbenchS3: string;
+  workbenchWebdav: string;
+  workbenchSSH: string;
+  workbenchMirrorDelay: string;
+  branchDisplay: string;
+  branchDisplayHint: string;
+  aiAssistantBasic: string;
+  aiAssistantBasicHint: string;
+  aiPresetPrompt: string;
+  aiPresetPromptHint: string;
+  preInjectionFiles: string;
+  preInjectionFilesHint: string;
+  startupSection: string;
+  closeBehaviorCapsule: string;
 };
 
 /// Convenience alias — components receive `tr: Dict` as a prop.
@@ -341,10 +406,12 @@ export const dict: Record<Locale, DictEntry> = {
     brand: "route",
     cancelBranch: "取消",
     clearData: "清除全部数据",
+    clearDataCountdown: "秒后清除",
     clearDataDone: "已清除",
     clearDataHint: "删除已记录的项目、历史与所有缓存。此操作不可撤销",
     clearDataHold: "长按 10 秒确认清除（不可撤销）",
     clearDataIrreversible: "此操作不可撤销。",
+    clearDataStart: "开始清除",
     clickToCopy: "点击复制路径",
     cliMcpBinaryPath: "二进制路径",
     cliMcpBuildHint: "若未找到二进制，请先运行 cargo build",
@@ -357,6 +424,18 @@ export const dict: Record<Locale, DictEntry> = {
     cliMcpOff: "已停用",
     cliMcpOn: "已启用",
     cliMcpStartHint: "启动后请保持 Route 在前台或最小化运行",
+    cliStartLabel: "启动 CLI",
+    cliStartHint: "启动 Route CLI 后台服务，支持命令行接入",
+    cliRunning: "运行中",
+    cliStopped: "已停止",
+    mcpStartLabel: "启动 MCP",
+    mcpStartHint: "启动 Route MCP 服务，供外部 AI 客户端调用",
+    mcpRunning: "运行中",
+    mcpStopped: "已停止",
+    aiChat: "对话",
+    aiChatTitle: "AI 对话",
+    aiChatPlaceholder: "输入你的问题…",
+    aiChatSend: "发送",
     close: "关闭",
     closeBehaviorHide: "隐藏到后台",
     closeBehaviorHint: "选择关闭窗口时的行为",
@@ -374,7 +453,7 @@ export const dict: Record<Locale, DictEntry> = {
     dataImportExportHint: "导出时间线或查看本地数据位置",
     dataLocationHint: "项目数据存储在 .route 目录中",
     dataLocationLabel: "数据位置",
-    dataSection: "数据",
+    dataSection: "配置与数据",
     diffShowFiles: "查看文件变化",
     errorTauriBridge: "请在 Route 桌面应用中运行（需要 `cargo tauri dev` 或安装版）",
     filesAdded: "新增",
@@ -486,8 +565,11 @@ export const dict: Record<Locale, DictEntry> = {
     trackAllHint: "关闭后只追踪下方列出的后缀 / 前缀",
     trackAllLabel: "追踪所有文件",
     trackingOff: "未追踪",
+    trackingPending: "有未保存的变更",
+    toggleTracking: "切换追踪",
     trackingRunning: "追踪中",
     trackingStarting: "启动中",
+    lastCommit: "上次提交",
     trackMemoryBufferHint: "连续敲代码时延迟落盘的时长。设为 0 立即落盘",
     trackMemoryBufferLabel: "内存缓冲区（毫秒）",
     trackPrefixesHint: "可选；只追踪以这些路径前缀开头的文件",
@@ -506,6 +588,54 @@ export const dict: Record<Locale, DictEntry> = {
     workbenchEdit: "编辑",
     workbenchSourceLabel: "源",
     workbenchTargetPath: "目标路径",
+    standardMode: "标准模式",
+    basicMode: "基础",
+    aiMode: "AI 模式",
+    backupLocal: "本地备份",
+    backupCloud: "云备份",
+    backupNone: "未配置备份",
+    activeTracking: "主动跟踪",
+    activeTrackingHint: "设置远程仓库，Route 将自动定期拉取到本地",
+    activeTrackingRemote: "远程仓库地址",
+    activeTrackingInterval: "同步间隔（分钟）",
+    activeTrackingLastSync: "上次同步",
+    activeTrackingStatus: "状态",
+    activeTrackingSyncNow: "立即同步",
+    extensionsSection: "扩展",
+    skillsSection: "技能（Skills）",
+    skillsSectionHint: "将技能文件放入 .route/skills/ 目录，AI 将自动读取",
+    referencesSection: "参考资料（References）",
+    referencesSectionHint: "将参考资料放入 .route/references/ 目录，AI 将自动读取",
+    preInjectionHint: "AI 在进行版本管理时，会自动读取这些文件作为预注入上下文。Route 仅提供文件读取，不执行也不解释其中的内容。",
+    cliMcpHint: "开发者建议您通过 CLI 或 MCP 调用以获得最佳体验",
+    extensionEmpty: "（空）",
+    commitOmitMode: "Commit 省略模式",
+    commitOmitHint: "常规 commit 由 AI 自动完成，仅大版本 commit 需用户确认",
+    commitOmitOn: "已开启",
+    commitOmitOff: "已关闭",
+    permissionStandard: "标准权限",
+    permissionHigh: "高权限",
+    permissionHint: "默认开启标准权限",
+    permissionWarning: "开发者提示：高权限模式仅适用于高级用户，将开放更多底层操作权限，请谨慎使用",
+    cliGuideLabel: "查看指南",
+    cliGuideHint: "查看 CLI 使用指南（Markdown）",
+    mcpConfigLabel: "MCP 配置",
+    mcpConfigHint: "配置参数以适配不同 AI 客户端（如 Cursor、Trae、Claude Desktop 等）",
+    workbenchConfigSection: "工作台配置",
+    workbenchS3: "S3 存储",
+    workbenchWebdav: "WebDAV",
+    workbenchSSH: "SSH",
+    workbenchMirrorDelay: "镜像延迟（秒）",
+    branchDisplay: "分支显示",
+    branchDisplayHint: "点击文件时使用系统文件资源管理器打开",
+    aiAssistantBasic: "基本模式",
+    aiAssistantBasicHint: "由 Web Coding 的 AI 通过现有接口自行操作软件",
+    aiPresetPrompt: "预设提示词",
+    aiPresetPromptHint: "AI 操作软件时遵循的内置提示词",
+    preInjectionFiles: "预注入文件",
+    preInjectionFilesHint: "包含 skills（技能）和 references（参考资料），AI 版本管理时自动读取",
+    startupSection: "启动设置",
+    closeBehaviorCapsule: "关闭窗口时",
   },
 
   en: {
@@ -582,10 +712,12 @@ export const dict: Record<Locale, DictEntry> = {
     brand: "route",
     cancelBranch: "Cancel",
     clearData: "Clear all data",
+    clearDataCountdown: "s until cleared",
     clearDataDone: "Cleared",
     clearDataHint: "Delete every recorded project, history, and cache. This is irreversible.",
     clearDataHold: "Hold 10s to confirm (irreversible)",
     clearDataIrreversible: "This cannot be undone.",
+    clearDataStart: "Start clear",
     clickToCopy: "Click to copy path",
     cliMcpBinaryPath: "Binary path",
     cliMcpBuildHint: "If the binary is missing, run cargo build first",
@@ -598,6 +730,18 @@ export const dict: Record<Locale, DictEntry> = {
     cliMcpOff: "Disabled",
     cliMcpOn: "Enabled",
     cliMcpStartHint: "Keep Route running in the foreground or minimized while integrations are active",
+    cliStartLabel: "Start CLI",
+    cliStartHint: "Start the Route CLI daemon for command-line access",
+    cliRunning: "Running",
+    cliStopped: "Stopped",
+    mcpStartLabel: "Start MCP",
+    mcpStartHint: "Start the Route MCP server for external AI clients",
+    mcpRunning: "Running",
+    mcpStopped: "Stopped",
+    aiChat: "Chat",
+    aiChatTitle: "AI Chat",
+    aiChatPlaceholder: "Type your question…",
+    aiChatSend: "Send",
     close: "Close",
     closeBehaviorHide: "Hide to tray",
     closeBehaviorHint: "Choose what happens when closing the window",
@@ -615,7 +759,7 @@ export const dict: Record<Locale, DictEntry> = {
     dataImportExportHint: "Export the timeline or view local data location",
     dataLocationHint: "Project data is stored in the .route directory",
     dataLocationLabel: "Data location",
-    dataSection: "Data",
+    dataSection: "Config & Data",
     diffShowFiles: "Show file changes",
     errorTauriBridge: "Please run this in the Route desktop app (requires `cargo tauri dev` or the installed build)",
     filesAdded: "Added",
@@ -727,8 +871,11 @@ export const dict: Record<Locale, DictEntry> = {
     trackAllHint: "When off, only the listed suffixes / prefixes are tracked.",
     trackAllLabel: "Track all files",
     trackingOff: "Not tracking",
+    trackingPending: "Unsaved changes",
+    toggleTracking: "Toggle tracking",
     trackingRunning: "Tracking",
     trackingStarting: "Starting",
+    lastCommit: "Last commit",
     trackMemoryBufferHint: "How long the watcher waits for typing to settle before flushing to disk. 0 = flush immediately.",
     trackMemoryBufferLabel: "Memory buffer (ms)",
     trackPrefixesHint: "Optional; only files whose path starts with one of these are tracked.",
@@ -747,6 +894,54 @@ export const dict: Record<Locale, DictEntry> = {
     workbenchEdit: "Edit",
     workbenchSourceLabel: "Source",
     workbenchTargetPath: "Target path",
+    standardMode: "Standard",
+    basicMode: "Basic",
+    aiMode: "AI Mode",
+    backupLocal: "Local Backup",
+    backupCloud: "Cloud Backup",
+    backupNone: "No Backup",
+    activeTracking: "Active Tracking",
+    activeTrackingHint: "Set a remote repo and Route will auto-pull to local",
+    activeTrackingRemote: "Remote URL",
+    activeTrackingInterval: "Sync interval (min)",
+    activeTrackingLastSync: "Last sync",
+    activeTrackingStatus: "Status",
+    activeTrackingSyncNow: "Sync now",
+    extensionsSection: "Extensions",
+    skillsSection: "Skills",
+    skillsSectionHint: "Place skill files in .route/skills/ — AI reads them automatically",
+    referencesSection: "References",
+    referencesSectionHint: "Place reference files in .route/references/ — AI reads them automatically",
+    preInjectionHint: "AI reads these files as pre-injection context during version management. Route only provides read access, it does not execute or interpret content.",
+    cliMcpHint: "For the best experience, use the CLI or MCP interface",
+    extensionEmpty: "(empty)",
+    commitOmitMode: "Commit Omit Mode",
+    commitOmitHint: "Minor commits auto-generated by AI, only major version commits require user confirmation",
+    commitOmitOn: "Enabled",
+    commitOmitOff: "Disabled",
+    permissionStandard: "Standard Permission",
+    permissionHigh: "High Permission",
+    permissionHint: "Standard permission enabled by default",
+    permissionWarning: "Developer Note: High permission mode is for advanced users only. It grants access to lower-level operations. Use with caution.",
+    cliGuideLabel: "View Guide",
+    cliGuideHint: "View CLI usage guide (Markdown)",
+    mcpConfigLabel: "MCP Configuration",
+    mcpConfigHint: "Configure parameters for different AI clients (Cursor, Trae, Claude Desktop, etc.)",
+    workbenchConfigSection: "Workbench Configuration",
+    workbenchS3: "S3 Storage",
+    workbenchWebdav: "WebDAV",
+    workbenchSSH: "SSH",
+    workbenchMirrorDelay: "Mirror Delay (seconds)",
+    branchDisplay: "Branch Display",
+    branchDisplayHint: "Open files with system file explorer on click",
+    aiAssistantBasic: "Basic Mode",
+    aiAssistantBasicHint: "Your Web Coding AI operates the software via existing interfaces",
+    aiPresetPrompt: "Preset Prompt",
+    aiPresetPromptHint: "Built-in prompt the AI agent follows when operating the software",
+    preInjectionFiles: "Pre-injection Files",
+    preInjectionFilesHint: "Includes skills and references, auto-read by AI during version management",
+    startupSection: "Startup Settings",
+    closeBehaviorCapsule: "On window close",
   },
 };
 

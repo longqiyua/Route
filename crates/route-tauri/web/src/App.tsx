@@ -7,8 +7,6 @@ import {
   TrackConfigDto,
   TreeNode,
   WatchStatusDto,
-  aiConflictReport,
-  aiConflictResolve,
   aiSummaryPrompt,
   aiChat,
   workingDirStatus,
@@ -19,7 +17,6 @@ import {
   checkpointCreate,
   clearAiOperator,
   commit,
-  exportData,
   getAiOperator,
   gitBranchSwitch,
   gitBranchCreate,
@@ -42,8 +39,6 @@ import {
   historyTree,
   initRepo,
   logCommits,
-  mcpGetConfig,
-  type McpConfigDto,
   openRepo,
   pickFolder,
   rollback,
@@ -60,13 +55,12 @@ import {
   watchStart,
   watchStatus as watchStatusApi,
   watchStop,
-  autostartGet,
-  autostartSet,
-  type AutostartConfig,
+  projectContext,
   type GitDetectDto,
   type GitLogEntryDto,
   type AiProvider,
   type ChatMessage,
+  type ProjectContextDto,
 } from "./api";
 import { isTauriBridgeAvailable } from "./ipc";
 import {
@@ -79,48 +73,8 @@ import {
 import Titlebar from "./Titlebar";
 import Logo from "./Logo";
 import Welcome from "./Welcome";
+import SettingsPage, { AiConflictDialog } from "./SettingsPage";
 import { useTypewriter } from "./useTypewriter";
-
-// ---------------------------------------------------------------------------
-// DEBUG instrumentation — settings-black-screen
-// Report key events to the local debug server so we can see what happens
-// immediately before the screen goes black. Wrapped in collapsible regions so
-// it is easy to remove later.
-// ---------------------------------------------------------------------------
-
-// #region debug-point logger
-const DEBUG_URL = "http://127.0.0.1:7777/event";
-const DEBUG_SESSION = "settings-black-screen";
-
-let debugRunId = "pre";
-function setDebugRunId(id: "pre" | "post") {
-  debugRunId = id;
-}
-
-function dbg(event: string, payload?: Record<string, unknown>) {
-  try {
-    const body = JSON.stringify({
-      session: DEBUG_SESSION,
-      run: debugRunId,
-      ts: Date.now(),
-      event,
-      payload: payload || {},
-      url: typeof window !== "undefined" ? window.location.href : "",
-    });
-    // Fire-and-forget; in a crashing webview this may not complete, but it
-    // often does if the crash happens on the next paint frame.
-    if (typeof fetch !== "undefined") {
-      fetch(DEBUG_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      }).catch(() => {});
-    }
-  } catch {
-    // never throw because of instrumentation
-  }
-}
-// #endregion debug-point logger
 
 // ---------------------------------------------------------------------------
 // Typewriter — small welcome-page helper. Kept as a separate component so the
@@ -159,7 +113,7 @@ interface Project {
   addedAt: number;
 }
 
-type Page = "workspace" | "settings";
+type Page = "workspace" | "settings" | "chat";
 // Sort modes for the project list. "alpha" / "time" / "reverse" form the
 // click-cycle on the square sort button; "custom" is only entered by
 // dragging a card (preserved manual order) and is not part of the cycle.
@@ -306,9 +260,9 @@ function persistProjectSortMode(mode: ProjectSort) {
 const THEME_KEY = "route:theme";
 
 function loadTheme(): "dark" | "light" {
-  if (typeof localStorage === "undefined") return "dark";
+  if (typeof localStorage === "undefined") return "light";
   const v = localStorage.getItem(THEME_KEY);
-  return v === "light" ? "light" : "dark";
+  return v === "dark" ? "dark" : "light";
 }
 
 function persistTheme(theme: "dark" | "light") {
@@ -446,7 +400,110 @@ function localizeBridgeError(e: unknown): string {
   if (msg && /tauri bridge unavailable/i.test(msg)) {
     return "bridge";
   }
-  return msg || "Action failed";
+  return friendlyError(msg);
+}
+
+/// Translate common Rust / backend errors into user-friendly messages
+/// with possible causes and how to fix them.
+function friendlyError(msg: string): string {
+  if (!msg) return "操作失败，未知错误。";
+
+  // missing required key
+  if (/missing required key/i.test(msg)) {
+    return "内部参数错误 — 请重启应用。如果问题持续，请反馈给开发者。";
+  }
+
+  // No repository open
+  if (/no repository open/i.test(msg)) {
+    return "项目尚未初始化 — 请先打开或初始化一个项目。";
+  }
+
+  // Branch has no HEAD
+  if (/branch has no head/i.test(msg) || /no head/i.test(msg)) {
+    return "当前分支没有提交记录 — 请先提交一些文件再操作。";
+  }
+
+  // Snapshot not found
+  if (/snapshot.*not found/i.test(msg) || /no such snapshot/i.test(msg)) {
+    return "找不到指定的快照 — 可能已被删除，请刷新后重试。";
+  }
+
+  // Branch not found
+  if (/branch.*not found/i.test(msg) || /no such branch/i.test(msg)) {
+    return "找不到指定的分支 — 可能已被删除，请刷新后重试。";
+  }
+
+  // Branch already exists
+  if (/branch.*already exists/i.test(msg)) {
+    return "分支名已存在 — 请使用其他名称。";
+  }
+
+  // Permission denied
+  if (/permission denied/i.test(msg) || /access denied/i.test(msg) || /access is denied/i.test(msg)) {
+    return "没有权限访问该路径 — 请检查文件夹权限。";
+  }
+
+  // File not found
+  if (/file not found/i.test(msg) || /no such file/i.test(msg) || /enoent/i.test(msg)) {
+    return "文件或目录不存在 — 请检查路径是否正确。";
+  }
+
+  // Git errors
+  if (/git/i.test(msg)) {
+    if (/not a git repository/i.test(msg)) {
+      return "Git 仓库未初始化 — 请在设置中点击「初始化 Git」。";
+    }
+    if (/merge conflict/i.test(msg)) {
+      return "Git 合并冲突 — 请手动解决冲突后再试。";
+    }
+    if (/failed to push/i.test(msg)) {
+      return "推送失败 — 请检查远程仓库地址和网络连接。";
+    }
+    if (/failed to pull/i.test(msg) || /failed to fetch/i.test(msg)) {
+      return "拉取失败 — 请检查网络连接和远程仓库地址。";
+    }
+  }
+
+  // Route_basic errors
+  if (/branch has no baseline/i.test(msg)) {
+    return "分支没有基准快照 — 无法执行此操作。";
+  }
+  if (/sandbox/i.test(msg) && /merge/i.test(msg)) {
+    return "沙盒分支不能作为合并目标 — 请先复制到普通分支。";
+  }
+
+  // Watch / tracking errors
+  if (/watch/i.test(msg) || /track/i.test(msg)) {
+    if (/already running/i.test(msg)) {
+      return "文件追踪已经在运行中。";
+    }
+    if (/not running/i.test(msg)) {
+      return "文件追踪未启动 — 请点击左侧开关启动。";
+    }
+  }
+
+  // Backup errors
+  if (/backup/i.test(msg)) {
+    return "备份失败 — 请检查目标路径是否可写入。";
+  }
+
+  // Network errors
+  if (/network|timeout|econnrefused|econnreset|ehostunreach/i.test(msg)) {
+    return "网络连接失败 — 请检查网络设置。";
+  }
+
+  // Fallback: truncate at common delimiters so the user doesn't see
+  // raw Rust traces, full paths, or serialization noise.
+  const clean = msg
+    .replace(/\\n.*$/s, "")       // cut after first line
+    .replace(/\(.*?\)/g, "")      // strip parenthesized details
+    .replace(/\s+/g, " ")         // collapse whitespace
+    .trim();
+
+  if (clean.length > 120) {
+    return clean.slice(0, 117) + "...";
+  }
+  return clean || "操作失败，请重试。";
 }
 
 /// Map a git log entry to the shape the timeline already renders. Git mode
@@ -522,6 +579,15 @@ function SettingsIcon() {
   );
 }
 
+function ChatIcon() {
+  // Chat bubble glyph — a simple speech bubble. Reads as "chat / talk to AI".
+  return (
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1.5 2.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H5.5l-2.5 2v-2h-0.5a1 1 0 0 1-1-1v-4.5z" />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sort glyphs for the square cycle button. One per mode so the icon itself
 // tells the user which ordering is active; the title attribute carries the
@@ -580,9 +646,10 @@ function Sidebar({
   onSortModeChange,
   page,
   onPageChange,
-  activeTrackingState,
-  onToggleTracking,
+  trackingStates,
+  onToggleProjectTracking,
   watchStatus,
+  aiAssistantMode,
   tr,
 }: {
   projects: Project[];
@@ -595,9 +662,10 @@ function Sidebar({
   onSortModeChange: (m: ProjectSort) => void;
   page: Page;
   onPageChange: (p: Page) => void;
-  activeTrackingState: TrackingState;
-  onToggleTracking: () => void;
+  trackingStates: Record<string, TrackingState>;
+  onToggleProjectTracking: (projectId: string) => void;
   watchStatus: WatchStatusDto | null;
+  aiAssistantMode: "follow" | "active";
   tr: Dict;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -653,12 +721,14 @@ function Sidebar({
 
   const isActive = (p: Project) => p.id === activeProjectId;
   const hasBackup = (p: Project) => !!p.backup && !!p.backup.target;
+  const getTrackingState = (p: Project): TrackingState =>
+    trackingStates[p.id] || "off";
   const isTracking = (p: Project) =>
-    isActive(p) && activeTrackingState === "running";
+    getTrackingState(p) === "running";
   const isStarting = (p: Project) =>
-    isActive(p) && activeTrackingState === "starting";
+    getTrackingState(p) === "starting";
   const isBackupButIdle = (p: Project) =>
-    isActive(p) && hasBackup(p) && !isTracking(p) && !isStarting(p);
+    hasBackup(p) && !isTracking(p) && !isStarting(p) && getTrackingState(p) === "off";
 
   // Square sort button cycles alpha → time → reverse → alpha …
   // "custom" is only reached by dragging a card; from there a click
@@ -679,22 +749,6 @@ function Sidebar({
 
   return (
     <aside className="sidebar">
-      <button
-        type="button"
-        className={`sidebar-power state-${activeTrackingState}`}
-        onClick={onToggleTracking}
-        aria-pressed={activeTrackingState !== "off"}
-      >
-        <span className="sidebar-power-dot" />
-        <span className="sidebar-power-text">
-          {activeTrackingState === "off"
-            ? tr.masterOff
-            : activeTrackingState === "starting"
-              ? tr.trackingStarting
-              : tr.masterOn}
-        </span>
-      </button>
-
       <div className="sidebar-add-row">
         <button type="button" className="sidebar-add" onClick={onAddProject}>
           <span className="sidebar-add-icon">
@@ -727,13 +781,6 @@ function Sidebar({
         ) : (
           sortedProjects.map((p) => {
             const active = isActive(p);
-            const tracking = isTracking(p);
-            const starting = isStarting(p);
-            const idle = isBackupButIdle(p);
-            const nameStyle: React.CSSProperties = {};
-            if (tracking) nameStyle.color = "var(--accent-bright)";
-            else if (starting) nameStyle.color = "var(--accent-deep)";
-            else if (idle) nameStyle.color = "var(--accent-deep)";
             const isDragging = draggingId === p.id;
             const isDropTarget = dragOverId === p.id && !isDragging;
             return (
@@ -756,7 +803,25 @@ function Sidebar({
                 title={p.path}
               >
                 <div className="project-card-row1">
-                  <span className="project-card-name" style={nameStyle}>
+                  <button
+                    type="button"
+                    className={`project-card-switch state-${getTrackingState(p)}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleProjectTracking(p.id);
+                    }}
+                    title={
+                      getTrackingState(p) === "off"
+                        ? tr.masterOff
+                        : getTrackingState(p) === "starting"
+                          ? tr.trackingStarting
+                          : tr.masterOn
+                    }
+                    aria-label={tr.toggleTracking}
+                  >
+                    <span className="project-card-switch-dot" />
+                  </button>
+                  <span className="project-card-name">
                     {p.name}
                   </span>
                   <button
@@ -793,6 +858,18 @@ function Sidebar({
       </div>
 
       <div className="page-rail" style={{ marginTop: "auto" }}>
+        {aiAssistantMode === "active" && (
+          <button
+            type="button"
+            className={page === "chat" ? "active" : ""}
+            onClick={() => onPageChange("chat")}
+          >
+            <span className="page-glyph">
+              <ChatIcon />
+            </span>
+            {tr.aiChat}
+          </button>
+        )}
         <button
           type="button"
           className={page === "workspace" ? "active" : ""}
@@ -819,444 +896,193 @@ function Sidebar({
 }
 
 // ---------------------------------------------------------------------------
+// ChatPage — full-page AI chat interface
+// ---------------------------------------------------------------------------
+
+function ChatPage({
+  aiApiKey,
+  aiApiEndpoint,
+  aiProvider,
+  aiModel,
+  activeProjectId,
+  tr,
+}: {
+  aiApiKey: string;
+  aiApiEndpoint: string;
+  aiProvider: AiProvider;
+  aiModel: string;
+  activeProjectId: string | null;
+  tr: Dict;
+}) {
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [ctx, setCtx] = useState<ProjectContextDto | null>(null);
+  const [ctxLoading, setCtxLoading] = useState(true);
+  const [ctxError, setCtxError] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Load project context when the page opens or project changes
+  useEffect(() => {
+    if (!activeProjectId) {
+      setCtx(null);
+      setCtxLoading(false);
+      return;
+    }
+    setCtxLoading(true);
+    setCtxError("");
+    projectContext()
+      .then((data) => {
+        setCtx(data);
+        setCtxLoading(false);
+      })
+      .catch((e) => {
+        setCtxError(String(e));
+        setCtxLoading(false);
+      });
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput("");
+    setMessages((p) => [...p, { role: "user", text }]);
+    setSending(true);
+    try {
+      // Build system prompt with project context
+      const systemPrompt = ctx
+        ? `You are an AI assistant integrated with the Route version management system.
+
+You have access to the project's full context below. Use this information to provide accurate, context-aware assistance.
+
+${ctx.formatted_context}
+
+Key responsibilities:
+1. Help the user understand their project structure and history.
+2. Suggest improvements and best practices.
+3. WARN about potentially dangerous operations (e.g., rollback, branch delete, reset).
+4. Answer questions about the project's code, commits, and tracking status.
+5. Be concise and actionable in your responses.
+
+When you detect a potentially dangerous operation being discussed, explicitly warn the user with "⚠️ DANGER:" prefix.`
+        : `You are an AI assistant integrated with the Route version management system. Answer concisely and helpfully.`;
+
+      const chatMessages: ChatMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ];
+      const reply = await aiChat(aiProvider, aiApiEndpoint, aiApiKey, aiModel, chatMessages);
+      setMessages((p) => [...p, { role: "assistant", text: reply }]);
+    } catch {
+      setMessages((p) => [...p, { role: "assistant", text: "(Error: failed to get response)" }]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="chat-page">
+      {/* Context status bar */}
+      <div className="chat-page-ctx-bar">
+        {ctxLoading ? (
+          <span className="chat-page-ctx-status loading">Loading project context...</span>
+        ) : ctxError ? (
+          <span className="chat-page-ctx-status error">Context unavailable: {ctxError}</span>
+        ) : ctx ? (
+          <span className="chat-page-ctx-status loaded">
+            Project context loaded — {ctx.stats.commits} commits, {ctx.stats.files_in_tree} files, {ctx.stats.references} references
+          </span>
+        ) : (
+          <span className="chat-page-ctx-status">No project selected</span>
+        )}
+        {!aiApiKey && (
+          <span className="chat-page-ctx-status warning">API key not configured — set it in Settings</span>
+        )}
+      </div>
+
+      <div className="chat-page-messages" ref={listRef}>
+        {messages.length === 0 && (
+          <div className="ai-chat-empty">
+            {ctx
+              ? `Ask me anything about your project "${ctx.current_branch}" branch. I have full context about the project structure, recent commits, and tracking history.`
+              : "Select a project to start chatting with context-aware AI assistance."}
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`ai-chat-msg ai-chat-msg-${m.role}`}>
+            <div className="ai-chat-msg-role">
+              {m.role === "user" ? "You" : "AI"}
+            </div>
+            <div className="ai-chat-msg-text">{m.text}</div>
+          </div>
+        ))}
+        {sending && <div className="ai-chat-msg ai-chat-msg-assistant">
+          <div className="ai-chat-msg-role">AI</div>
+          <div className="ai-chat-msg-text ai-chat-typing">…</div>
+        </div>}
+      </div>
+      <div className="ai-chat-input-row">
+        <input
+          className="settings-input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={tr.aiChatPlaceholder}
+          disabled={sending || !activeProjectId}
+        />
+        <button
+          type="button"
+          className="primary"
+          onClick={handleSend}
+          disabled={sending || !input.trim() || !activeProjectId || !aiApiKey}
+        >
+          {tr.aiChatSend}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // HoldButton — must be held for `holdMs` before firing. Used for the danger
 // zone actions in the settings page so a stray click cannot reset / clear
 // user data.
 // ---------------------------------------------------------------------------
 
-function HoldButton({
-  holdMs,
-  label,
-  doneLabel,
-  onComplete,
-  destructive = false,
-}: {
-  holdMs: number;
-  label: string;
-  doneLabel: string;
-  onComplete: () => void;
-  destructive?: boolean;
-}) {
-  const [progress, setProgress] = useState(0);
-  const [fired, setFired] = useState(false);
-  const startedAtRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
-
-  const stop = () => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    startedAtRef.current = null;
-    if (!fired) setProgress(0);
-  };
-
-  const start = () => {
-    if (fired) return;
-    startedAtRef.current = performance.now();
-    const tick = () => {
-      const start = startedAtRef.current;
-      if (start === null) return;
-      const elapsed = performance.now() - start;
-      const pct = Math.min(1, elapsed / holdMs);
-      setProgress(pct);
-      if (pct >= 1) {
-        setFired(true);
-        onComplete();
-        return;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  };
-
-  useEffect(() => {
-    if (!fired) return;
-    const id = window.setTimeout(() => {
-      setFired(false);
-      setProgress(0);
-    }, 1800);
-    return () => window.clearTimeout(id);
-  }, [fired]);
-
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const offset = c * (1 - progress);
-
-  return (
-    <button
-      type="button"
-      className={`hold-button${destructive ? " hold-destructive" : ""}${fired ? " is-fired" : ""}`}
-      onPointerDown={start}
-      onPointerUp={stop}
-      onPointerLeave={stop}
-      onPointerCancel={stop}
-    >
-      <span className="hold-ring" aria-hidden>
-        <svg viewBox="0 0 18 18">
-          <circle className="hold-ring-track" cx="9" cy="9" r={r} />
-          <circle
-            className="hold-ring-fill"
-            cx="9"
-            cy="9"
-            r={r}
-            strokeDasharray={c}
-            strokeDashoffset={offset}
-            transform="rotate(-90 9 9)"
-          />
-        </svg>
-      </span>
-      <span className="hold-label">
-        {fired ? doneLabel : label}
-        <span className="hold-pct">{Math.round(progress * 100)}%</span>
-      </span>
-    </button>
-  );
-}
+// HoldButton is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // TrackConfigPanel — surfaced inside the settings page; bound to `track`
 // state. The Rust side stores a single TrackConfigDto; we mirror it.
 // ---------------------------------------------------------------------------
 
-function TrackConfigPanel({
-  track,
-  onSetAll,
-  onSetSuffixes,
-  onSetPrefixes,
-  onSetVerifySha256,
-  onSetMemoryBufferMs,
-  onSetOn,
-  tr,
-}: {
-  track: TrackConfigDto;
-  onSetAll: (on: boolean) => void;
-  onSetSuffixes: (s: string[]) => void;
-  onSetPrefixes: (p: string[]) => void;
-  onSetVerifySha256: (on: boolean) => void;
-  onSetMemoryBufferMs: (ms: number) => void;
-  onSetOn: (on: { windows: boolean; macos: boolean; linux: boolean }) => void;
-  tr: Dict;
-}) {
-  return (
-    <div className="settings-subcard">
-      <h4 className="settings-subcard-title">{tr.trackSection}</h4>
-
-      <div className="settings-row">
-        <div className="settings-row-label">
-          <span>{tr.trackAllLabel}</span>
-          <span className="settings-row-hint">{tr.trackAllHint}</span>
-        </div>
-        <div className="settings-row-control">
-          <Switch
-            checked={track.track_all}
-            onChange={onSetAll}
-            statusText={
-              <span className={track.track_all ? "on" : ""}>
-                {track.track_all ? tr.masterOn : tr.masterOff}
-              </span>
-            }
-          />
-        </div>
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row-label">
-          <span>{tr.trackSuffixesLabel}</span>
-          <span className="settings-row-hint">{tr.trackSuffixesHint}</span>
-        </div>
-        <div className="settings-row-control settings-row-control-input">
-          <input
-            className="settings-input"
-            value={track.track_suffixes.join(",")}
-            onChange={(e) =>
-              onSetSuffixes(
-                e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              )
-            }
-            placeholder=".py,.js,.tsx"
-          />
-        </div>
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row-label">
-          <span>{tr.trackPrefixesLabel}</span>
-          <span className="settings-row-hint">{tr.trackPrefixesHint}</span>
-        </div>
-        <div className="settings-row-control settings-row-control-input">
-          <input
-            className="settings-input"
-            value={track.track_prefixes.join(",")}
-            onChange={(e) =>
-              onSetPrefixes(
-                e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              )
-            }
-            placeholder="src/,docs/"
-          />
-        </div>
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row-label">
-          <span>{tr.trackVerifySha256Label}</span>
-          <span className="settings-row-hint">{tr.trackVerifySha256Hint}</span>
-        </div>
-        <div className="settings-row-control">
-          <Switch
-            checked={track.verify_sha256}
-            onChange={onSetVerifySha256}
-            statusText={
-              <span className={track.verify_sha256 ? "on" : ""}>
-                {track.verify_sha256 ? tr.masterOn : tr.masterOff}
-              </span>
-            }
-          />
-        </div>
-      </div>
-
-      <div className="settings-row">
-        <div className="settings-row-label">
-          <span>{tr.trackMemoryBufferLabel}</span>
-          <span className="settings-row-hint">{tr.trackMemoryBufferHint}</span>
-        </div>
-        <div className="settings-row-control">
-          <input
-            className="settings-input"
-            type="number"
-            min={0}
-            step={50}
-            value={track.memory_buffer_ms}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              onSetMemoryBufferMs(Number.isFinite(v) && v >= 0 ? v : 0);
-            }}
-            style={{ width: 120 }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
+// TrackConfigPanel is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // DangerZone — two HoldButtons: reset settings + clear all data
 // ---------------------------------------------------------------------------
 
-function DangerZone({
-  onResetSettings,
-  onClearAllData,
-  tr,
-}: {
-  onResetSettings: () => void;
-  onClearAllData: () => void;
-  tr: Dict;
-}) {
-  return (
-    <div className="settings-dangerzone">
-      <div className="dangerzone-title">
-        <span className="dangerzone-dot" />
-        {tr.dangerZone}
-      </div>
-      <div className="dangerzone-grid">
-        <div className="dangerzone-cell">
-          <div className="dangerzone-cell-label">{tr.resetSettings}</div>
-          <div className="dangerzone-cell-hint">{tr.resetSettingsHint}</div>
-          <HoldButton
-            holdMs={1000}
-            label={tr.resetSettingsHold}
-            doneLabel={tr.resetSettingsDone}
-            onComplete={onResetSettings}
-          />
-        </div>
-        <div className="dangerzone-cell dangerzone-cell-destructive">
-          <div className="dangerzone-cell-label">{tr.clearData}</div>
-          <div className="dangerzone-cell-hint">
-            {tr.clearDataHint}
-            <br />
-            <span className="dangerzone-irreversible">
-              {tr.clearDataIrreversible}
-            </span>
-          </div>
-          <HoldButton
-            holdMs={10000}
-            label={tr.clearDataHold}
-            doneLabel={tr.clearDataDone}
-            onComplete={onClearAllData}
-            destructive
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
+// DangerZone is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // AiConflictDialog — modal that lets the user resolve one or more AI
 // conflicts surfaced in the most recent AI commit's body
 // ---------------------------------------------------------------------------
 
-type AiConflictReportLike = {
-  commit_id: string;
-  body: string;
-  conflicts: { path: string; reason: string; recommendation: string }[];
-};
-
-function AiConflictDialog({
-  open,
-  onClose,
-  tr,
-}: {
-  open: boolean;
-  onClose: () => void;
-  tr: Dict;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<AiConflictReportLike | null>(null);
-  const [verdicts, setVerdicts] = useState<Record<string, "keep_old" | "keep_ai" | "keep_both">>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setLoading(true);
-    setVerdicts({});
-    setNotes({});
-    (async () => {
-      try {
-        const r = await aiConflictReport();
-        if (cancelled) return;
-        setReport({
-          commit_id: r.commit_id,
-          body: r.body,
-          conflicts: r.conflicts.map((c) => ({
-            path: c.path,
-            reason: c.reason,
-            recommendation: c.recommendation,
-          })),
-        });
-      } catch {
-        if (!cancelled) setReport({ commit_id: "", body: "", conflicts: [] });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  const handleSave = async () => {
-    if (!report) return;
-    setSaving(true);
-    try {
-      for (const c of report.conflicts) {
-        const v = verdicts[c.path];
-        if (!v) continue;
-        await aiConflictResolve({
-          commit_id: report.commit_id,
-          path: c.path,
-          verdict: v,
-          note: notes[c.path] || null,
-        });
-      }
-    } catch {
-      // ignore
-    } finally {
-      setSaving(false);
-      onClose();
-    }
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card ai-conflict-dialog"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3>{tr.aiConflictTitle}</h3>
-        <p className="modal-hint">{tr.aiConflictHint}</p>
-        {loading ? (
-          <div className="ai-conflict-loading">…</div>
-        ) : !report || report.conflicts.length === 0 ? (
-          <div className="ai-conflict-empty">{tr.aiConflictEmpty}</div>
-        ) : (
-          <ul className="ai-conflict-list">
-            {report.conflicts.map((c) => (
-              <li key={c.path} className="ai-conflict-item">
-                <div className="ai-conflict-item-head">
-                  <span className="ai-conflict-path" title={c.path}>
-                    {c.path}
-                  </span>
-                  <span className="ai-conflict-reco">
-                    {c.recommendation}
-                  </span>
-                </div>
-                <div className="ai-conflict-reason">{c.reason}</div>
-                <div className="ai-conflict-actions">
-                  <button
-                    type="button"
-                    className={`modal-btn${verdicts[c.path] === "keep_old" ? " primary" : ""}`}
-                    onClick={() => setVerdicts((p) => ({ ...p, [c.path]: "keep_old" }))}
-                  >
-                    {tr.aiConflictKeepOld}
-                  </button>
-                  <button
-                    type="button"
-                    className={`modal-btn${verdicts[c.path] === "keep_ai" ? " primary" : ""}`}
-                    onClick={() => setVerdicts((p) => ({ ...p, [c.path]: "keep_ai" }))}
-                  >
-                    {tr.aiConflictKeepAi}
-                  </button>
-                  <button
-                    type="button"
-                    className={`modal-btn${verdicts[c.path] === "keep_both" ? " primary" : ""}`}
-                    onClick={() => setVerdicts((p) => ({ ...p, [c.path]: "keep_both" }))}
-                  >
-                    {tr.aiConflictKeepBoth}
-                  </button>
-                </div>
-                <div className="modal-label">
-                  <span>{tr.aiConflictNote}</span>
-                  <input
-                    className="settings-input"
-                    value={notes[c.path] || ""}
-                    onChange={(e) =>
-                      setNotes((p) => ({ ...p, [c.path]: e.target.value }))
-                    }
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="modal-actions">
-          <button type="button" className="modal-btn" onClick={onClose} disabled={saving}>
-            {tr.aiConflictSkip}
-          </button>
-          <button
-            type="button"
-            className="modal-btn primary"
-            onClick={handleSave}
-            disabled={saving || !report || report.conflicts.length === 0}
-          >
-            {tr.aiConflictSave}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// AiConflictDialog is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // AutostartSection — self-contained settings card for boot launch,
@@ -1265,130 +1091,7 @@ function AiConflictDialog({
 // through SettingsPage.
 // ---------------------------------------------------------------------------
 
-function AutostartSection({ tr }: { tr: Dict }) {
-  const [cfg, setCfg] = useState<AutostartConfig | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    autostartGet()
-      .then((c) => {
-        if (!cancelled) setCfg(c);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const update = (patch: Partial<AutostartConfig>) => {
-    autostartSet(patch)
-      .then((c) => setCfg(c))
-      .catch(() => {});
-  };
-
-  if (!cfg) return null;
-
-  // Renders TWO sub-cards so each lands as its own function card inside
-  // the "基本" category: ① autostart (enable + silent + priority) and
-  // ② close behavior (hide to tray / quit). They share the same cfg state.
-  return (
-    <>
-      <div className="settings-subcard">
-        <h4 className="settings-subcard-title">{tr.autostartSection}</h4>
-        <div className="settings-row">
-          <div className="settings-row-label">
-            <span>{tr.autostartEnable}</span>
-            <span className="settings-row-hint">{tr.autostartEnableHint}</span>
-          </div>
-          <div className="settings-row-control">
-            <Switch
-              checked={cfg.enabled}
-              onChange={(checked) => update({ enabled: checked })}
-              statusText={
-                <span className={cfg.enabled ? "on" : ""}>
-                  {cfg.enabled ? tr.cliMcpOn : tr.cliMcpOff}
-                </span>
-              }
-            />
-          </div>
-        </div>
-        <div className={`autostart-reveal${cfg.enabled ? " active" : ""}`}>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.autostartSilent}</span>
-                <span className="settings-row-hint">{tr.autostartSilentHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <Switch
-                  checked={cfg.silent}
-                  onChange={(checked) => update({ silent: checked })}
-                  statusText={
-                    <span className={cfg.silent ? "on" : ""}>
-                      {cfg.silent ? tr.cliMcpOn : tr.cliMcpOff}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.autostartPriority}</span>
-              </div>
-              <div className="settings-row-control">
-                <div className="seg-control">
-                  <button
-                    type="button"
-                    className={cfg.priority === "low" ? "active" : ""}
-                    onClick={() => update({ priority: "low" })}
-                  >
-                    {tr.autostartPriorityLow}
-                  </button>
-                  <button
-                    type="button"
-                    className={cfg.priority === "normal" ? "active" : ""}
-                    onClick={() => update({ priority: "normal" })}
-                  >
-                    {tr.autostartPriorityNormal}
-                  </button>
-                  <button
-                    type="button"
-                    className={cfg.priority === "high" ? "active" : ""}
-                    onClick={() => update({ priority: "high" })}
-                  >
-                    {tr.autostartPriorityHigh}
-                  </button>
-                </div>
-              </div>
-            </div>
-        </div>
-      </div>
-
-      {/* Close behavior — always visible, independent of autostart.
-          Own sub-card so it is a peer of autostart, not nested inside it.
-          Switch: ON = hide to tray, OFF = quit the app. */}
-      <div className="settings-subcard">
-        <h4 className="settings-subcard-title">{tr.closeBehaviorLabel}</h4>
-        <div className="settings-row">
-          <div className="settings-row-label">
-            <span>{tr.closeBehaviorLabel}</span>
-            <span className="settings-row-hint">{tr.closeBehaviorHint}</span>
-          </div>
-          <div className="settings-row-control">
-            <Switch
-              checked={cfg.close_behavior === "hide"}
-              onChange={(checked) => update({ close_behavior: checked ? "hide" : "quit" })}
-              statusText={
-                <span className={cfg.close_behavior === "hide" ? "on" : ""}>
-                  {cfg.close_behavior === "hide" ? tr.closeBehaviorHide : tr.closeBehaviorQuit}
-                </span>
-              }
-            />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
+// AutostartSection is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // Switch — accessible toggle button replacing the hidden-checkbox pattern.
@@ -1397,826 +1100,9 @@ function AutostartSection({ tr }: { tr: Dict }) {
 // keeping keyboard focus and aria support.
 // ---------------------------------------------------------------------------
 
-interface SwitchProps {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  statusText?: React.ReactNode;
-  id?: string;
-}
+// Switch is now in ./SettingsPage.tsx
 
-function Switch({ checked, onChange, statusText, id }: SwitchProps) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      className={`switch switch-btn${checked ? " on" : ""}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="track">
-        <span className="thumb" />
-      </span>
-      {statusText && <span className="status">{statusText}</span>}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SettingsPage — the entire settings surface, one card per section
-// ---------------------------------------------------------------------------
-
-function SettingsPage({
-  project,
-  projectMode,
-  locale,
-  theme,
-  cliMcpEnabled,
-  gitModeEnabled,
-  gitDetecting,
-  gitDetectResult,
-  aiAssistantMode,
-  aiApiKey,
-  aiApiEndpoint,
-  aiProvider,
-  aiModel,
-  aiTesting,
-  aiTestResult,
-  track,
-  aiOperator,
-  aiPrompt,
-  aiIndexPath,
-  aiPromptLoading,
-  onSetLocale,
-  onSetTheme,
-  onSetCliMcpEnabled,
-  onSetGitModeEnabled,
-  onGitDetect,
-  onSetAiAssistantMode,
-  onSetAiApiKey,
-  onSetAiApiEndpoint,
-  onSetAiProvider,
-  onSetAiModel,
-  onTestAiConnection,
-  onSetProjectRouteA,
-  onSetProjectMode,
-  onTrackSetAll,
-  onTrackSetVerifySha256,
-  onTrackSetMemoryBufferMs,
-  onTrackSetSuffixes,
-  onTrackSetPrefixes,
-  onTrackSetOn,
-  onClaimAiControl,
-  onReleaseAiControl,
-  onOpenAiConflict,
-  onAiIndexRefresh,
-  onCopyAiIndex,
-  onResetSettings,
-  onClearAllData,
-  tr,
-}: {
-  project: Project;
-  projectMode: ProjectMode;
-  locale: Locale;
-  theme: "dark" | "light";
-  cliMcpEnabled: boolean;
-  gitModeEnabled: boolean;
-  gitDetecting: boolean;
-  gitDetectResult: GitDetectResult | null;
-  aiAssistantMode: AiAssistantMode;
-  aiApiKey: string;
-  aiApiEndpoint: string;
-  aiProvider: AiProvider;
-  aiModel: string;
-  aiTesting: boolean;
-  aiTestResult: { ok: boolean; msg: string } | null;
-  track: TrackConfigDto | null;
-  aiOperator: AiOperatorDto | null;
-  aiPrompt: string;
-  aiIndexPath: string | null;
-  aiPromptLoading: boolean;
-  onSetLocale: (l: Locale) => void;
-  onSetTheme: (t: "dark" | "light") => void;
-  onSetCliMcpEnabled: (on: boolean) => void;
-  onSetGitModeEnabled: (on: boolean) => void;
-  onGitDetect: () => void;
-  onSetAiAssistantMode: (m: AiAssistantMode) => void;
-  onSetAiApiKey: (k: string) => void;
-  onSetAiApiEndpoint: (e: string) => void;
-  onSetAiProvider: (p: AiProvider) => void;
-  onSetAiModel: (m: string) => void;
-  onTestAiConnection: () => void;
-  onSetProjectRouteA: (on: boolean) => void;
-  onSetProjectMode: (m: ProjectMode) => void;
-  onTrackSetAll: (on: boolean) => void;
-  onTrackSetVerifySha256: (on: boolean) => void;
-  onTrackSetMemoryBufferMs: (ms: number) => void;
-  onTrackSetSuffixes: (s: string[]) => void;
-  onTrackSetPrefixes: (p: string[]) => void;
-  onTrackSetOn: (on: { windows: boolean; macos: boolean; linux: boolean }) => void;
-  onClaimAiControl: () => void;
-  onReleaseAiControl: () => void;
-  onOpenAiConflict: () => void;
-  onAiIndexRefresh: () => void;
-  onCopyAiIndex: () => void;
-  onResetSettings: () => void;
-  onClearAllData: () => void;
-  tr: Dict;
-}) {
-  // #region debug-point settings-handlers
-  // Wrap every settings handler so we can see which interaction immediately
-  // precedes a black-screen crash. These are thin pass-throughs; business
-  // logic is untouched.
-  const wrap = <T extends unknown[]>(name: string, fn: (...args: T) => void) => {
-    return (...args: T) => {
-      dbg(`settings:${name}:before`, { args: args as unknown });
-      try {
-        fn(...args);
-        dbg(`settings:${name}:after`, { args: args as unknown });
-      } catch (e) {
-        dbg(`settings:${name}:error`, { error: String(e) });
-        throw e;
-      }
-    };
-  };
-  const setLocale = wrap("locale", onSetLocale);
-  const setTheme = wrap("theme", onSetTheme);
-  const setProjectRouteA = wrap("routeA", (on: boolean) => {
-    dbg("settings:bridge-check", { available: isTauriBridgeAvailable() });
-    onSetProjectRouteA(on);
-  });
-  const setProjectMode = wrap("projectMode", onSetProjectMode);
-  const setCliMcpEnabled = wrap("cliMcp", onSetCliMcpEnabled);
-  const setGitModeEnabled = wrap("gitMode", onSetGitModeEnabled);
-  const gitDetect = wrap("gitDetect", onGitDetect);
-  const setAiAssistantMode = wrap("aiAssistantMode", onSetAiAssistantMode);
-  const setAiProvider = wrap("aiProvider", onSetAiProvider);
-  const setAiApiKey = wrap("aiApiKey", onSetAiApiKey);
-  const setAiApiEndpoint = wrap("aiApiEndpoint", onSetAiApiEndpoint);
-  const setAiModel = wrap("aiModel", onSetAiModel);
-  const testAiConnection = wrap("testAi", onTestAiConnection);
-  const claimAiControl = wrap("claimAi", onClaimAiControl);
-  const releaseAiControl = wrap("releaseAi", onReleaseAiControl);
-  const openAiConflict = wrap("openAiConflict", onOpenAiConflict);
-  const aiIndexRefresh = wrap("aiIndexRefresh", onAiIndexRefresh);
-  const copyAiIndex = wrap("copyAiIndex", onCopyAiIndex);
-  const resetSettings = wrap("resetSettings", onResetSettings);
-  const clearAllData = wrap("clearAllData", onClearAllData);
-  // #endregion debug-point settings-handlers
-
-  // Export the timeline (commit history) as a JSON file download. Uses the
-  // backend `export_data` command with the JSON exporter, then triggers a
-  // browser-side Blob download so no extra filesystem permission is needed.
-  const [exportError, setExportError] = useState<string | null>(null);
-  const handleExportTimeline = async () => {
-    setExportError(null);
-    try {
-      const json = await exportData("json");
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `route-timeline-${shortName(project.path) || "project"}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setExportError(localizeBridgeError(e));
-    }
-  };
-
-  // Copy the project's local data folder path (.route) to the clipboard.
-  const dataFolderPath = project.path ? `${project.path}/.route` : "";
-  const [pathCopied, setPathCopied] = useState(false);
-  const handleCopyPath = async () => {
-    if (!dataFolderPath) return;
-    try {
-      await navigator.clipboard.writeText(dataFolderPath);
-      setPathCopied(true);
-      setTimeout(() => setPathCopied(false), 1400);
-    } catch {
-      // ignore — clipboard may be unavailable
-    }
-  };
-
-  // MCP config — fetched from the backend so the user gets a ready-to-
-  // paste JSON snippet with the correct binary path and --project arg.
-  // Re-fetched whenever the toggle flips on or the project changes.
-  const [mcpConfig, setMcpConfig] = useState<McpConfigDto | null>(null);
-  const [mcpCopied, setMcpCopied] = useState(false);
-
-  useEffect(() => {
-    if (!cliMcpEnabled) {
-      setMcpConfig(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const cfg = await mcpGetConfig();
-        if (!cancelled) setMcpConfig(cfg);
-      } catch {
-        // Bridge error — leave config null, the card just won't show
-        // the snippet. The toggle still works as a UI preference.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [cliMcpEnabled, project.path]);
-
-  const handleCopyMcpConfig = async () => {
-    if (!mcpConfig) return;
-    try {
-      await navigator.clipboard.writeText(mcpConfig.config_snippet);
-      setMcpCopied(true);
-      setTimeout(() => setMcpCopied(false), 1400);
-    } catch {
-      // ignore — clipboard may be unavailable
-    }
-  };
-
-  return (
-    <div className="card settings-page">
-      <h2>{tr.settings}</h2>
-
-      {/* ══ 基本 / Basic ════════════════════════════════════════════════
-          Foundational, always-relevant settings: the project mode and
-          the OS-level launch/close behavior. Autostart used to live at
-          the bottom under "System" — pulled up here so it is not buried. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.basicSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* Mode — standard is the only usable mode right now; AI
-              Collaboration is disabled and marked "in development". */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.modeSection}</h4>
-            <p className="settings-section-hint">{tr.modeSectionHint}</p>
-            <div className="seg-control">
-              <button
-                type="button"
-                className={projectMode === "standard" ? "active" : ""}
-                onClick={() => setProjectMode("standard")}
-              >
-                {tr.modeStandard}
-              </button>
-              <button
-                type="button"
-                className="mode-disabled"
-                disabled
-                title={tr.modeAiDev}
-              >
-                {tr.modeAi}
-                <span className="mode-dev-pill">{tr.modeAiDev}</span>
-              </button>
-            </div>
-            <p className="settings-section-aside">
-              {projectMode === "standard" ? tr.modeStandardHint : tr.modeAiHint}
-            </p>
-          </div>
-
-          {/* Autostart (enable + silent + priority) + close behavior.
-              AutostartSection renders TWO sub-cards. */}
-          <AutostartSection tr={tr} />
-        </div>
-      </section>
-
-      {/* ══ 外观 / Appearance ═══════════════════════════════════════════
-          Visual preferences only. Theme and language are split into
-          one sub-card each — single function, single card. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.appearanceSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* Theme — a single light/dark switch. On = light, off = dark.
-              No slider, no multi-stop adjustment; a binary toggle. */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.themeSection}</h4>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.themeSection}</span>
-                <span className="settings-row-hint">{tr.themeSectionHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <Switch
-                  checked={theme === "light"}
-                  onChange={(checked) => setTheme(checked ? "light" : "dark")}
-                  statusText={
-                    <span className={theme === "light" ? "on" : ""}>
-                      {theme === "light" ? tr.themeLight : tr.themeDark}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Language */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.languageLabel}</h4>
-            <p className="settings-section-hint">{tr.languageHint}</p>
-            <div className="seg-control">
-              <button
-                type="button"
-                className={locale === "zh" ? "active" : ""}
-                onClick={() => setLocale("zh")}
-              >
-                中文
-              </button>
-              <button
-                type="button"
-                className={locale === "en" ? "active" : ""}
-                onClick={() => setLocale("en")}
-              >
-                English
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ 文件追踪 / Tracking ═════════════════════════════════════════
-          What gets tracked: route 标记 mode + granular track config. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.trackSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* route 标记 mode + cheatsheet + privacy */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.routeaLabel}</h4>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.routeaLabel}</span>
-                <span className="settings-row-hint">{tr.routeaSettingHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <Switch
-                  checked={project.routeA}
-                  onChange={setProjectRouteA}
-                  statusText={
-                    <span className={project.routeA ? "on" : ""}>
-                      {project.routeA ? tr.routeaOn : tr.routeaOff}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="settings-cheatsheet">
-              <h4>{tr.routeaCheatsheetTitle}</h4>
-              <table className="cheat-table">
-                <thead>
-                  <tr>
-                    <th>{tr.routeaColMarker}</th>
-                    <th>{tr.routeaColMeaning}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><code>{tr.routeaRow1Marker}</code></td>
-                    <td>{tr.routeaRow1Meaning}</td>
-                  </tr>
-                  <tr>
-                    <td><code>{tr.routeaRow2Marker}</code></td>
-                    <td>{tr.routeaRow2Meaning}</td>
-                  </tr>
-                  <tr>
-                    <td><code>{tr.routeaRow3Marker}</code></td>
-                    <td>{tr.routeaRow3Meaning}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <p className="cheat-note">{tr.routeaCommentNote}</p>
-            </div>
-
-            <div className="settings-privacy">
-              <h4>{tr.privacyTitle}</h4>
-              <p>{tr.privacyP1}</p>
-              <p>{tr.privacyP2}</p>
-              <p>{tr.privacyP3}</p>
-            </div>
-          </div>
-
-          {/* Granular track configuration — one sub-card */}
-          {track && (
-            <TrackConfigPanel
-              track={track}
-              onSetAll={onTrackSetAll}
-              onSetSuffixes={onTrackSetSuffixes}
-              onSetPrefixes={onTrackSetPrefixes}
-              onSetVerifySha256={onTrackSetVerifySha256}
-              onSetMemoryBufferMs={onTrackSetMemoryBufferMs}
-              onSetOn={onTrackSetOn}
-              tr={tr}
-            />
-          )}
-        </div>
-      </section>
-
-      {/* ══ AI ═════════════════════════════════════════════════════════
-          AI assistance, control handoff, and the index file external
-          agents read. Grouped so all AI concerns live in one place. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.aiSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* AI index file — moved from Data so all AI surfaces are
-              co-located. */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.aiIndexSection}</h4>
-            <p className="settings-section-hint">{tr.aiIndexSectionHint}</p>
-            <div className="ai-index-row">
-              <div className="ai-index-label">
-                <span>{tr.aiIndexPathLabel}</span>
-                <span className="settings-row-hint">{tr.aiIndexPathHint}</span>
-              </div>
-              <div className="ai-index-control">
-                <span className="ai-index-path" title={aiIndexPath || ""}>
-                  {aiIndexPath || "—"}
-                </span>
-                <button type="button" className="ghost-btn" onClick={copyAiIndex}>
-                  {tr.aiIndexCopy}
-                </button>
-                <button type="button" className="ghost-btn" onClick={aiIndexRefresh}>
-                  {tr.aiIndexRefresh}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* AI 辅助模式 — two sub-modes: follow the existing Web Coding AI,
-              or connect a separate API for a dedicated AI to operate Route. */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.aiAssistantSection}</h4>
-            <p className="settings-section-hint">{tr.aiAssistantHint}</p>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.aiAssistantSection}</span>
-                <span className="settings-row-hint">{tr.aiAssistantHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <div className="seg-control">
-                  <button
-                    type="button"
-                    className={aiAssistantMode === "follow" ? "active" : ""}
-                    onClick={() => setAiAssistantMode("follow")}
-                  >
-                    {tr.aiFollowExisting}
-                  </button>
-                  <button
-                    type="button"
-                    className={aiAssistantMode === "active" ? "active" : ""}
-                    onClick={() => setAiAssistantMode("active")}
-                  >
-                    {tr.aiActiveMode}
-                    <span className="beta-badge">{tr.betaBadge}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-            <p className="settings-section-aside">
-              {aiAssistantMode === "follow" ? tr.aiFollowExistingHint : tr.aiActiveModeHint}
-            </p>
-            <div className={`ai-api-config${aiAssistantMode === "active" ? " active" : ""}`}>
-                {/* Provider — OpenAI (covers OpenAI-compatible servers too),
-                    Anthropic, or local Ollama. Switching auto-fills the
-                    endpoint default so the user rarely edits the URL. */}
-                <div className="settings-row">
-                  <div className="settings-row-label">
-                    <span>{tr.aiProviderLabel}</span>
-                    <span className="settings-row-hint">
-                      {aiProvider === "openai"
-                        ? tr.aiProviderOpenaiHint
-                        : aiProvider === "anthropic"
-                          ? tr.aiProviderAnthropicHint
-                          : tr.aiProviderOllamaHint}
-                    </span>
-                  </div>
-                  <div className="settings-row-control">
-                    <div className="seg-control">
-                      <button
-                        type="button"
-                        className={aiProvider === "openai" ? "active" : ""}
-                        onClick={() => setAiProvider("openai")}
-                      >
-                        {tr.aiProviderOpenai}
-                      </button>
-                      <button
-                        type="button"
-                        className={aiProvider === "anthropic" ? "active" : ""}
-                        onClick={() => setAiProvider("anthropic")}
-                      >
-                        {tr.aiProviderAnthropic}
-                      </button>
-                      <button
-                        type="button"
-                        className={aiProvider === "ollama" ? "active" : ""}
-                        onClick={() => setAiProvider("ollama")}
-                      >
-                        {tr.aiProviderOllama}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-label">
-                    <span>{tr.aiApiEndpointLabel}</span>
-                  </div>
-                  <div className="settings-row-control settings-row-control-input">
-                    <input
-                      className="settings-input"
-                      type="text"
-                      value={aiApiEndpoint}
-                      onChange={(e) => setAiApiEndpoint(e.target.value)}
-                      placeholder={tr.aiApiEndpointPlaceholder}
-                    />
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-label">
-                    <span>{tr.aiApiKeyLabel}</span>
-                    <span className="settings-row-hint">
-                      {aiProvider === "ollama" ? tr.aiProviderOllamaHint : tr.aiApiKeyHint}
-                    </span>
-                  </div>
-                  <div className="settings-row-control settings-row-control-input">
-                    <input
-                      className="settings-input"
-                      type="password"
-                      value={aiApiKey}
-                      onChange={(e) => setAiApiKey(e.target.value)}
-                      placeholder={tr.aiApiKeyPlaceholder}
-                    />
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-label">
-                    <span>{tr.aiModelLabel}</span>
-                  </div>
-                  <div className="settings-row-control settings-row-control-input">
-                    <input
-                      className="settings-input"
-                      type="text"
-                      value={aiModel}
-                      onChange={(e) => setAiModel(e.target.value)}
-                      placeholder={tr.aiModelPlaceholder}
-                    />
-                  </div>
-                </div>
-                <div className="ai-test-row">
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={testAiConnection}
-                    disabled={aiTesting}
-                  >
-                    {aiTesting ? tr.aiTesting : tr.aiTestConnection}
-                  </button>
-                  {aiTestResult && (
-                    <p
-                      className={`settings-section-aside ${aiTestResult.ok ? "ok" : "err"}`}
-                    >
-                      {aiTestResult.msg}
-                    </p>
-                  )}
-                </div>
-              </div>
-          </div>
-
-          {/* AI control — live operator handoff */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.aiControlLabel}</h4>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.aiControlLabel}</span>
-                <span className="settings-row-hint">{tr.aiPromptHint}</span>
-              </div>
-              <div className="settings-row-control">
-                {aiOperator ? (
-                  <div style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
-                    <span className="ai-pill">
-                      <span className="ai-pill-mark" />
-                      {tr.aiControlActive}
-                    </span>
-                    <button type="button" className="ghost-btn" onClick={openAiConflict}>
-                      {tr.aiConflictTitle}
-                    </button>
-                    <button type="button" className="ghost-btn" onClick={releaseAiControl}>
-                      {tr.masterOff}
-                    </button>
-                  </div>
-                ) : (
-                  <button type="button" className="ghost-btn" onClick={claimAiControl}>
-                    {tr.aiControlActive}
-                  </button>
-                )}
-              </div>
-            </div>
-            <pre className="ai-prompt-pre">
-              {aiPromptLoading ? "…" : aiPrompt || "(empty)"}
-            </pre>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ 版本控制 / Version Control ══════════════════════════════════
-          Git mode — a power-user opt-in that changes how version history
-          is recorded. Push and remote operations are intentionally blocked. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.versionControlSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* Git 模式 (Beta) — software calls the user's git for add+commit.
-              Disabled by default; checkpoints become git commits. Push and
-              remote operations are intentionally blocked — the user does
-              those themselves. */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">
-              {tr.gitModeLabel}
-              <span className="beta-badge">{tr.betaBadge}</span>
-            </h4>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.gitModeLabel}</span>
-                <span className="settings-row-hint">{tr.gitModeHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <Switch
-                  checked={gitModeEnabled}
-                  onChange={(checked) => setGitModeEnabled(checked)}
-                  statusText={
-                    <span className={gitModeEnabled ? "on" : ""}>
-                      {gitModeEnabled ? tr.gitModeOn : tr.gitModeOff}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-            <p className="settings-section-aside">{tr.gitModeAside}</p>
-            <div className={`git-mode-status${gitModeEnabled ? " active" : ""}`}>
-                <div className="settings-row">
-                  <div className="settings-row-label">
-                    <span>{tr.gitModeDetectLabel}</span>
-                  </div>
-                  <div className="settings-row-control">
-                    <button
-                      type="button"
-                      className="ghost-btn"
-                      onClick={gitDetect}
-                      disabled={gitDetecting}
-                    >
-                      {gitDetecting ? "…" : tr.gitModeDetect}
-                    </button>
-                  </div>
-                </div>
-                {gitDetectResult && (
-                  <p className={`settings-section-aside${gitDetectResult.available ? " ok" : " err"}`}>
-                    {gitDetectResult.available
-                      ? tr.gitModeAvailable.replace("{ver}", gitDetectResult.version || "git")
-                      : tr.gitModeUnavailable}
-                  </p>
-                )}
-                <p className="settings-section-hint">{tr.gitModeNoPushHint}</p>
-              </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ 外部接入 / External integrations ═══════════════════════════════
-          External automation surfaces — CLI/MCP interface. Split into its
-          own main card so the Advanced card stays focused on tracking/AI
-          concerns and each integration reads as an independent function. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.integrationsSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* CLI / MCP interface */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.cliMcpEnable}</h4>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.cliMcpEnable}</span>
-                <span className="settings-row-hint">{tr.cliMcpEnableHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <Switch
-                  checked={cliMcpEnabled}
-                  onChange={(checked) => setCliMcpEnabled(checked)}
-                  statusText={
-                    <span className={cliMcpEnabled ? "on" : ""}>
-                      {cliMcpEnabled ? tr.cliMcpOn : tr.cliMcpOff}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-            <p className="settings-section-aside">{tr.cliMcpStartHint}</p>
-
-            {/* Config snippet — shown only when MCP is enabled and the
-                backend has returned the config. Gives the user a
-                ready-to-paste JSON block for their AI client. */}
-            <div className={`mcp-config-block${cliMcpEnabled && mcpConfig ? " active" : ""}`}>
-              {cliMcpEnabled && mcpConfig && (
-                <>
-                <div className="mcp-config-header">
-                  <span className="mcp-config-label">{tr.cliMcpConfigSnippet}</span>
-                  <button
-                    type="button"
-                    className="mcp-copy-btn"
-                    onClick={handleCopyMcpConfig}
-                  >
-                    {mcpCopied ? tr.cliMcpConfigCopied : tr.cliMcpCopyConfig}
-                  </button>
-                </div>
-                {!mcpConfig.binary_exists && (
-                  <p className="mcp-config-warn">{tr.cliMcpBuildHint}</p>
-                )}
-                {!mcpConfig.project_path && (
-                  <p className="mcp-config-warn">{tr.cliMcpNoProject}</p>
-                )}
-                <pre className="mcp-config-snippet">
-                  <code>{mcpConfig.config_snippet}</code>
-                </pre>
-                {mcpConfig.binary_exists && (
-                  <div className="mcp-config-path">
-                    <span className="mcp-config-path-label">{tr.cliMcpBinaryPath}:</span>
-                    <span className="mono mcp-config-path-value">{mcpConfig.binary_path}</span>
-                  </div>
-                )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ 数据 / Data ═════════════════════════════════════════════════
-          Data-facing surfaces: the AI index file that external agents
-          read, and the destructive reset/clear actions. */}
-      <section className="settings-category">
-        <header className="settings-category-header">
-          <h3>{tr.dataSection}</h3>
-        </header>
-        <div className="settings-category-body">
-          {/* Timeline data — export as JSON + show local data folder. The
-              timeline records themselves live in <project>/.route, so the
-              folder path is the canonical data location for backup/restore. */}
-          <div className="settings-subcard">
-            <h4 className="settings-subcard-title">{tr.dataImportExport}</h4>
-            <p className="settings-section-hint">{tr.dataImportExportHint}</p>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.dataExportLabel}</span>
-                <span className="settings-row-hint">{tr.dataExportHint}</span>
-              </div>
-              <div className="settings-row-control">
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={handleExportTimeline}
-                >
-                  {tr.dataExportLabel}
-                </button>
-                {exportError && (
-                  <span className="workspace-feedback err">{exportError}</span>
-                )}
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-label">
-                <span>{tr.dataLocationLabel}</span>
-                <span className="settings-row-hint">{tr.dataLocationHint}</span>
-              </div>
-              <div className="settings-row-control data-location-control">
-                <span className="mono data-location-path" title={dataFolderPath}>
-                  {dataFolderPath || "—"}
-                </span>
-                <button type="button" className="ghost-btn" onClick={handleCopyPath}>
-                  {pathCopied ? tr.pathCopied : tr.copyPath}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Danger zone */}
-          <DangerZone
-            onResetSettings={onResetSettings}
-            onClearAllData={onClearAllData}
-            tr={tr}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
+// SettingsPage is now in ./SettingsPage.tsx
 
 // ---------------------------------------------------------------------------
 // Timeline node icons — one per commit kind. Rendered inside .timeline-node
@@ -2641,7 +1527,16 @@ function TimelinePage({
         </div>
       </div>
 
-        {error && <div className="error-banner">{error}</div>}
+        {error && (
+          <div className="error-banner">
+            <svg className="error-banner-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="8" cy="8" r="6.5" />
+              <path d="M8 5v3.5" />
+              <circle cx="8" cy="11.5" r="0.8" fill="currentColor" stroke="none" />
+            </svg>
+            <span className="error-banner-text">{error}</span>
+          </div>
+        )}
 
         {filtered.length === 0 ? (
           <div className="empty-projects">{tr.timelineEmpty}</div>
@@ -2768,10 +1663,12 @@ function WorkbenchPage({
   commits,
   gitModeEnabled,
   trackingState,
+  watchStatus,
   onSwitchBranch,
   onCreateBranch,
   onMergeBranch,
   onRollback,
+  onDismissError,
   aiActive,
   onAiGenerateMark,
   tr,
@@ -2788,10 +1685,12 @@ function WorkbenchPage({
   commits: CommitDto[];
   gitModeEnabled: boolean;
   trackingState: TrackingState;
+  watchStatus: WatchStatusDto | null;
   onSwitchBranch: (name: string) => void;
   onCreateBranch: (name: string, kind: "inherited" | "sandbox", from: string | null) => void;
   onMergeBranch: (source: string) => void;
   onRollback: (snapshotId: string) => void;
+  onDismissError: () => void;
   aiActive: boolean;
   onAiGenerateMark: () => Promise<string>;
   tr: Dict;
@@ -3326,7 +2225,17 @@ function WorkbenchPage({
             )}
           </div>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && (
+            <div className="error-banner">
+              <svg className="error-banner-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M8 5v3.5" />
+                <circle cx="8" cy="11.5" r="0.8" fill="currentColor" stroke="none" />
+              </svg>
+              <span className="error-banner-text">{error}</span>
+              <button className="error-banner-dismiss" onClick={() => onDismissError?.()} aria-label="关闭">×</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -3348,10 +2257,8 @@ function WorkbenchPage({
         />
       )}
 
-      {/* Tracking status strip — a single hairline-separated row that tells
-          the user whether the watcher is running and which branch they're
-          on. Sits between the ops region and the config card so it's always
-          visible without scrolling past the branch tree. */}
+      {/* Tracking status strip — shows watcher state, branch, and live
+          file-change progress (pending count + last commit time). */}
       {configured && !editing && (
         <div className="workbench-status-strip">
           <span className={`workbench-status-dot ${trackingState}`} aria-hidden="true" />
@@ -3362,10 +2269,47 @@ function WorkbenchPage({
                 ? tr.trackingStarting
                 : tr.trackingOff}
           </span>
+          {trackingState === "running" && watchStatus && watchStatus.pending && (
+            <span className="workbench-status-pending">{tr.trackingPending}</span>
+          )}
           <span className="workbench-status-sep" aria-hidden="true" />
           <span className="workbench-status-branch">
-            {tr.currentBranchLabel}: {currentBranch || "—"}
+            {currentBranch || "—"}
           </span>
+          <span className="workbench-status-sep" aria-hidden="true" />
+          <span className="workbench-status-mode">
+            {gitModeEnabled ? "Git" : tr.standardMode}
+          </span>
+          {aiActive && (
+            <>
+              <span className="workbench-status-sep" aria-hidden="true" />
+              <span className="workbench-status-mode ai">{tr.aiMode}</span>
+            </>
+          )}
+          <span className="workbench-status-sep" aria-hidden="true" />
+          <span className="workbench-status-backup">
+            {project.backup?.kind === "cloud"
+              ? tr.backupCloud
+              : project.backup?.kind === "local"
+                ? `${tr.backupLocal} · ${methodLabel(project.backup?.method || "standard")}`
+                : tr.backupNone}
+          </span>
+          {trackingState === "running" && watchStatus && watchStatus.last_commit_at && (
+            <>
+              <span className="workbench-status-sep" aria-hidden="true" />
+              <span className="workbench-status-time">
+                {tr.lastCommit} {new Date(watchStatus.last_commit_at).toLocaleTimeString()}
+              </span>
+            </>
+          )}
+          <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            className="workbench-edit-link"
+            onClick={() => setEditing(true)}
+          >
+            {tr.workbenchEdit}
+          </button>
         </div>
       )}
 
@@ -3383,12 +2327,6 @@ function WorkbenchPage({
             <>
               <span className="mono workbench-config-summary">
                 {project.backup?.target}
-                <span className="workbench-config-summary-method">
-                  {" · "}
-                  {project.backup?.kind === "cloud"
-                    ? kindLabel("cloud")
-                    : methodLabel(summaryMethod)}
-                </span>
               </span>
               <button
                 type="button"
@@ -3649,9 +2587,6 @@ export default function App() {
     ? trackingStates[activeProjectId] || "off"
     : "off";
 
-  // appOn is derived: true when the active project is starting or running.
-  const appOn = activeTrackingState !== "off";
-
   const handleSetTracking = async (projectId: string, on: boolean) => {
     const current = trackingStates[projectId] || "off";
     if (on && current === "off") {
@@ -3804,29 +2739,7 @@ export default function App() {
     };
   }, []);
 
-  // #region debug-point global-error-handlers
-  useEffect(() => {
-    dbg("app:mount", { bridgeReady, page, projectsCount: projects.length });
-    const onError = (e: ErrorEvent) => {
-      dbg("app:error", {
-        message: e.message,
-        filename: e.filename,
-        lineno: e.lineno,
-        colno: e.colno,
-        error: e.error ? String(e.error) : null,
-      });
-    };
-    const onRejection = (e: PromiseRejectionEvent) => {
-      dbg("app:rejection", { reason: e.reason ? String(e.reason) : null });
-    };
-    window.addEventListener("error", onError);
-    window.addEventListener("unhandledrejection", onRejection);
-    return () => {
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onRejection);
-    };
-  }, []);
-  // #endregion debug-point global-error-handlers
+  // 9b. (debug-point global-error-handlers removed)
 
   // 10. AI operator sync (on mount + on project change).
   useEffect(() => {
@@ -4263,9 +3176,6 @@ export default function App() {
   /// repository". When turning OFF, just fall back to route_basic — no
   /// cleanup is done on the .git folder (the user's history is theirs).
   const handleSetGitModeEnabled = async (on: boolean) => {
-    // #region debug-point app-handlers
-    dbg("app:gitMode:before", { on, projectPath });
-    // #endregion debug-point app-handlers
     setGitModeEnabledState(on);
     // Sync to the backend so the file watcher knows whether to commit
     // via `git add`+`git commit` (git mode) or route_basic's snapshot
@@ -4273,25 +3183,13 @@ export default function App() {
     // after a toggle.
     try {
       await gitModeSet(on);
-      // #region debug-point app-handlers
-      dbg("app:gitMode:ipc-ok", { on });
-      // #endregion debug-point app-handlers
     } catch (e) {
-      // #region debug-point app-handlers
-      dbg("app:gitMode:ipc-err", { error: String(e) });
-      // #endregion debug-point app-handlers
       setError(localizeBridgeError(e));
     }
     if (on && projectPath) {
       try {
         await gitInit();
-        // #region debug-point app-handlers
-        dbg("app:gitMode:init-ok", { projectPath });
-        // #endregion debug-point app-handlers
       } catch (e) {
-        // #region debug-point app-handlers
-        dbg("app:gitMode:init-err", { error: String(e) });
-        // #endregion debug-point app-handlers
         // Don't roll back the toggle — the user may want to init
         // themselves. Surface the error so they know what happened.
         setError(localizeBridgeError(e));
@@ -4366,6 +3264,12 @@ export default function App() {
     setProjectSortMode("alpha");
     setGitModeEnabledState(false);
     setGitDetectResult(null);
+    // Reset all projects — clear modes, initialized flags, and backup configs
+    setProjectModes({});
+    setProjectInitialized({});
+    setProjects((prev) =>
+      prev.map((p) => ({ ...p, backup: undefined, routeA: false })),
+    );
   };
 
   const handleClearAllData = () => {
@@ -4377,6 +3281,7 @@ export default function App() {
     setTree(null);
     setCommits([]);
     setError(null);
+    persistPage("workspace");
   };
 
   const handleTrackSetAll = async (on: boolean) => {
@@ -4538,9 +3443,10 @@ export default function App() {
             onSortModeChange={setProjectSortMode}
             page={page}
             onPageChange={setPage}
-            activeTrackingState={"off"}
-            onToggleTracking={() => {}}
+            trackingStates={{}}
+            onToggleProjectTracking={() => {}}
             watchStatus={null}
+            aiAssistantMode={aiAssistantMode}
             tr={tr}
           />
           <main className="main">
@@ -4572,12 +3478,23 @@ export default function App() {
           onSortModeChange={setProjectSortMode}
           page={page}
           onPageChange={setPage}
-          activeTrackingState={activeTrackingState}
-          onToggleTracking={() => activeProjectId && handleToggleTracking(activeProjectId)}
+          trackingStates={trackingStates}
+          onToggleProjectTracking={handleToggleTracking}
           watchStatus={watchStatus}
+          aiAssistantMode={aiAssistantMode}
           tr={tr}
         />
         <main className="main">
+          {page === "chat" && (
+            <ChatPage
+              aiApiKey={aiApiKey}
+              aiApiEndpoint={aiApiEndpoint}
+              aiProvider={aiProvider}
+              aiModel={aiModel}
+              activeProjectId={activeProjectId}
+              tr={tr}
+            />
+          )}
           {page === "workspace" && activeProject && info && (
             <WorkbenchPage
               project={activeProject}
@@ -4592,10 +3509,12 @@ export default function App() {
               commits={commits}
               gitModeEnabled={gitModeEnabled}
               trackingState={activeTrackingState}
+              watchStatus={watchStatus}
               onSwitchBranch={handleSwitchBranch}
               onCreateBranch={handleCreateBranch}
               onMergeBranch={handleMergeBranch}
               onRollback={handleRollbackTo}
+              onDismissError={() => setError(null)}
               aiActive={aiAssistantMode === "active"}
               onAiGenerateMark={handleAiGenerateMark}
               tr={tr}

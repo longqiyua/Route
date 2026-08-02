@@ -157,7 +157,7 @@ fn try_git(project_path: &std::path::Path, args: &[&str]) -> String {
 
 /// Resolve the currently-open project folder. Returns an error string
 /// the frontend can show directly when no project is open.
-fn project_path(state: &AppState) -> Result<std::path::PathBuf, String> {
+pub(crate) fn project_path(state: &AppState) -> Result<std::path::PathBuf, String> {
     state
         .project_path()
         .ok_or_else(|| "no project is open".to_string())
@@ -851,13 +851,855 @@ pub fn git_auto_commit(project_path: &std::path::Path) -> Result<Option<String>,
     }
 }
 
-// Note: no `git_push`, no `git_remote_*`, no `git_pull`/`fetch`. Push and
-// remote operations are intentionally absent — Route tells the user in the
-// UI that those are theirs to run. Adding them here would defeat the
-// "user keeps full control" guarantee.
-//
-// `GIT_TIMEOUT` is declared but not currently wired (std::process::Command
-// has no built-in timeout). We keep the constant so a future move to
-// `wait4`/`tokio::process` can pick it up without re-deriving the value.
-#[allow(dead_code)]
-const _GIT_TIMEOUT_DOC: Duration = GIT_TIMEOUT;
+// ---------------------------------------------------------------------------
+// Stage / Unstage
+// ---------------------------------------------------------------------------
+
+/// Stage specific files (or patterns) into the index. Wraps `git add`.
+/// Accepts one or more paths/globs. Returns the list of staged files on
+/// success (parsed from `git add --verbose`). When no paths are given,
+/// stages everything (`git add -A`).
+#[tauri::command]
+pub fn git_add(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let clean: Vec<&str> = paths
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if clean.is_empty() {
+        run_git(&path, &["add", "-A"])?;
+        Ok(Vec::new())
+    } else {
+        let mut args: Vec<&str> = vec!["add", "--verbose"];
+        args.extend(clean);
+        let out = run_git(&path, &args)?;
+        let staged: Vec<String> = out
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        Ok(staged)
+    }
+}
+
+/// Unstage files from the index. Wraps `git reset HEAD -- <paths>`.
+/// When no paths are given, unstages everything (`git reset HEAD`).
+/// Does NOT touch working-tree files.
+#[tauri::command]
+pub fn git_reset(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let clean: Vec<&str> = paths
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if clean.is_empty() {
+        // Reset entire index (soft — no worktree changes)
+        run_git(&path, &["reset", "HEAD"])?;
+    } else {
+        let mut args: Vec<&str> = vec!["reset", "HEAD", "--"];
+        args.extend(clean);
+        run_git(&path, &args)?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Branch delete (Tauri command)
+// ---------------------------------------------------------------------------
+
+/// Delete a local branch. Refuses to delete the currently checked-out
+/// branch (git enforces this). Mirrors `git branch -d` (safe delete,
+/// refuses when not fully merged).
+#[tauri::command]
+pub fn git_branch_delete(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("branch name is required".to_string());
+    }
+    // Try safe delete first; fall back to force delete only if the user
+    // explicitly passes `--force` (we don't expose that here).
+    match run_git(&path, &["branch", "-d", name]) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // If git says "not fully merged", give a clean error with
+            // the hint to delete remotely first or use the CLI.
+            if e.contains("not fully merged") {
+                Err(format!("Branch '{name}' is not fully merged. Delete it remotely first, or use `git branch -D {name}` in the terminal."))
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Revert — safe undo via new commit
+// ---------------------------------------------------------------------------
+
+/// Revert a commit by creating a new commit that undoes its changes.
+/// Wraps `git revert --no-edit`. This is SAFE — it never rewrites
+/// history. Returns the SHA of the new revert commit.
+#[tauri::command]
+pub fn git_revert(state: State<'_, AppState>, sha: String) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let sha = sha.trim();
+    if sha.is_empty() {
+        return Err("target commit is required".to_string());
+    }
+    // Validate the commit exists first.
+    run_git(&path, &["cat-file", "-e", &format!("{sha}^{{commit}}")])
+        .map_err(|_| format!("commit not found: {sha}"))?;
+    // --no-edit skips the editor (uses auto-generated message).
+    // --no-ff forces a revert commit even if the revert could be
+    // fast-forwarded, keeping the history readable.
+    run_git(&path, &["revert", "--no-edit", "--no-ff", sha])?;
+    let head = run_git(&path, &["rev-parse", "HEAD"])?
+        .trim()
+        .to_string();
+    Ok(head)
+}
+
+// ---------------------------------------------------------------------------
+// Cherry-pick — apply specific commits
+// ---------------------------------------------------------------------------
+
+/// Cherry-pick one or more commits onto the current HEAD. Wraps
+/// `git cherry-pick --no-commit <shas>` followed by `git commit` so
+/// the AI gets a single clean commit instead of N individual ones.
+/// Returns the new HEAD SHA. If conflicts occur, the cherry-pick is
+/// aborted and the error is surfaced with conflict details.
+#[tauri::command]
+pub fn git_cherry_pick(
+    state: State<'_, AppState>,
+    shas: Vec<String>,
+    message: Option<String>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let clean: Vec<&str> = shas
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if clean.is_empty() {
+        return Err("at least one commit SHA is required".to_string());
+    }
+    // Validate all commits exist before touching the tree.
+    for sha in &clean {
+        run_git(&path, &["cat-file", "-e", &format!("{sha}^{{commit}}")])
+            .map_err(|_| format!("commit not found: {sha}"))?;
+    }
+    // Use `cherry-pick --no-commit` to stage all changes, then commit.
+    let mut args: Vec<&str> = vec!["cherry-pick", "--no-commit"];
+    args.extend(&clean);
+    match run_git(&path, &args) {
+        Ok(_) => {
+            // Commit the staged changes.
+            let msg = message.unwrap_or_else(|| {
+                format!("cherry-pick: {}", clean.join(", "))
+            });
+            run_git(&path, &["commit", "--quiet", "-m", &msg])?;
+            let head = run_git(&path, &["rev-parse", "HEAD"])?
+                .trim()
+                .to_string();
+            Ok(head)
+        }
+        Err(e) => {
+            // Abort the cherry-pick on conflict so the working tree is
+            // clean and the error message tells the user.
+            let _ = run_git(&path, &["cherry-pick", "--abort"]);
+            Err(format!("cherry-pick failed: {e}"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Remote operations
+// ---------------------------------------------------------------------------
+
+/// DTO for a single remote.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitRemoteDto {
+    pub name: String,
+    pub url: String,
+    pub fetch_url: String,
+    /// If `pushurl` is set, it differs from `url`; otherwise same as `url`.
+    pub push_url: String,
+}
+
+/// List all configured remotes. Returns an empty list when there are
+/// no remotes or the project isn't a git repo.
+#[tauri::command]
+pub fn git_remote_list(state: State<'_, AppState>) -> Result<Vec<GitRemoteDto>, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Ok(Vec::new());
+    }
+    let out = run_git(&path, &["remote", "-v"])?;
+    let mut remotes: Vec<GitRemoteDto> = Vec::new();
+    let mut seen = std::collections::HashMap::new();
+    for line in out.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        // Format: "origin\thttps://... (fetch)"
+        let parts: Vec<&str> = line.splitn(2, '\t').collect();
+        if parts.len() < 2 { continue; }
+        let name = parts[0].to_string();
+        let rest = parts[1];
+        // Rest format: "url (type)"
+        if let Some(paren) = rest.rfind(" (") {
+            let url = rest[..paren].trim().to_string();
+            let r#type = rest[paren..].trim().to_string();
+            let idx = seen.entry(name.clone()).or_insert_with(|| {
+                remotes.push(GitRemoteDto {
+                    name: name.clone(),
+                    url: String::new(),
+                    fetch_url: String::new(),
+                    push_url: String::new(),
+                });
+                remotes.len() - 1
+            });
+            let entry = &mut remotes[*idx];
+            if r#type == "(fetch)" {
+                entry.fetch_url = url.clone();
+                if entry.url.is_empty() { entry.url = url; }
+            } else if r#type == "(push)" {
+                entry.push_url = url;
+            }
+        }
+    }
+    Ok(remotes)
+}
+
+/// Add a new remote. Wraps `git remote add <name> <url>`.
+#[tauri::command]
+pub fn git_remote_add(
+    state: State<'_, AppState>,
+    name: String,
+    url: String,
+) -> Result<GitRemoteDto, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let name = name.trim();
+    let url = url.trim();
+    if name.is_empty() { return Err("remote name is required".to_string()); }
+    if url.is_empty() { return Err("remote URL is required".to_string()); }
+    run_git(&path, &["remote", "add", name, url])?;
+    Ok(GitRemoteDto {
+        name: name.to_string(),
+        url: url.to_string(),
+        fetch_url: url.to_string(),
+        push_url: url.to_string(),
+    })
+}
+
+/// Remove a remote. Wraps `git remote remove <name>`.
+#[tauri::command]
+pub fn git_remote_remove(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let name = name.trim();
+    if name.is_empty() { return Err("remote name is required".to_string()); }
+    run_git(&path, &["remote", "remove", name])?;
+    Ok(())
+}
+
+/// Fetch from a remote. Wraps `git fetch <remote>`. When `remote` is
+/// empty, fetches from the default remote (origin). Returns the fetch
+/// output as a string so the frontend can display it.
+#[tauri::command]
+pub fn git_fetch(
+    state: State<'_, AppState>,
+    remote: Option<String>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let remote = remote.as_deref().unwrap_or("origin");
+    // `--prune` removes remote-tracking refs that no longer exist on
+    // the remote, keeping the local view clean.
+    run_git(&path, &["fetch", "--prune", remote])
+}
+
+/// Pull from a remote branch. Wraps `git pull --rebase <remote> <branch>`.
+/// Using `--rebase` by default avoids unnecessary merge commits and keeps
+/// history linear. When `remote` is empty, uses "origin". When `branch`
+/// is empty, uses the current branch name.
+#[tauri::command]
+pub fn git_pull(
+    state: State<'_, AppState>,
+    remote: Option<String>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
+    let branch = branch.unwrap_or_else(|| {
+        run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    });
+    // `--rebase` keeps history linear; `--autostash` stashes local
+    // changes before pulling and pops them after.
+    run_git(&path, &["pull", "--rebase", "--autostash", &remote, &branch])
+}
+
+/// Push to a remote branch. Wraps `git push <remote> <branch>`.
+/// When `remote` is empty, uses "origin". When `branch` is empty,
+/// uses the current branch name. Returns the push output.
+/// 
+/// NOTE: This is intentionally explicit — the user must know they are
+/// pushing. The frontend should show a confirmation dialog before
+/// calling this.
+#[tauri::command]
+pub fn git_push(
+    state: State<'_, AppState>,
+    remote: Option<String>,
+    branch: Option<String>,
+    force: Option<bool>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
+    let branch = branch.unwrap_or_else(|| {
+        run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    });
+    if force.unwrap_or(false) {
+        // Force push requires explicit opt-in and a warning in the
+        // returned message so the frontend can display it.
+        let out = run_git(&path, &["push", "--force-with-lease", &remote, &branch])?;
+        Ok(format!("[FORCE PUSH] {out}"))
+    } else {
+        run_git(&path, &["push", &remote, &branch])
+    }
+}
+
+/// Set upstream for the current branch. Wraps `git push -u <remote> <branch>`.
+/// This is separate from `git_push` so the AI can set tracking explicitly
+/// when needed.
+#[tauri::command]
+pub fn git_push_set_upstream(
+    state: State<'_, AppState>,
+    remote: Option<String>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
+    let branch = branch.unwrap_or_else(|| {
+        run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    });
+    run_git(&path, &["push", "-u", &remote, &branch])
+}
+
+// ---------------------------------------------------------------------------
+// Clean — remove untracked files
+// ---------------------------------------------------------------------------
+
+/// Clean untracked files from the working tree. Wraps `git clean`.
+/// When `dry_run` is true (default), only lists what would be removed
+/// without actually removing anything. When `directories` is true,
+/// also removes untracked directories (`-d`). When `force` is true,
+/// actually performs the removal (`-f`).
+///
+/// Returns the list of files/directories that were (or would be) removed.
+#[tauri::command]
+pub fn git_clean(
+    state: State<'_, AppState>,
+    dry_run: Option<bool>,
+    directories: Option<bool>,
+    force: Option<bool>,
+) -> Result<Vec<String>, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let mut args: Vec<&str> = vec!["clean"];
+    if dry_run.unwrap_or(true) {
+        args.push("--dry-run");
+    }
+    if directories.unwrap_or(false) {
+        args.push("-d");
+    }
+    if force.unwrap_or(false) {
+        args.push("-f");
+    }
+    // `-q` for quiet (no warnings); we capture output to list files.
+    let out = run_git(&path, &args)?;
+    Ok(out
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Show — inspect a commit
+// ---------------------------------------------------------------------------
+
+/// DTO for a detailed commit view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitShowDto {
+    pub sha: String,
+    pub author: String,
+    pub author_email: String,
+    pub date: String,
+    pub message: String,
+    /// Raw diff of the commit (--no-color).
+    pub diff: String,
+}
+
+/// Show the full details of a commit: author, date, message, and diff.
+/// Wraps `git show --no-color --no-ext-diff <sha>`.
+#[tauri::command]
+pub fn git_show(state: State<'_, AppState>, sha: String) -> Result<GitShowDto, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let sha = sha.trim();
+    if sha.is_empty() {
+        return Err("commit SHA is required".to_string());
+    }
+    run_git(&path, &["cat-file", "-e", &format!("{sha}^{{commit}}")])
+        .map_err(|_| format!("commit not found: {sha}"))?;
+
+    let author = run_git(&path, &["log", "-1", "--format=%an", sha])?
+        .trim()
+        .to_string();
+    let email = run_git(&path, &["log", "-1", "--format=%ae", sha])?
+        .trim()
+        .to_string();
+    let date = run_git(&path, &["log", "-1", "--format=%ad", "--date=iso-strict", sha])?
+        .trim()
+        .to_string();
+    let message = run_git(&path, &["log", "-1", "--format=%B", sha])?
+        .trim()
+        .to_string();
+    let diff = run_git(&path, &["show", "--no-color", "--no-ext-diff", sha])?;
+
+    Ok(GitShowDto {
+        sha: sha.to_string(),
+        author,
+        author_email: email,
+        date,
+        message,
+        diff,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Config — get/set git configuration
+// ---------------------------------------------------------------------------
+
+/// Get a git config value. Checks local first, then global, then system.
+/// Returns `None` if the key is not set.
+#[tauri::command]
+pub fn git_config_get(
+    state: State<'_, AppState>,
+    key: String,
+    scope: Option<String>,
+) -> Result<Option<String>, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("config key is required".to_string());
+    }
+    let scope_flag = match scope.as_deref() {
+        Some("global") => "--global",
+        Some("system") => "--system",
+        _ => "--local",
+    };
+    let out = run_git(&path, &["config", scope_flag, "--get", key]);
+    match out {
+        Ok(v) => {
+            let trimmed = v.trim().to_string();
+            Ok(if trimmed.is_empty() { None } else { Some(trimmed) })
+        }
+        Err(_) => Ok(None), // Key not found is not an error
+    }
+}
+
+/// Set a git config value. Wraps `git config <scope> <key> <value>`.
+/// Returns the old value if one existed.
+#[tauri::command]
+pub fn git_config_set(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+    scope: Option<String>,
+) -> Result<Option<String>, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let key = key.trim();
+    let value = value.trim();
+    if key.is_empty() || value.is_empty() {
+        return Err("key and value are required".to_string());
+    }
+    let scope_flag = match scope.as_deref() {
+        Some("global") => "--global",
+        Some("system") => "--system",
+        _ => "--local",
+    };
+    // Get old value first (best-effort).
+    let old = run_git(&path, &["config", scope_flag, "--get", key]).ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    run_git(&path, &["config", scope_flag, key, value])?;
+    Ok(old)
+}
+
+// ---------------------------------------------------------------------------
+// Log graph — ASCII graph of branch topology
+// ---------------------------------------------------------------------------
+
+/// Return the git log as an ASCII graph, useful for visualizing branch
+/// topology. Wraps `git log --graph --oneline --all --decorate`.
+/// `limit` caps the number of rows (default 50, max 500).
+#[tauri::command]
+pub fn git_log_graph(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+    all: Option<bool>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Ok(String::new());
+    }
+    let n = limit.unwrap_or(50).clamp(1, 500);
+    let limit_arg = format!("-{n}");
+    let mut args: Vec<&str> = vec!["log", "--graph", "--oneline", "--decorate", &limit_arg];
+    if all.unwrap_or(true) {
+        args.push("--all");
+    }
+    run_git(&path, &args)
+}
+
+// ---------------------------------------------------------------------------
+// Archive — create a tar/zip archive of the repository
+// ---------------------------------------------------------------------------
+
+/// Create an archive of the repository at a specific ref (default: HEAD).
+/// Wraps `git archive --format=<format> --output=<path> <ref>`.
+/// Supported formats: "tar", "zip" (default: "zip").
+/// Returns the absolute path of the created archive.
+#[tauri::command]
+pub fn git_archive(
+    state: State<'_, AppState>,
+    output_path: String,
+    format: Option<String>,
+    treeish: Option<String>,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let fmt = format.as_deref().unwrap_or("zip");
+    let ref_name = treeish.as_deref().unwrap_or("HEAD");
+    if output_path.trim().is_empty() {
+        return Err("output path is required".to_string());
+    }
+    run_git(
+        &path,
+        &[
+            "archive",
+            &format!("--format={fmt}"),
+            &format!("--output={}", output_path.trim()),
+            ref_name,
+        ],
+    )?;
+    // Verify the file was created.
+    let abs_path = std::path::Path::new(output_path.trim());
+    if abs_path.exists() {
+        Ok(abs_path.canonicalize()
+            .unwrap_or_else(|_| abs_path.to_path_buf())
+            .to_string_lossy()
+            .to_string())
+    } else {
+        Ok(output_path.trim().to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rebase — rebase current branch onto another branch
+// ---------------------------------------------------------------------------
+
+/// Rebase the current branch onto another branch. Wraps
+/// `git rebase <target>`. Returns the new HEAD SHA on success.
+/// If conflicts occur, the rebase is aborted and the error is
+/// surfaced with conflict details.
+#[tauri::command]
+pub fn git_rebase(
+    state: State<'_, AppState>,
+    target: String,
+) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("target branch is required".to_string());
+    }
+    // Use `--autostash` to stash local changes before rebasing.
+    match run_git(&path, &["rebase", "--autostash", target]) {
+        Ok(_out) => {
+            let head = run_git(&path, &["rev-parse", "HEAD"])?
+                .trim()
+                .to_string();
+            Ok(head)
+        }
+        Err(e) => {
+            // On conflict, abort the rebase to keep the working tree clean.
+            let _ = run_git(&path, &["rebase", "--abort"]);
+            Err(format!("rebase failed (aborted): {e}"))
+        }
+    }
+}
+
+/// Check if a rebase is currently in progress. Returns true if
+/// `.git/rebase-merge` or `.git/rebase-apply` exists.
+#[tauri::command]
+pub fn git_rebase_in_progress(state: State<'_, AppState>) -> Result<bool, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Ok(false);
+    }
+    Ok(path.join(".git").join("rebase-merge").exists()
+        || path.join(".git").join("rebase-apply").exists())
+}
+
+/// Abort the current in-progress rebase. Wraps `git rebase --abort`.
+#[tauri::command]
+pub fn git_rebase_abort(state: State<'_, AppState>) -> Result<(), String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    run_git(&path, &["rebase", "--abort"]).map(|_| ())
+}
+
+/// Continue a rebase after resolving conflicts. Wraps
+/// `git rebase --continue --no-edit`.
+#[tauri::command]
+pub fn git_rebase_continue(state: State<'_, AppState>) -> Result<String, String> {
+    let path = project_path(&state)?;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".to_string());
+    }
+    run_git(&path, &["rebase", "--continue", "--no-edit"])?;
+    let head = run_git(&path, &["rev-parse", "HEAD"])?
+        .trim()
+        .to_string();
+    Ok(head)
+}
+
+// ---------------------------------------------------------------------------
+// Clone — clone a repository
+// ---------------------------------------------------------------------------
+
+/// Clone a remote repository into a local directory. Wraps
+/// `git clone <url> <path>`. Returns the path of the cloned repo.
+/// NOTE: This is a potentially long-running operation. The frontend
+/// should show a progress indicator.
+#[tauri::command]
+pub fn git_clone(url: String, path: String) -> Result<String, String> {
+    let url = url.trim();
+    let path = path.trim();
+    if url.is_empty() { return Err("clone URL is required".to_string()); }
+    if path.is_empty() { return Err("target path is required".to_string()); }
+    let target = std::path::Path::new(path);
+    if target.exists() {
+        return Err(format!("target path already exists: {path}"));
+    }
+    // Ensure parent directory exists.
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create parent directory: {e}"))?;
+    }
+    let mut cmd = git_command();
+    cmd.current_dir(target.parent().unwrap_or(std::path::Path::new(".")));
+    cmd.arg("clone");
+    cmd.arg(url);
+    cmd.arg(path);
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GIT_ASKPASS", "");
+    let output = cmd
+        .output()
+        .map_err(|e| format!("failed to spawn git clone: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git clone failed".to_string()
+        } else {
+            stderr
+        });
+    }
+    // Canonicalize the path.
+    let abs = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+    Ok(abs.to_string_lossy().to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Safety: backup before destructive operations
+// ---------------------------------------------------------------------------
+
+/// Create a safety backup of the current git repository state.
+/// Backs up the entire working tree (tracked files) to a timestamped
+/// directory under `<project>/.route/git-backups/`. Returns the backup
+/// path. This is called automatically before destructive operations
+/// (revert, rebase, reset --hard, etc.) when safety mode is enabled.
+#[tauri::command]
+pub fn git_backup_create(state: State<'_, AppState>) -> Result<String, String> {
+    let path = project_path(&state)?;
+    ensure_repo(&path)?;
+    // Create the backup directory.
+    let backup_dir = path.join(".route").join("git-backups");
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| format!("cannot create backup directory: {e}"))?;
+    // Timestamped backup name.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup_path = backup_dir.join(format!("pre-op-{ts}"));
+    // Use `git archive` to create a tar backup of HEAD.
+    let archive_path = backup_path.with_extension("tar");
+    run_git(
+        &path,
+        &[
+            "archive",
+            "--format=tar",
+            &format!("--output={}", archive_path.to_string_lossy()),
+            "HEAD",
+        ],
+    )?;
+    // Also save the current HEAD SHA for reference.
+    let head = run_git(&path, &["rev-parse", "HEAD"])?
+        .trim()
+        .to_string();
+    std::fs::write(backup_path.with_extension("head"), &head)
+        .map_err(|e| format!("cannot write HEAD reference: {e}"))?;
+    Ok(archive_path.to_string_lossy().to_string())
+}
+
+/// List all safety backups created by `git_backup_create`.
+/// Returns a list of backup paths (newest first).
+#[tauri::command]
+pub fn git_backup_list(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let path = project_path(&state)?;
+    let backup_dir = path.join(".route").join("git-backups");
+    if !backup_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "tar"))
+        .collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(
+        e.metadata().and_then(|m| m.created()).ok()
+    ));
+    Ok(entries
+        .into_iter()
+        .map(|e| e.path().to_string_lossy().to_string())
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Better error reporting — run git with a timeout
+// ---------------------------------------------------------------------------
+
+/// Run git with a hard timeout. Uses `std::process::Command` with
+/// a timeout thread. This is the safe variant that should be used
+/// for all network operations (clone, fetch, push, pull).
+fn run_git_with_timeout(
+    project_path: &std::path::Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, String> {
+    let mut cmd = git_command();
+    cmd.current_dir(project_path).args(args);
+    cmd.env("LC_ALL", "C");
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GIT_ASKPASS", "");
+
+    let child = cmd.spawn()
+        .map_err(|e| format!("failed to spawn git: {e}"))?;
+
+    // Use a channel to receive the result.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let pid = child.id();
+    let handle = std::thread::spawn(move || {
+        let output = child.wait_with_output();
+        let _ = tx.send(output);
+    });
+
+    // Wait for the result with timeout.
+    match rx.recv_timeout(timeout) {
+        Ok(output) => {
+            let _ = handle.join();
+            let output = output.map_err(|e| format!("failed to wait for git: {e}"))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let detail = if !stderr.is_empty() { stderr } else { stdout };
+                return Err(if detail.is_empty() {
+                    format!("git {} failed (timeout={}s)", args.join(" "), timeout.as_secs())
+                } else {
+                    format!("git {}: {detail}", args.join(" "))
+                });
+            }
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // Timeout — kill the process tree.
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .output();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .output();
+            }
+            let _ = handle.join();
+            Err(format!(
+                "git {} timed out after {}s",
+                args.join(" "),
+                timeout.as_secs()
+            ))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            let _ = handle.join();
+            Err("git process channel disconnected unexpectedly".to_string())
+        }
+    }
+}

@@ -1727,6 +1727,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,7 +2078,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3441,7 +3452,7 @@ dependencies = [
 
 [[package]]
 name = "route-basic"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3460,11 +3471,12 @@ dependencies = [
 
 [[package]]
 name = "route-cli"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "reqwest 0.12.28",
  "route-basic",
  "route-core",
  "route-plugins",
@@ -3479,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "route-core"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3498,10 +3510,11 @@ dependencies = [
 
 [[package]]
 name = "route-mcp"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
+ "reqwest 0.12.28",
  "route-basic",
  "route-core",
  "serde",
@@ -3512,7 +3525,7 @@ dependencies = [
 
 [[package]]
 name = "route-plugins"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3528,7 +3541,7 @@ dependencies = [
 
 [[package]]
 name = "route-stats"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3542,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "route-sync"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3563,10 +3576,15 @@ dependencies = [
 
 [[package]]
 name = "route-tauri"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "auto-launch",
+ "chrono",
+ "getrandom 0.2.17",
+ "glob",
+ "hex",
+ "hostname",
  "ignore",
  "reqwest 0.12.28",
  "route-basic",
@@ -3577,6 +3595,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -3586,12 +3605,13 @@ dependencies = [
 
 [[package]]
 name = "route-tui"
-version = "0.2.0"
+version = "0.4.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
  "comfy-table",
  "owo-colors",
+ "reqwest 0.12.28",
  "route-basic",
  "route-core",
  "rustyline",

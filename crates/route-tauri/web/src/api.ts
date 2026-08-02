@@ -614,8 +614,9 @@ export async function checkpointDelete(id: string): Promise<void> {
 }
 
 /// Start background file watching + auto-commit (debounced).
-export async function watchStart(debounceMs?: number): Promise<void> {
-  return safeInvoke<void>("watch_start", { debounceMs: debounceMs ?? null });
+/// `intervalMs` is the polling cadence in milliseconds (default 5000).
+export async function watchStart(intervalMs?: number): Promise<void> {
+  return safeInvoke<void>("watch_start", { intervalMs: intervalMs ?? 5000 });
 }
 
 export async function watchStop(): Promise<void> {
@@ -631,9 +632,11 @@ export async function watchFlush(): Promise<WatchStatusDto> {
 
 export interface WatchStatusDto {
   running: boolean;
-  path: string | null;
-  debounce_ms: number;
-  pending_changes: number;
+  interval_ms: number;
+  project_path: string | null;
+  last_commit_at: number | null;
+  last_error: string | null;
+  pending: boolean;
 }
 
 export async function watchStatus(): Promise<WatchStatusDto> {
@@ -1043,4 +1046,557 @@ export interface McpConfigDto {
 /// for the currently-open project.
 export async function mcpGetConfig(): Promise<McpConfigDto> {
   return safeInvoke<McpConfigDto>("mcp_get_config");
+}
+
+// ---------------------------------------------------------------------------
+// Process management — start/stop Route CLI and MCP daemon processes
+// from the GUI settings page.
+// ---------------------------------------------------------------------------
+
+/// Start the Route CLI daemon (`route server --daemon`).
+export async function startRouteCli(): Promise<string> {
+  return safeInvoke<string>("start_route_cli");
+}
+
+/// Stop the Route CLI daemon.
+export async function stopRouteCli(): Promise<string> {
+  return safeInvoke<string>("stop_route_cli");
+}
+
+/// Check if the Route CLI daemon is running.
+export async function routeCliStatus(): Promise<boolean> {
+  return safeInvoke<boolean>("route_cli_status");
+}
+
+/// Start the Route MCP server (`route-mcp --project <path>`).
+export async function startRouteMcp(projectPath: string): Promise<string> {
+  return safeInvoke<string>("start_route_mcp", { projectPath });
+}
+
+/// Stop the Route MCP server.
+export async function stopRouteMcp(): Promise<string> {
+  return safeInvoke<string>("stop_route_mcp");
+}
+
+/// Check if the Route MCP server is running.
+export async function routeMcpStatus(): Promise<boolean> {
+  return safeInvoke<boolean>("route_mcp_status");
+}
+
+// ---------------------------------------------------------------------------
+// Extended Git operations — full coverage beyond basic checkpoint/branch/log.
+// These mirror the Rust backend's `git_commands.rs` additions.
+// ---------------------------------------------------------------------------
+
+/// Remote DTO.
+export interface GitRemoteDto {
+  name: string;
+  url: string;
+  fetch_url: string;
+  push_url: string;
+}
+
+/// Stage specific files. Empty paths = stage all.
+export async function gitAdd(paths: string[]): Promise<string[]> {
+  return safeInvoke<string[]>("git_add", { paths });
+}
+
+/// Unstage specific files. Empty paths = unstage all.
+export async function gitReset(paths: string[]): Promise<void> {
+  return safeInvoke<void>("git_reset", { paths });
+}
+
+/// Delete a local branch (safe — refuses if not fully merged).
+export async function gitBranchDelete(name: string): Promise<void> {
+  return safeInvoke<void>("git_branch_delete", { name });
+}
+
+/// Revert a commit (safe — creates a new revert commit, never rewrites history).
+export async function gitRevert(sha: string): Promise<string> {
+  return safeInvoke<string>("git_revert", { sha });
+}
+
+/// Cherry-pick commits onto current HEAD. Message is optional.
+export async function gitCherryPick(shas: string[], message?: string | null): Promise<string> {
+  return safeInvoke<string>("git_cherry_pick", { shas, message: message ?? null });
+}
+
+/// List configured remotes.
+export async function gitRemoteList(): Promise<GitRemoteDto[]> {
+  return safeInvoke<GitRemoteDto[]>("git_remote_list");
+}
+
+/// Add a remote.
+export async function gitRemoteAdd(name: string, url: string): Promise<GitRemoteDto> {
+  return safeInvoke<GitRemoteDto>("git_remote_add", { name, url });
+}
+
+/// Remove a remote.
+export async function gitRemoteRemove(name: string): Promise<void> {
+  return safeInvoke<void>("git_remote_remove", { name });
+}
+
+/// Fetch from a remote (default: origin).
+export async function gitFetch(remote?: string | null): Promise<string> {
+  return safeInvoke<string>("git_fetch", { remote: remote ?? null });
+}
+
+/// Pull from a remote branch (with rebase + autostash).
+export async function gitPull(remote?: string | null, branch?: string | null): Promise<string> {
+  return safeInvoke<string>("git_pull", { remote: remote ?? null, branch: branch ?? null });
+}
+
+/// Push to a remote branch. Force push requires explicit opt-in.
+export async function gitPush(remote?: string | null, branch?: string | null, force?: boolean): Promise<string> {
+  return safeInvoke<string>("git_push", { remote: remote ?? null, branch: branch ?? null, force: force ?? false });
+}
+
+/// Set upstream for the current branch.
+export async function gitPushSetUpstream(remote?: string | null, branch?: string | null): Promise<string> {
+  return safeInvoke<string>("git_push_set_upstream", { remote: remote ?? null, branch: branch ?? null });
+}
+
+/// Clean untracked files. Dry-run by default.
+export async function gitClean(dryRun?: boolean, directories?: boolean, force?: boolean): Promise<string[]> {
+  return safeInvoke<string[]>("git_clean", { dryRun: dryRun ?? true, directories: directories ?? false, force: force ?? false });
+}
+
+/// Show commit details (author, date, message, diff).
+export interface GitShowDto {
+  sha: string;
+  author: string;
+  author_email: string;
+  date: string;
+  message: string;
+  diff: string;
+}
+
+export async function gitShow(sha: string): Promise<GitShowDto> {
+  return safeInvoke<GitShowDto>("git_show", { sha });
+}
+
+/// Get a git config value.
+export async function gitConfigGet(key: string, scope?: string | null): Promise<string | null> {
+  return safeInvoke<string | null>("git_config_get", { key, scope: scope ?? null });
+}
+
+/// Set a git config value. Returns the old value if any.
+export async function gitConfigSet(key: string, value: string, scope?: string | null): Promise<string | null> {
+  return safeInvoke<string | null>("git_config_set", { key, value, scope: scope ?? null });
+}
+
+/// Return git log as an ASCII graph with branch topology.
+export async function gitLogGraph(limit?: number, all?: boolean): Promise<string> {
+  return safeInvoke<string>("git_log_graph", { limit: limit ?? 50, all: all ?? true });
+}
+
+/// Create an archive of the repo at a ref.
+export async function gitArchive(outputPath: string, format?: string | null, treeish?: string | null): Promise<string> {
+  return safeInvoke<string>("git_archive", { outputPath, format: format ?? null, treeish: treeish ?? null });
+}
+
+/// Rebase current branch onto target.
+export async function gitRebase(target: string): Promise<string> {
+  return safeInvoke<string>("git_rebase", { target });
+}
+
+/// Check if a rebase is in progress.
+export async function gitRebaseInProgress(): Promise<boolean> {
+  return safeInvoke<boolean>("git_rebase_in_progress");
+}
+
+/// Abort an in-progress rebase.
+export async function gitRebaseAbort(): Promise<void> {
+  return safeInvoke<void>("git_rebase_abort");
+}
+
+/// Continue a rebase after resolving conflicts.
+export async function gitRebaseContinue(): Promise<string> {
+  return safeInvoke<string>("git_rebase_continue");
+}
+
+/// Clone a remote repository into a local path.
+export async function gitClone(url: string, path: string): Promise<string> {
+  return safeInvoke<string>("git_clone", { url, path });
+}
+
+/// Create a safety backup of the current git repo state.
+export async function gitBackupCreate(): Promise<string> {
+  return safeInvoke<string>("git_backup_create");
+}
+
+/// List all safety backups (newest first).
+export async function gitBackupList(): Promise<string[]> {
+  return safeInvoke<string[]>("git_backup_list");
+}
+
+// ---------------------------------------------------------------------------
+// Permission system
+// ---------------------------------------------------------------------------
+
+/// Get the current permission level ("normal" | "high").
+export async function getPermissionLevel(): Promise<string> {
+  return safeInvoke<string>("get_permission_level");
+}
+
+/// Set the permission level ("normal" | "high"). Returns the previous level.
+export async function setPermissionLevel(level: string): Promise<string> {
+  return safeInvoke<string>("set_permission_level", { level });
+}
+
+// ---------------------------------------------------------------------------
+// LLM injection — pre-injected prompts, injection slots, file content
+// ---------------------------------------------------------------------------
+
+export interface LlmInjectionConfigDto {
+  enabled: boolean;
+  system_prompts: string[];
+  user_slot: string;
+  file_patterns: string[];
+  max_files: number;
+  max_chars: number;
+  show_warning: boolean;
+}
+
+export interface LlmBuildResult {
+  text: string;
+  warnings: string[];
+}
+
+/// Get the current LLM injection configuration.
+export async function llmInjectionGet(): Promise<LlmInjectionConfigDto> {
+  return safeInvoke<LlmInjectionConfigDto>("llm_injection_get");
+}
+
+/// Update the LLM injection configuration.
+export async function llmInjectionSet(config: LlmInjectionConfigDto): Promise<void> {
+  return safeInvoke<void>("llm_injection_set", { config });
+}
+
+/// Build the full injected text for an LLM call.
+export async function llmInjectionBuild(userPrompt: string): Promise<LlmBuildResult> {
+  return safeInvoke<LlmBuildResult>("llm_injection_build", { userPrompt });
+}
+
+/// Send a chat to the LLM with automatic injection of configured prompts and files.
+export async function llmChatWithInjection(
+  provider: string,
+  endpoint: string,
+  key: string,
+  model: string,
+  userPrompt: string,
+): Promise<string> {
+  return safeInvoke<string>("llm_chat_with_injection", { provider, endpoint, key, model, userPrompt });
+}
+
+// ---------------------------------------------------------------------------
+// Project Context API (for Active AI mode)
+// ---------------------------------------------------------------------------
+
+export interface ProjectContextDto {
+  formatted_context: string;
+  project_tree: string;
+  recent_commits: string;
+  references_content: string;
+  tracking_history: string;
+  current_branch: string;
+  stats: {
+    files_in_tree: number;
+    commits: number;
+    references: number;
+    tracking_entries: number;
+  };
+}
+
+export async function projectContext(): Promise<ProjectContextDto> {
+  return safeInvoke<ProjectContextDto>("project_context");
+}
+
+// ---------------------------------------------------------------------------
+// Audit / Responsibility Auditor API
+// ---------------------------------------------------------------------------
+
+export interface AuditSaltInfo {
+  salt_set: boolean;
+  salt_hash_short: string;
+}
+
+export interface AuditFingerprintDto {
+  fingerprint: string;
+  fingerprint_short: string;
+}
+
+export interface AuditMetadata {
+  device_hash: string;
+  device_hash_short: string;
+  timestamp: string;
+  ai_operator?: string | null;
+  ai_prompt_hash?: string | null;
+  ai_prompt_hash_short?: string | null;
+  risk_level: string;
+}
+
+export interface PreCommitAudit {
+  metadata: AuditMetadata;
+  warnings: string[];
+  blocked: boolean;
+  block_reason?: string | null;
+}
+
+export interface ResponsibilityEntry {
+  commit_id: string;
+  device_hash: string;
+  device_hash_short: string;
+  ai_prompt_hash?: string | null;
+  timestamp: string;
+  author: string;
+  risk_level: string;
+}
+
+export interface AuditDeviceSummary {
+  device_hash: string;
+  device_hash_short: string;
+  commit_count: number;
+  ai_commit_count: number;
+  risk_level: string;
+}
+
+export interface TraceabilityNode {
+  id: string;
+  label: string;
+  device_hash: string;
+  device_hash_short: string;
+  commit_count: number;
+  ai_commit_count: number;
+  risk_level: string;
+  entries: TraceabilityNodeEntry[];
+}
+
+export interface TraceabilityNodeEntry {
+  commit_id: string;
+  timestamp: string;
+  is_ai: boolean;
+}
+
+export interface TraceabilityEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface TraceabilityGraph {
+  nodes: TraceabilityNode[];
+  edges: TraceabilityEdge[];
+}
+
+/// Get the project salt info.
+export async function auditSaltInfo(): Promise<AuditSaltInfo> {
+  return safeInvoke<AuditSaltInfo>("audit_salt_info");
+}
+
+/// Set a custom project salt.
+export async function auditSaltSet(salt: string): Promise<void> {
+  return safeInvoke<void>("audit_salt_set", { salt });
+}
+
+/// Rotate the project salt.
+export async function auditSaltRotate(): Promise<AuditSaltInfo> {
+  return safeInvoke<AuditSaltInfo>("audit_salt_rotate");
+}
+
+/// Get the current device fingerprint.
+export async function auditDeviceFingerprint(): Promise<AuditFingerprintDto> {
+  return safeInvoke<AuditFingerprintDto>("audit_device_fingerprint");
+}
+
+/// Run a pre-commit audit check.
+export async function auditPreCommitCheck(
+  aiOperator?: string | null,
+  aiPrompt?: string | null,
+): Promise<PreCommitAudit> {
+  return safeInvoke<PreCommitAudit>("audit_pre_commit_check", {
+    aiOperator: aiOperator ?? null,
+    aiPrompt: aiPrompt ?? null,
+  });
+}
+
+/// Record a commit in the responsibility index.
+export async function auditRecordCommit(
+  commitId: string,
+  author: string,
+  metadata: AuditMetadata,
+): Promise<void> {
+  return safeInvoke<void>("audit_record_commit", { commitId, author, metadata });
+}
+
+/// Query the responsibility of a specific commit.
+export async function auditQueryCommit(commitId: string): Promise<ResponsibilityEntry | null> {
+  return safeInvoke<ResponsibilityEntry | null>("audit_query_commit", { commitId });
+}
+
+/// List all devices that have committed to this project.
+export async function auditListDevices(): Promise<AuditDeviceSummary[]> {
+  return safeInvoke<AuditDeviceSummary[]>("audit_list_devices");
+}
+
+/// Get the device whitelist.
+export async function auditWhitelistGet(): Promise<string[]> {
+  return safeInvoke<string[]>("audit_whitelist_get");
+}
+
+/// Set the device whitelist.
+export async function auditWhitelistSet(hashes: string[]): Promise<void> {
+  return safeInvoke<void>("audit_whitelist_set", { hashes });
+}
+
+/// Export the full responsibility index as JSON.
+export async function auditIndexExport(): Promise<string> {
+  return safeInvoke<string>("audit_index_export");
+}
+
+/// Get the asset traceability graph data.
+export async function auditTraceabilityGraph(): Promise<TraceabilityGraph> {
+  return safeInvoke<TraceabilityGraph>("audit_traceability_graph");
+}
+
+// ---------------------------------------------------------------------------
+// Auto-commit API
+// ---------------------------------------------------------------------------
+
+export interface AutoCommitConfigDto {
+  enabled: boolean;
+  min_files: number;
+  debounce_ms: number;
+  max_per_hour: number;
+  include_diff_summary: boolean;
+  audit_on_auto_commit: boolean;
+}
+
+export interface AutoCommitEntry {
+  commit_id: string;
+  message: string;
+  files_changed: string[];
+  timestamp: string;
+  device_hash_short?: string | null;
+  ai_prompt_hash_short?: string | null;
+}
+
+/// Get auto-commit configuration.
+export async function autoCommitGet(): Promise<AutoCommitConfigDto> {
+  return safeInvoke<AutoCommitConfigDto>("auto_commit_get");
+}
+
+/// Set auto-commit configuration.
+export async function autoCommitSet(config: AutoCommitConfigDto): Promise<void> {
+  return safeInvoke<void>("auto_commit_set", { config });
+}
+
+/// Execute an auto-commit. Returns the commit ID if successful.
+export async function autoCommitExecute(changedFiles: string[]): Promise<string | null> {
+  return safeInvoke<string | null>("auto_commit_execute", { changedFiles });
+}
+
+/// Get the auto-commit log.
+export async function autoCommitLog(): Promise<AutoCommitEntry[]> {
+  return safeInvoke<AutoCommitEntry[]>("auto_commit_log");
+}
+
+/// Get the auto-commit rate (count in last hour).
+export async function autoCommitRate(): Promise<number> {
+  return safeInvoke<number>("auto_commit_rate");
+}
+
+// ---------------------------------------------------------------------------
+// Active Tracking API
+// ---------------------------------------------------------------------------
+
+export interface TrackedFolderDto {
+  local_path: string;
+  remote_url: string;
+  branch: string;
+  enabled: boolean;
+  interval_secs: number;
+  last_sync?: string | null;
+  last_status: string;
+  syncing: boolean;
+}
+
+export interface SyncResultDto {
+  status: string;
+  message: string;
+  changes_count: number;
+}
+
+export interface SyncHistoryEntry {
+  folder_path: string;
+  timestamp: string;
+  status: string;
+  message: string;
+  changes_count: number;
+}
+
+/// List all tracked folders.
+export async function trackingList(): Promise<TrackedFolderDto[]> {
+  return safeInvoke<TrackedFolderDto[]>("tracking_list");
+}
+
+/// Add a tracked folder.
+export async function trackingAdd(folder: TrackedFolderDto): Promise<void> {
+  return safeInvoke<void>("tracking_add", { folder });
+}
+
+/// Remove a tracked folder.
+export async function trackingRemove(localPath: string): Promise<void> {
+  return safeInvoke<void>("tracking_remove", { localPath });
+}
+
+/// Update a tracked folder.
+export async function trackingUpdate(localPath: string, folder: TrackedFolderDto): Promise<void> {
+  return safeInvoke<void>("tracking_update", { localPath, folder });
+}
+
+/// Manually trigger a sync for a tracked folder.
+export async function trackingSyncNow(localPath: string): Promise<SyncResultDto> {
+  return safeInvoke<SyncResultDto>("tracking_sync_now", { localPath });
+}
+
+/// Get sync history for all tracked folders.
+export async function trackingHistory(): Promise<SyncHistoryEntry[]> {
+  return safeInvoke<SyncHistoryEntry[]>("tracking_history");
+}
+
+/// Start the tracking scheduler (auto-sync in background).
+export async function trackingStart(intervalSecs: number): Promise<void> {
+  return safeInvoke<void>("tracking_start", { intervalSecs });
+}
+
+/// Stop the tracking scheduler.
+export async function trackingStop(): Promise<void> {
+  return safeInvoke<void>("tracking_stop");
+}
+
+/// Check if the tracking scheduler is running.
+export async function trackingStatus(): Promise<boolean> {
+  return safeInvoke<boolean>("tracking_status");
+}
+
+// ---------------------------------------------------------------------------
+// Extensions — skills and references
+// ---------------------------------------------------------------------------
+
+export interface ExtensionEntry {
+  name: string;
+  path: string;
+  size: number;
+  modified: string;
+}
+
+/// List all skills.
+export async function skillsList(): Promise<ExtensionEntry[]> {
+  return safeInvoke<ExtensionEntry[]>("skills_list");
+}
+
+/// List all references.
+export async function referencesList(): Promise<ExtensionEntry[]> {
+  return safeInvoke<ExtensionEntry[]>("references_list");
 }

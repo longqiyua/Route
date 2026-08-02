@@ -21,58 +21,6 @@
 /* ---- 1. Theme tokens ---------------------------------------------------- */
 
 :root {
-  --ink-900: #141519;
-  --ink-850: #181a1f;
-  --ink-800: #1c1e24;
-  --ink-700: #21242b;
-  --ink-600: #272a32;
-
-  /* Solid surface fills — no rgba translucency */
-  --glass:   #1c1e24;
-  --glass-2: #21242b;
-  --glass-3: #272a32;
-
-  /* Solid gray hairlines */
-  --hairline:   #2a2d35;
-  --hairline-2: #34373f;
-  --hairline-3: #3e414a;
-
-  /* Clean neutral grays for text — no warm/muddy tints */
-  --fg:        #e8e8e8;
-  --fg-muted:  #909090;
-  --fg-dim:    #6a6a6a;
-  --fg-faint:  #4a4a4a;
-
-  /* Accent — clean lavender, solid variants only */
-  --accent:        #B4AEEA;
-  --accent-bright: #CCC6F0;
-  --accent-deep:   #9488D6;
-  --accent-soft:   #1e1d28;
-  --accent-line:   #3a3750;
-
-  /* Status colors — solid variants */
-  --green:      #9ec9a6;
-  --green-soft: #1a201b;
-  --danger:      #d98a82;
-  --danger-soft: #251a1a;
-  --ochre:      #c8a87a;
-  --lavender:   #b3a6cf;
-
-  --radius:    9px;
-  --radius-lg: 14px;
-  --radius-sm: 5px;
-
-  --font-display: "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-ui:      "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
-  --font-logo:    "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-
-  color-scheme: dark;
-}
-
-[data-theme="light"] {
   --ink-900: #efeeec;
   --ink-850: #e7e6e3;
   --ink-800: #dddcd8;
@@ -102,8 +50,57 @@
   --green-soft: #e8efe9;
   --danger:      #c25c54;
   --danger-soft: #f0e8e7;
+  --ochre:       #b8944a;
+  --lavender:    #a395c8;
+
+  --radius:    9px;
+  --radius-lg: 14px;
+  --radius-sm: 5px;
+
+  --font-display: "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-ui:      "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --font-logo:    "Nunito", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --ink-900: #141519;
+  --ink-850: #181a1f;
+  --ink-800: #1c1e24;
+  --ink-700: #21242b;
+  --ink-600: #272a32;
+
+  --glass:   #1c1e24;
+  --glass-2: #21242b;
+  --glass-3: #272a32;
+
+  --hairline:   #2a2d35;
+  --hairline-2: #34373f;
+  --hairline-3: #3e414a;
+
+  --fg:        #e8e8e8;
+  --fg-muted:  #909090;
+  --fg-dim:    #6a6a6a;
+  --fg-faint:  #4a4a4a;
+
+  --accent:        #B4AEEA;
+  --accent-bright: #CCC6F0;
+  --accent-deep:   #9488D6;
+  --accent-soft:   #1e1d28;
+  --accent-line:   #3a3750;
+
+  --green:      #9ec9a6;
+  --green-soft: #1a201b;
+  --danger:      #d98a82;
+  --danger-soft: #251a1a;
+  --ochre:      #c8a87a;
+  --lavender:   #b3a6cf;
+
+  color-scheme: dark;
 }
 
 /* ---- 2. Reset & base ---------------------------------------------------- */
@@ -132,17 +129,21 @@ button {
   font-weight: 500;
   letter-spacing: 0.01em;
   transition:
-    background 0.16s var(--ease),
-    border-color 0.16s var(--ease),
-    color 0.16s var(--ease);
+    background 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    color 0.2s var(--ease),
+    transform 0.1s var(--ease);
 }
 button:hover:not(:disabled) {
   background: var(--glass-3);
   border-color: var(--hairline-2);
 }
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
 button:focus-visible {
-  outline: 1px solid var(--accent-line);
-  outline-offset: 1px;
+  outline: 1.5px solid var(--accent-line);
+  outline-offset: 2px;
 }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 button.primary {
@@ -156,7 +157,11 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent-deep);
   color: var(--ink-900);
 }
-[data-theme="light"] button.primary { color: #fff; }
+button.primary:active:not(:disabled) {
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+}
+[data-theme="dark"] button.primary { color: #fff; }
 button.danger {
   color: var(--danger);
   border-color: var(--danger-soft);
@@ -165,30 +170,41 @@ button.danger:hover:not(:disabled) {
   background: var(--danger-soft);
   border-color: var(--danger);
 }
+button.danger:active:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  opacity: 0.85;
+}
 
 input, select, textarea {
   background: transparent;
   color: var(--fg);
   border: 1px solid var(--hairline);
-  padding: 6px 10px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: 12px;
   font-family: inherit;
   outline: none;
   width: 100%;
-  transition: border-color 0.16s var(--ease);
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 input::placeholder, textarea::placeholder { color: var(--fg-faint); }
 input:hover, select:hover, textarea:hover { border-color: var(--hairline-2); }
-input:focus, select:focus, textarea:focus { border-color: var(--accent-line); }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 input:disabled, textarea:disabled { opacity: 0.5; }
 
-[data-theme="light"] input,
-[data-theme="light"] select,
-[data-theme="light"] textarea { background: var(--glass); }
-[data-theme="light"] input:focus,
-[data-theme="light"] select:focus,
-[data-theme="light"] textarea:focus { background: #f5f4f2; }
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea { background: transparent; }
+[data-theme="dark"] input:hover,
+[data-theme="dark"] select:hover,
+[data-theme="dark"] textarea:hover { background: var(--glass); }
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus { background: var(--ink-700); }
 
 select {
   appearance: none;
@@ -232,18 +248,18 @@ select option {
 /* ---- 4. Titlebar --------------------------------------------------------- */
 
 .titlebar {
-  height: 38px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px 0 14px;
+  padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--hairline);
   background: var(--glass);
   user-select: none;
   -webkit-user-select: none;
 }
 .titlebar-left { display: flex; align-items: center; gap: 10px; }
-.titlebar-right { display: flex; align-items: center; gap: 6px; }
+.titlebar-right { display: flex; align-items: center; gap: 4px; }
 
 /* ---- 3 connected capsule page switcher (lives in titlebar-right) ----
    Three page tabs share a single pill-shaped container, segmented
@@ -254,8 +270,8 @@ select option {
 .tb-capsule {
   display: inline-flex;
   align-items: center;
-  height: 24px;
-  margin-right: 4px;
+  height: 26px;
+  margin-right: 6px;
   border-radius: var(--radius-sm);
   background: transparent;
   border: 1px solid var(--hairline);
@@ -266,7 +282,7 @@ select option {
   align-items: center;
   gap: 5px;
   height: 100%;
-  padding: 0 10px;
+  padding: 0 12px;
   background: transparent;
   border: none;
   color: var(--fg-muted);
@@ -275,7 +291,8 @@ select option {
   letter-spacing: 0.005em;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+  position: relative;
 }
 .tb-capsule-btn + .tb-capsule-btn {
   border-left: 1px solid var(--hairline);
@@ -290,10 +307,10 @@ select option {
   cursor: default;
   font-weight: 600;
 }
-[data-theme="light"] .tb-capsule-btn.active { color: #fff; }
+[data-theme="dark"] .tb-capsule-btn.active { color: #fff; }
 .tb-capsule-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 
-.route-logo { display: inline-flex; align-items: center; }
+.route-logo { display: inline-flex; align-items: center; gap: 8px; }
 .route-logo .wordmark {
   font-family: var(--font-logo);
   font-weight: 700;
@@ -378,13 +395,14 @@ select option {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 40px 20px;
+  gap: 16px;
+  padding: 48px 20px;
 }
 .no-project-hint-text {
   font-size: 13px;
   color: var(--fg-muted);
   text-align: center;
+  line-height: 1.6;
 }
 
 .empty-state {
@@ -396,6 +414,12 @@ select option {
   padding: 12vh 8vw 12vh;
   position: relative;
   overflow: hidden;
+}
+.empty-state-hint {
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-align: center;
+  line-height: 1.6;
 }
 
 /* Welcome page background art — seismic wave, breathing rhythm.
@@ -583,7 +607,7 @@ select option {
   z-index: 2;
   background: transparent;
 }
-[data-theme="light"] .welcome-line-tagline { color: var(--fg-muted); }
+[data-theme="dark"] .welcome-line-tagline { color: var(--fg-muted); }
 
 /* CTA slot — two stacked morphing shapes for the language/folder stages. */
 .cta-slot { position: relative; }
@@ -621,7 +645,7 @@ select option {
   border: 1px solid var(--accent);
   font-weight: 600;
 }
-[data-theme="light"] .language-pill.active { color: #fff; }
+[data-theme="dark"] .language-pill.active { color: #fff; }
 .language-divider { width: 1px; background: var(--hairline); margin: 4px 0; }
 
 /* Two CTAs on the welcome page: primary (folder) + secondary (demo). */
@@ -686,8 +710,8 @@ select option {
   .welcome-aura-glyph-wave { animation: none; opacity: 0; }
 }
 
-[data-theme="light"] .welcome-cta { background: #fff; }
-[data-theme="light"] .welcome-cta-secondary { background: var(--ink-800); }
+[data-theme="dark"] .welcome-cta { background: var(--glass); }
+[data-theme="dark"] .welcome-cta-secondary { background: var(--ink-700); }
 
 .welcome-error {
   position: fixed;
@@ -710,82 +734,78 @@ select option {
   width: 248px;
   flex-shrink: 0;
   border-right: 1px solid var(--hairline);
-  padding: 14px 12px 16px 14px;
+  padding: 12px 10px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  background: var(--ink-850);
-  /* The sidebar is a fixed, independent region: it never scrolls as a
-     whole. Only the project list (.project-cards) scrolls internally;
-     the power toggle (top) and page-rail (bottom) stay pinned. */
+  gap: 10px;
+  background: var(--ink-800);
   overflow: hidden;
 }
-[data-theme="light"] .sidebar { background: var(--ink-850); }
+[data-theme="dark"] .sidebar { background: var(--ink-800); }
 
-/* Power toggle — a full-width long bar switch. Default is OFF (muted
-   gray). When ON the bar fills with a solid accent color and the thumb
-   slides right. No glow, no fluorescent — just a clean solid fill. */
-/* Tracking switch — clean long bar with a dot on the left.
-   Three states: off (gray) → starting (accent light) → running (accent).
-   No extra buttons, no slider track — just dot + text. */
-.sidebar-power {
-  display: flex;
+/* Per-project tracking switch — mini horizontal toggle switch inside each
+   project card. Three states: off (gray) → starting (accent-deep) →
+   running (accent solid). Standard toggle pattern: track + knob. */
+.project-card-switch {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 12px;
-  font-weight: 500;
+  justify-content: center;
+  width: 26px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--hairline-2);
+  border-radius: 99px;
+  background: var(--ink-700);
   cursor: pointer;
-  transition: background 0.3s var(--ease), border-color 0.3s var(--ease), color 0.3s var(--ease);
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.25s var(--ease), border-color 0.25s var(--ease), transform 0.1s var(--ease);
 }
-.sidebar-power-dot {
-  width: 8px;
-  height: 8px;
+.project-card-switch:hover {
+  border-color: var(--hairline-3);
+  transform: scale(1.05);
+}
+.project-card-switch:active {
+  transform: scale(0.95);
+}
+.project-card-switch-dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--fg-faint);
-  flex-shrink: 0;
-  transition: background 0.3s var(--ease);
+  transition: left 0.25s var(--ease), background 0.25s var(--ease);
 }
-.sidebar-power-text {
-  transition: color 0.3s var(--ease);
+
+/* Off — gray track, gray dot on left */
+.project-card-switch.state-off .project-card-switch-dot {
+  left: 2px;
+  background: var(--fg-faint);
 }
-.sidebar-power:hover { border-color: var(--hairline-2); }
 
-/* Off — gray dot, muted text, transparent bg */
-.sidebar-power.state-off .sidebar-power-dot { background: var(--fg-faint); }
-.sidebar-power.state-off .sidebar-power-text { color: var(--fg-muted); }
-
-/* Starting — weakened: faint border, accent-deep dot, NO background fill.
-   Just a subtle hint that something is initializing. */
-.sidebar-power.state-starting {
+/* Starting — accent-deep dot slides right slightly */
+.project-card-switch.state-starting {
   border-color: var(--accent-line);
-  background: transparent;
 }
-.sidebar-power.state-starting .sidebar-power-dot { background: var(--accent-deep); }
-.sidebar-power.state-starting .sidebar-power-text { color: var(--accent-deep); }
+.project-card-switch.state-starting .project-card-switch-dot {
+  left: 7px;
+  background: var(--accent-deep);
+}
 
-/* Running — SOLID accent fill. Pure color, no glow, no translucency.
-   Text and dot invert for contrast against the solid accent. */
-.sidebar-power.state-running {
-  background-color: var(--accent) !important;
+/* Running — solid accent fill, dot on right with inverted color */
+.project-card-switch.state-running {
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--ink-900) !important;
 }
-.sidebar-power.state-running .sidebar-power-dot { background: var(--ink-900) !important; }
-.sidebar-power.state-running .sidebar-power-text { color: var(--ink-900) !important; font-weight: 600; }
-
-/* Light theme: white text/dot on the darker accent solid fill */
-[data-theme="light"] .sidebar-power.state-running,
-[data-theme="light"] .sidebar-power.state-running .sidebar-power-dot,
-[data-theme="light"] .sidebar-power.state-running .sidebar-power-text {
-  color: #fff !important;
+.project-card-switch.state-running .project-card-switch-dot {
+  left: 12px;
+  background: #fff;
 }
-[data-theme="light"] .sidebar-power.state-running .sidebar-power-dot { background: #fff !important; }
+[data-theme="dark"] .project-card-switch.state-running .project-card-switch-dot {
+  background: var(--ink-900);
+}
 
 .sidebar-add {
   display: inline-flex;
@@ -832,44 +852,44 @@ select option {
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  transition: border-color 0.16s var(--ease), color 0.16s var(--ease);
+  transition: border-color 0.2s var(--ease), color 0.2s var(--ease), background 0.2s var(--ease);
 }
-.sidebar-sort:hover { color: var(--fg); border-color: var(--accent-line); }
+.sidebar-sort:hover { color: var(--fg); border-color: var(--accent-line); background: var(--glass); }
 .sidebar-sort svg { width: 14px; height: 14px; }
 
 .project-cards {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  /* The only scroll region inside the sidebar. Grows to fill, clips
-     overflow so the power toggle above and the page-rail below stay
-     pinned regardless of how many projects exist. Scrollbar is hidden
-     globally by the `*` rule above. */
+  gap: 5px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
-.empty-projects { font-size: 11.5px; color: var(--fg-faint); padding: 4px 2px; }
+.empty-projects { font-size: 11.5px; color: var(--fg-faint); padding: 6px 2px; }
 
 .project-card {
   position: relative;
   border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  padding: 8px 28px 9px 10px;
+  border-radius: var(--radius-sm);
+  padding: 8px 28px 8px 8px;
   background: transparent;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: border-color 0.16s var(--ease);
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
-.project-card:hover { border-color: var(--hairline-2); }
-.project-card.active { border-color: var(--accent); border-width: 2px; }
+.project-card:hover { border-color: var(--hairline-2); background: var(--glass); }
+.project-card.active { 
+  border-color: var(--accent); 
+  border-width: 1.5px; 
+  background: var(--accent-soft); 
+}
 .project-card-row1 {
-  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  display: flex; align-items: center; gap: 5px;
 }
 .project-card-name {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--fg);
   overflow: hidden;
@@ -878,25 +898,25 @@ select option {
 }
 .project-card-remove {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px; height: 18px;
+  top: 5px;
+  right: 5px;
+  width: 16px; height: 16px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--fg-faint);
   border-radius: 3px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   padding: 0;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.16s var(--ease), color 0.16s var(--ease);
 }
-.project-card:hover .project-card-remove { opacity: 0.7; }
+.project-card:hover .project-card-remove { opacity: 0.6; }
 .project-card-remove:hover { color: var(--danger); opacity: 1; }
 
 .project-card-path {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--fg-faint);
   font-family: var(--font-mono);
   overflow: hidden;
@@ -915,9 +935,12 @@ select option {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 24px 28px 32px;
-  gap: 16px;
+  padding: 18px 24px 24px;
+  gap: 10px;
   overflow-y: auto;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
 }
 .page-rail {
   display: flex;
@@ -925,8 +948,8 @@ select option {
   align-items: stretch;
   gap: 2px;
   align-self: stretch;
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--hairline);
 }
 .page-rail button {
@@ -936,9 +959,9 @@ select option {
   border: 1px solid transparent;
   background: transparent;
   color: var(--fg-muted);
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -952,7 +975,7 @@ select option {
   color: var(--ink-900);
   font-weight: 600;
 }
-[data-theme="light"] .page-rail button.active { color: #fff; }
+[data-theme="dark"] .page-rail button.active { color: #fff; }
 .page-rail .page-glyph { display: inline-flex; opacity: 0.7; }
 .page-rail button.active .page-glyph { opacity: 1; color: inherit; }
 .page-rail .page-glyph svg { width: 14px; height: 14px; }
@@ -968,7 +991,7 @@ select option {
   flex-direction: column;
   gap: 16px;
 }
-[data-theme="light"] .card { background: #fbfaf8; }
+[data-theme="dark"] .card { background: var(--ink-850); }
 .card h2 {
   margin: 0;
   font-family: var(--font-display);
@@ -988,69 +1011,50 @@ select option {
 /* ---- 10. Error banner ---------------------------------------------------- */
 
 .error-banner {
-  padding: 9px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--danger-soft);
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
   color: var(--danger);
   font-size: 12.5px;
+  line-height: 1.5;
   margin-top: 14px;
 }
-
-/* ---- 11. Standard Mode (workspace) -------------------------------------- */
-
-.standard-mode { gap: 18px; }
-.standard-header { display: flex; align-items: baseline; gap: 10px; min-height: 20px; flex-wrap: wrap; }
-.standard-header h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; color: var(--fg); }
-.standard-header-path {
-  font-size: 11px;
-  color: var(--fg-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.error-banner-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--danger);
 }
-
-/* Workspace stats — borderless. Two values (records + files) sit on a
-   single hairline row, separated by a 1px column divider rather than
-   boxed cards. Keeps the content volume high and the chrome low,
-   consistent with the "large card / borderless" rule everywhere
-   except settings. */
-.workspace-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
+.error-banner-text {
+  flex: 1;
+  min-width: 0;
 }
-.stat-card {
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--hairline);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.stat-card:first-child { border-left: none; }
-.stat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-faint); font-weight: 600; }
-.stat-value { font-size: 19px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
-
-/* Workspace actions — only two buttons: full backup + checkpoint. */
-.workspace-actions {
-  display: flex;
+.error-banner-dismiss {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 14px 0 4px;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  opacity: 0.6;
+  border-radius: 3px;
 }
-.workspace-actions button { font-size: 12px; }
+.error-banner-dismiss:hover {
+  opacity: 1;
+  background: var(--glass-3);
+}
 
-/* Backup feedback — quiet inline status line. */
-.workspace-feedback { font-size: 11.5px; margin: 2px 0 0; }
-.workspace-feedback.ok { color: var(--green); }
-.workspace-feedback.err { color: var(--danger); }
-
-/* ---- 11b. Workbench — card-free workspace ------------------------------ *
+/* ---- 11. Workbench — card-free workspace ------------------------------ *
  * Flat container, no outer border. Two regions stacked vertically and
  * separated by a 1px hairline: the top "ops" region (checkpoint + manual
  * backup, shown only after the backup target is configured) and the bottom
@@ -1067,12 +1071,12 @@ select option {
 .workbench-ops {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-bottom: 18px;
+  gap: 8px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--hairline);
 }
-.workbench-head { display: flex; align-items: baseline; gap: 10px; min-height: 20px; flex-wrap: wrap; }
-.workbench-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.005em; color: var(--fg); }
+.workbench-head { display: flex; align-items: baseline; gap: 8px; min-height: 18px; flex-wrap: wrap; }
+.workbench-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.005em; color: var(--fg); }
 .workbench-head-path {
   font-size: 11px;
   color: var(--fg-faint);
@@ -1087,12 +1091,12 @@ select option {
 .checkpoint-inline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .checkpoint-inline-title { /* uses .settings-input sizing */ }
 .checkpoint-inline-body {
   resize: vertical;
-  min-height: 44px;
+  min-height: 36px;
   line-height: 1.5;
 }
 .checkpoint-inline-mark { align-self: flex-start; }
@@ -1101,7 +1105,7 @@ select option {
 .checkpoint-inline-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -1109,7 +1113,7 @@ select option {
 .workbench-backup-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -1119,11 +1123,11 @@ select option {
 .stash-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .stash-count {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-faint);
 }
 /* Hairline separator between stash controls and the destructive restore
@@ -1152,11 +1156,11 @@ select option {
 .uncommitted-summary {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 .uncommitted-label {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-faint);
 }
 
@@ -1166,32 +1170,32 @@ select option {
 .tag-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .tag-form {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .tag-form-name {
-  width: 180px;
+  width: 160px;
 }
 .tag-list {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 .tag-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
+  gap: 3px;
+  padding: 1px 3px 1px 6px;
   border: 1px solid var(--hairline-2);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-muted);
   background: var(--glass);
 }
@@ -1222,15 +1226,16 @@ select option {
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding-top: 18px;
+  padding-top: 12px;
 }
-.workbench-config.collapsed { gap: 14px; }
+.workbench-config.collapsed { gap: 10px; }
 
 /* Collapsed config card — after the first save the whole body is gone and
    the header carries a single inline summary (target path · method) so the
    card reads as one compact line instead of a 3-column grid. */
 .workbench-config-card.collapsed {
-  padding: 8px 14px;
+  padding: 3px 12px;
+  margin-bottom: 0;
 }
 .workbench-config-card.collapsed .settings-category-header {
   padding-bottom: 0;
@@ -1239,7 +1244,7 @@ select option {
 .workbench-config-summary {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1262,10 +1267,10 @@ select option {
   border-bottom: 1px solid var(--hairline);
 }
 .workbench-summary-item {
-  padding: 12px 16px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   border-left: 1px solid var(--hairline);
   min-width: 0;
 }
@@ -1301,16 +1306,16 @@ select option {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding-top: 10px;
+  gap: 8px;
+  padding-top: 6px;
 }
 .workbench-edit,
 .workbench-cancel {
   border: 1px solid var(--hairline-2);
   background: transparent;
   color: var(--fg-muted);
-  padding: 6px 13px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 11.5px;
 }
 .workbench-edit:hover:not(:disabled),
 .workbench-cancel:hover:not(:disabled) {
@@ -1352,7 +1357,7 @@ select option {
 .workbench-target-row {
   display: flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
 }
 .workbench-target-row .settings-input {
@@ -1370,7 +1375,7 @@ select option {
 .workbench-delay-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
 }
 .workbench-delay-label {
@@ -1404,8 +1409,8 @@ select option {
   background: transparent;
   border: 1px solid transparent;
   color: var(--fg-muted);
-  padding: 3px 9px;
-  font-size: 11.5px;
+  padding: 2px 8px;
+  font-size: 11px;
   font-weight: 500;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1432,17 +1437,17 @@ select option {
 .workspace-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  font-size: 11.5px;
+  gap: 14px;
+  font-size: 11px;
   color: var(--fg-dim);
 }
-.workspace-summary > div { display: flex; gap: 6px; align-items: baseline; }
-.ws-summary-label { color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.1em; font-size: 10.5px; }
+.workspace-summary > div { display: flex; gap: 4px; align-items: baseline; }
+.ws-summary-label { color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
 .ws-summary-val { color: var(--fg-muted); font-weight: 500; }
 
 /* ---- 13. Settings page --------------------------------------------------- */
 
-.settings-page { gap: 14px; }
+.settings-page { gap: 10px; padding: 0 0 48px 0; }
 
 /* Category — a large independent card that groups related function
    sub-cards. Four of these stack inside the settings page: Basic,
@@ -1452,53 +1457,49 @@ select option {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   background: var(--ink-800);
-  padding: 14px 16px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
-[data-theme="light"] .settings-category { background: #f4f3f0; }
+[data-theme="dark"] .settings-category { background: var(--ink-800); }
 .settings-category-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--hairline);
+  gap: 6px;
+  padding: 0 0 2px;
 }
 .settings-category-header h3 {
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   color: var(--fg);
 }
 .settings-category-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
 }
 
-/* Sub-card — one function per card, inset inside a category. Surface
-   drops back to the page shade so it reads as a recessed panel inside
-   the raised category, keeping the three-level hierarchy legible
-   without heavy nested fills. */
+/* Sub-card — one function per card, inset inside a category. */
 .settings-subcard {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--ink-850);
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
-[data-theme="light"] .settings-subcard { background: #fbfaf8; }
+[data-theme="dark"] .settings-subcard { background: var(--ink-850); }
 .settings-subcard-title {
-  margin: 0;
+  margin: 0 0 2px 0;
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
 }
 /* The first settings-row inside a sub-card should not draw a top
    hairline — the sub-card border already frames it. */
@@ -1516,23 +1517,43 @@ select option {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  padding: 12px 0;
-  border-top: 1px solid var(--hairline);
+  gap: 14px;
+  padding: 6px 0;
 }
-.settings-row:first-of-type { border-top: none; padding-top: 0; }
-.settings-row-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.settings-row-label > span:first-child { font-size: 13px; font-weight: 500; color: var(--fg); }
-.settings-row-hint { font-size: 11.5px; color: var(--fg-faint); line-height: 1.5; }
-.settings-row-control { display: flex; align-items: center; gap: 8px; min-width: 200px; justify-content: flex-end; }
-.settings-row-control-input { width: 360px; max-width: 100%; }
+.settings-row:first-of-type { padding-top: 0; }
+.settings-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.settings-row-label > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.settings-row-hint {
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  line-height: 1.45;
+}
+.settings-row-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+.settings-row-control-input { width: 280px; max-width: 100%; }
 .settings-input { width: 100%; }
 .settings-input-pick {
   white-space: nowrap;
-  padding: 6px 12px;
-  font-size: 11.5px;
+  padding: 5px 10px;
+  font-size: 11px;
   border: 1px solid var(--hairline-2);
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
@@ -1566,13 +1587,11 @@ select option {
   border-color: var(--accent);
   font-weight: 600;
 }
-[data-theme="light"] .seg-control button.active { color: #fff; }
+[data-theme="dark"] .seg-control button.active { color: #fff; }
 
-/* Switch — unified flat toggle. A wide pill track with a bar-shaped
-   thumb that slides cleanly between two stops. Solid colors only:
-   hairline gray when off, accent fill when on. No glow, no shadow.
-   Proportions tuned so the thumb travels a visible distance and the
-   control reads instantly as on/off at a glance. */
+/* Switch — physical light switch. A vertical rectangular plate with
+   a toggle bar that slides from bottom (OFF) to top (ON). Click to
+   toggle — like a real wall switch. */
 .switch {
   display: inline-flex;
   align-items: center;
@@ -1594,33 +1613,52 @@ select option {
 .switch.switch-btn:focus-visible {
   outline: none;
 }
-.switch .track {
+/* The switch plate — a horizontal capsule like a standard toggle switch. */
+.switch .switch-plate {
   position: relative;
   display: inline-block;
-  width: 40px;
-  height: 22px;
+  width: 36px;
+  height: 20px;
   background: var(--ink-700);
   border: 1px solid var(--hairline-2);
-  border-radius: 11px;
+  border-radius: 99px;
   flex-shrink: 0;
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
 }
-.switch .thumb {
+/* The toggle knob — slides between left (OFF) and right (ON). */
+.switch .switch-toggle {
   position: absolute;
-  top: 3px; left: 3px;
-  width: 14px; height: 14px;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
   background: var(--fg-muted);
-  border-radius: 4px;
+  border-radius: 50%;
+  transition: left 0.18s var(--ease), background 0.18s var(--ease);
 }
-/* ON state is driven by a class on the button, not a hidden checkbox. */
-.switch.on .track { background: var(--accent); border-color: var(--accent); }
-.switch.on .thumb { left: 21px; background: var(--ink-900); }
-[data-theme="light"] .switch.on .thumb { background: #fff; }
-.switch.switch-btn:focus-visible .track { outline: 1px solid var(--accent-line); outline-offset: 1px; }
+/* Small indicator dot — removed; the knob itself is the indicator. */
+.switch .switch-indicator {
+  display: none;
+}
+/* ON state — plate fills with accent, knob slides right. */
+.switch.on .switch-plate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch.on .switch-toggle {
+  left: 18px;
+  background: #fff;
+}
+[data-theme="dark"] .switch.on .switch-toggle {
+  background: var(--ink-900);
+}
+.switch.switch-btn:focus-visible .switch-plate {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 1px;
+}
 /* Status label — the on/off text next to a switch. Reserved width +
-   right alignment so the track stays planted when the label changes
-   length on toggle. Without this every switch visibly shifts its
-   track left/right because the right-aligned control reflows to the
-   new text width ("已开启" vs "未开启", "Enabled" vs "Disabled"). */
+   right alignment so the plate stays planted when the label changes
+   length on toggle. */
 .switch .status {
   font-size: 11.5px;
   color: var(--fg-dim);
@@ -1631,37 +1669,39 @@ select option {
 }
 .switch .status .on { color: var(--accent); }
 
-.settings-cheatsheet, .settings-privacy, .settings-section {
-  border-top: 1px solid var(--hairline);
-  padding-top: 14px;
+/* Section — inner card nested inside a category. Each section groups
+   related rows (e.g. theme toggle, language selector) with its own
+   border and recessed surface, creating the "card inside card" visual
+   the user wants. */
+.settings-section {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--ink-850);
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.cheat-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+[data-theme="dark"] .settings-section { background: var(--ink-850); }
+/* Section title — h4 heading inside a settings-section. Uppercase,
+   small, faint, so it acts as a quiet label above the rows. Uses the
+   same geometry as .settings-subcard-title for visual consistency. */
+.settings-section-title {
+  margin: 0 0 4px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
 }
-.cheat-table th, .cheat-table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--hairline);
-  font-weight: 400;
+/* The first section inside a category body should not draw a top
+   border — the category header's bottom border already frames the
+   start of the content area. */
+.settings-category-body > .settings-section:first-of-type {
+  border-top: none;
+  padding-top: 10px;
 }
-.cheat-table th { color: var(--fg-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; }
-.cheat-table code {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--accent-bright);
-  background: transparent;
-  padding: 1px 4px;
-  border: 1px solid var(--hairline);
-  border-radius: 3px;
-}
-.cheat-note { font-size: 11.5px; color: var(--fg-faint); margin: 4px 0 0; }
-.settings-privacy p { margin: 0; font-size: 12px; color: var(--fg-muted); line-height: 1.6; }
-.settings-section-hint { font-size: 11.5px; color: var(--fg-faint); margin: 0; }
+.settings-section-hint { font-size: 11px; color: var(--fg-faint); margin: 0; line-height: 1.5; }
 
 .track-grid { display: flex; flex-direction: column; gap: 0; }
 .modal-textarea { resize: vertical; min-height: 64px; }
@@ -1680,7 +1720,7 @@ select option {
   white-space: pre-wrap;
   margin: 0;
 }
-[data-theme="light"] .ai-prompt-pre { background: var(--ink-800); }
+[data-theme="dark"] .ai-prompt-pre { background: var(--ink-800); }
 
 .ai-index-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 6px; }
 .ai-index-label { display: flex; flex-direction: column; gap: 2px; flex: 1; }
@@ -1714,14 +1754,14 @@ select option {
   border-radius: 3px;
   vertical-align: 1px;
 }
-[data-theme="light"] .beta-badge { color: #fff; }
+[data-theme="dark"] .beta-badge { color: #fff; }
 /* When the host button is active, invert the badge so it still reads on
    the solid accent fill of the seg-control. */
 .seg-control button.active .beta-badge {
   background: var(--ink-900);
   color: var(--accent);
 }
-[data-theme="light"] .seg-control button.active .beta-badge {
+[data-theme="dark"] .seg-control button.active .beta-badge {
   background: #fff;
   color: var(--accent-deep);
 }
@@ -1755,6 +1795,28 @@ select option {
   margin-top: 12px;
   padding-top: 12px;
   border-top-color: var(--hairline);
+}
+
+/* AI control pill — shows the "AI is active" indicator inside the
+   AI control row. A small accent pill with a dot mark, no glow. */
+.ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--accent-bright);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.ai-pill-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 /* Test-connection row — the "test" button sits next to its result line so
@@ -1942,28 +2004,70 @@ select option {
 
 /* Danger zone */
 .settings-dangerzone {
-  border-top: 1px solid var(--hairline);
-  padding-top: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .dangerzone-title { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--danger); }
 .dangerzone-dot { width: 6px; height: 6px; background: var(--danger); border-radius: 50%; }
-.dangerzone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dangerzone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .dangerzone-cell {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   background: var(--ink-850);
 }
 .dangerzone-cell-destructive { border-color: var(--danger-soft); }
-.dangerzone-cell-label { font-size: 13px; font-weight: 600; color: var(--fg); }
-.dangerzone-cell-hint { font-size: 11.5px; color: var(--fg-faint); line-height: 1.5; }
+.dangerzone-cell-label { font-size: 13px; font-weight: 700; color: var(--fg); }
+.dangerzone-cell-hint { font-size: 11.5px; color: var(--fg-faint); line-height: 1.55; }
 .dangerzone-irreversible { color: var(--danger); }
+.clear-data-trigger {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.clear-countdown-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  margin-top: 6px;
+  border: 1px solid var(--danger-soft);
+  border-radius: var(--radius);
+  background: var(--ink-900);
+  animation: countdown-slidein 0.2s var(--ease);
+}
+@keyframes countdown-slidein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.clear-countdown-number {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--danger);
+  line-height: 1;
+}
+.clear-countdown-label {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+.clear-countdown-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--hairline);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.clear-countdown-fill {
+  height: 100%;
+  background: var(--danger);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
 
 .hold-button {
   align-self: flex-start;
@@ -1990,6 +2094,149 @@ select option {
 .hold-destructive .hold-ring-fill { stroke: var(--danger); }
 .hold-label { display: inline-flex; align-items: center; gap: 8px; }
 .hold-pct { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); }
+
+/* ---- Theme capsule switch -------------------------------------------------
+   A pill-shaped toggle for light/dark theme. No slider, no knob —
+   just a solid track with a label. Click toggles the state.
+   Active state uses accent color, inactive uses muted gray. */
+.theme-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.theme-capsule-track {
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  border-radius: 99px;
+  background: var(--ink-700);
+  border: 1px solid var(--hairline-2);
+  position: relative;
+  transition: background 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.theme-capsule.active .theme-capsule-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.theme-capsule-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  transition: left 0.2s var(--ease), background 0.2s var(--ease);
+}
+.theme-capsule.active .theme-capsule-knob {
+  left: 23px;
+  background: var(--ink-900);
+}
+[data-theme="dark"] .theme-capsule.active .theme-capsule-knob { background: #fff; }
+.theme-capsule-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  transition: color 0.2s var(--ease);
+}
+.theme-capsule.active .theme-capsule-label {
+  color: var(--accent);
+}
+.theme-capsule:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 2px;
+  border-radius: 99px;
+}
+
+/* ---- Pre-injection grid ---------------------------------------------------
+   Side-by-side columns for skills + references inside the pre-injection
+   section. Each column is a compact list with a small title. */
+.pre-injection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 6px;
+}
+.pre-injection-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pre-injection-col-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+.pre-injection-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--fg-faint);
+  line-height: 1.5;
+}
+
+/* ---- Permission badge ------------------------------------------------------
+   A small static label showing the current permission level. */
+.permission-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  border: 1px solid var(--hairline-2);
+  border-radius: 99px;
+  background: var(--glass);
+}
+
+/* ---- Workbench config list -------------------------------------------------
+   Each config type (S3, WebDAV, SSH) gets its own card with a header
+   and vertical fields. No cramped rows — each field is full-width. */
+.workbench-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.workbench-config-item {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+[data-theme="dark"] .workbench-config-item { background: var(--ink-800); }
+.workbench-config-item-header {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--glass);
+}
+.workbench-config-item-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.workbench-config-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.workbench-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.workbench-config-field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-dim);
+}
 
 /* ---- 14. History page ---------------------------------------------------- */
 
@@ -2047,23 +2294,23 @@ select option {
 .timeline-item {
   position: relative;
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 24px 1fr;
   align-items: flex-start;
-  gap: 12px;
-  padding: 8px 4px 8px 0;
+  gap: 8px;
+  padding: 6px 4px 6px 0;
 }
 /* The rail spine — sits behind the icon nodes, 1px hairline. */
 .timeline-item::before {
   content: "";
   position: absolute;
-  left: 13px;
+  left: 11px;
   top: 0;
   bottom: 0;
   width: 1px;
   background: var(--hairline);
 }
-.timeline-item:first-child::before { top: 18px; }
-.timeline-item:last-child::before { bottom: calc(100% - 18px); }
+.timeline-item:first-child::before { top: 14px; }
+.timeline-item:last-child::before { bottom: calc(100% - 14px); }
 
 /* timeline-node — the icon that sits on the rail. Larger and more
    prominent than the old dot, and carries the commit type glyph so
@@ -2071,19 +2318,19 @@ select option {
 .timeline-node {
   position: relative;
   z-index: 1;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--ink-900);
   border: 1px solid var(--hairline-2);
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--fg-muted);
   flex-shrink: 0;
 }
-[data-theme="light"] .timeline-node { background: var(--ink-900); }
-.timeline-node svg { width: 14px; height: 14px; }
+[data-theme="dark"] .timeline-node { background: var(--ink-900); }
+.timeline-node svg { width: 12px; height: 12px; }
 .timeline-item.op-ai .timeline-node { border-color: var(--accent-line); color: var(--accent-bright); }
 .timeline-item.op-checkpoint .timeline-node { border-color: var(--ochre); color: var(--ochre); }
 
@@ -2091,35 +2338,35 @@ select option {
 .timeline-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 2px 0 6px;
+  gap: 2px;
+  padding: 1px 0 4px;
   min-width: 0;
 }
-.timeline-row1 { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.timeline-msg { font-size: 13px; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.timeline-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.timeline-msg { font-size: 12px; color: var(--fg); display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .timeline-checkmark, .timeline-ai-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px; height: 18px;
+  width: 16px; height: 16px;
   border: 1px solid var(--hairline-2);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: var(--fg-muted);
 }
 .timeline-ai-pill { color: var(--accent-bright); border-color: var(--accent-line); }
-.timeline-time { font-size: 10.5px; color: var(--fg-faint); font-family: var(--font-mono); flex-shrink: 0; }
-.timeline-row2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.timeline-author { font-size: 11.5px; color: var(--fg-dim); }
-.timeline-id { font-size: 10.5px; color: var(--fg-faint); }
+.timeline-time { font-size: 10px; color: var(--fg-faint); font-family: var(--font-mono); flex-shrink: 0; }
+.timeline-row2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.timeline-author { font-size: 11px; color: var(--fg-dim); }
+.timeline-id { font-size: 10px; color: var(--fg-faint); }
 .timeline-rollback {
   border: 1px solid var(--hairline);
   background: transparent;
   color: var(--fg-dim);
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  padding: 3px 8px;
+  font-size: 11px;
+  padding: 2px 7px;
   cursor: pointer;
   transition: color 0.16s var(--ease), border-color 0.16s var(--ease);
 }
@@ -2127,18 +2374,18 @@ select option {
 
 /* File-level diff details — collapsible, shows which files changed.
    Uses muted solid colors (no fluorescent) for add/mod/del tags. */
-.timeline-diff { margin-top: 4px; }
+.timeline-diff { margin-top: 2px; }
 .timeline-diff > summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-faint);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   user-select: none;
 }
 .timeline-diff > summary:hover { color: var(--fg-muted); }
-.timeline-diff-count { display: inline-flex; gap: 4px; }
+.timeline-diff-count { display: inline-flex; gap: 3px; }
 .diff-tag {
   font-size: 10px;
   font-weight: 600;
@@ -2151,13 +2398,13 @@ select option {
 .diff-tag.del { color: var(--danger); background: var(--danger-soft); }
 
 .timeline-diff-body {
-  margin-top: 6px;
-  padding: 8px 10px 8px 12px;
+  margin-top: 4px;
+  padding: 6px 8px 6px 10px;
   border-left: 1px solid var(--hairline);
   border-radius: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .diff-group { display: flex; flex-direction: column; gap: 3px; }
 .diff-group-label {
@@ -2179,9 +2426,9 @@ select option {
 }
 .diff-file {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-dim);
-  padding: 1px 0 1px 10px;
+  padding: 0 0 0 8px;
   position: relative;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2200,23 +2447,23 @@ select option {
 
 .modal-backdrop {
   position: fixed; inset: 0;
-  background: #0a0a0c;
+  background: #b8b6b0;
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
   padding: 24px;
 }
-[data-theme="light"] .modal-backdrop { background: #b8b6b0; }
+[data-theme="dark"] .modal-backdrop { background: #0a0a0c; }
 
 .modal-card {
   width: 480px; max-width: 100%;
   background: var(--ink-850);
   border: 1px solid var(--hairline-2);
-  border-radius: var(--radius);
-  padding: 18px 20px 20px;
-  display: flex; flex-direction: column; gap: 12px;
+  border-radius: var(--radius-lg);
+  padding: 20px 22px 22px;
+  display: flex; flex-direction: column; gap: 14px;
 }
-[data-theme="light"] .modal-card { background: #fbfaf8; }
-.modal-card h3 { font-size: 14px; font-weight: 600; }
+[data-theme="dark"] .modal-card { background: var(--ink-800); }
+.modal-card h3 { font-size: 14px; font-weight: 700; margin: 0; }
 .modal-hint { font-size: 11.5px; color: var(--fg-faint); margin: 0; }
 .modal-label { display: flex; flex-direction: column; gap: 4px; }
 .modal-label > span { font-size: 11.5px; color: var(--fg-muted); }
@@ -2229,6 +2476,7 @@ select option {
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 .modal-btn:hover { color: var(--fg); border-color: var(--hairline-3); }
 .modal-btn.primary {
@@ -2238,7 +2486,7 @@ select option {
   font-weight: 600;
 }
 .modal-btn.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); color: var(--ink-900); }
-[data-theme="light"] .modal-btn.primary { color: #fff; }
+[data-theme="dark"] .modal-btn.primary { color: #fff; }
 
 /* ---- 16. AI conflict dialog --------------------------------------------- */
 
@@ -2267,7 +2515,113 @@ select option {
 .ai-conflict-reason { font-size: 11.5px; color: var(--fg-dim); line-height: 1.5; }
 .ai-conflict-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 4px; }
 
-/* ---- 17. Menu panel (native menu replacement) -------------------------- */
+/* ---- 17. AI chat -------------------------------------------------------- */
+
+.chat-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.chat-page-ctx-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+.chat-page-ctx-status {
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+.chat-page-ctx-status.loading {
+  color: var(--fg-muted);
+}
+.chat-page-ctx-status.error {
+  color: var(--danger);
+}
+.chat-page-ctx-status.loaded {
+  color: var(--green);
+}
+.chat-page-ctx-status.warning {
+  color: var(--ochre);
+}
+.chat-page-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 0 16px;
+}
+.ai-chat-empty {
+  color: var(--fg-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 32px 0;
+  line-height: 1.6;
+}
+.ai-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--ink-850);
+}
+.ai-chat-msg-user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.ai-chat-msg-assistant {
+  align-self: flex-start;
+  background: var(--ink-850);
+  border-color: var(--hairline);
+}
+.ai-chat-msg-role {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+}
+.ai-chat-msg-user .ai-chat-msg-role { color: var(--accent-deep); }
+.ai-chat-msg-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ai-chat-typing { color: var(--fg-dim); }
+.ai-chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--hairline);
+  padding-top: 12px;
+  padding-bottom: 4px;
+}
+.ai-chat-input-row input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.ai-chat-input-row button {
+  flex-shrink: 0;
+  padding: 8px 18px;
+}
+
+/* ---- 18. Menu panel (native menu replacement) -------------------------- */
 
 .menu-panel {
   position: fixed;
@@ -2303,7 +2657,7 @@ select option {
 .menu-item-hint { color: var(--fg-faint); font-size: 11px; }
 .menu-sep { height: 1px; background: var(--hairline); margin: 4px 6px; }
 
-[data-theme="light"] .menu-panel { background: #fbfaf8; }
+[data-theme="dark"] .menu-panel { background: var(--ink-800); }
 
 /* ---- 18. Reduced motion -------------------------------------------------- */
 
@@ -2320,8 +2674,6 @@ select option {
 
 @media (max-width: 880px) {
   .sidebar { width: 200px; }
-  .workspace-stats { grid-template-columns: repeat(2, 1fr); }
-  .workspace-stats .stat-card:last-child { grid-column: 1 / -1; }
   .dangerzone-grid { grid-template-columns: 1fr; }
   .settings-row { flex-direction: column; align-items: stretch; }
   .settings-row-control { justify-content: flex-start; }
@@ -2337,19 +2689,19 @@ select option {
 .branch-tree {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 0;
+  gap: 8px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--hairline);
 }
 .branch-tree-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 .branch-tree-header h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
   color: var(--fg);
@@ -2359,8 +2711,8 @@ select option {
   background: transparent;
   color: var(--fg-muted);
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  padding: 4px 10px;
+  font-size: 11px;
+  padding: 3px 8px;
   cursor: pointer;
 }
 .branch-new-btn:hover { color: var(--fg); border-color: var(--hairline-2); }
@@ -2370,13 +2722,13 @@ select option {
 .branch-form {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
-.branch-form-name { flex: 1 1 200px; min-width: 140px; }
-.branch-form-kind { width: auto; min-width: 110px; }
+.branch-form-name { flex: 1 1 180px; min-width: 120px; }
+.branch-form-kind { width: auto; min-width: 100px; }
 .branch-form-from {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-faint);
   font-family: var(--font-mono);
 }
@@ -2384,9 +2736,9 @@ select option {
   border: none;
   background: transparent;
   color: var(--fg-dim);
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 3px 6px;
 }
 .branch-form-cancel:hover { color: var(--fg); }
 
@@ -2401,7 +2753,7 @@ select option {
   gap: 0;
 }
 .branch-lane {
-  padding: 10px 0;
+  padding: 6px 0;
   border-top: 1px solid var(--hairline);
 }
 .branch-lane:first-child { border-top: none; }
@@ -2432,11 +2784,11 @@ select option {
 .branch-lane-title {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 .branch-lane-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg);
   cursor: default;
@@ -2451,10 +2803,10 @@ select option {
 .branch-kind-badge {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: 3px;
   background: var(--glass-3);
   color: var(--fg-dim);
@@ -2469,10 +2821,10 @@ select option {
 .branch-lane-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .branch-current-tag {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--accent-bright);
   font-weight: 600;
 }
@@ -2481,8 +2833,8 @@ select option {
   background: transparent;
   color: var(--fg-dim);
   border-radius: var(--radius-sm);
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 10.5px;
+  padding: 2px 7px;
   cursor: pointer;
 }
 .branch-action:hover { color: var(--fg); border-color: var(--hairline-2); }
@@ -2491,32 +2843,33 @@ select option {
    .timeline-item / .timeline-node / .timeline-body unchanged. Slight
    left indent so the lane header reads as the parent of the list. */
 .branch-timeline {
-  margin-top: 8px;
+  margin-top: 4px;
   padding-left: 0;
 }
 .branch-lane-empty {
-  margin-top: 6px;
-  font-size: 11.5px;
+  margin-top: 4px;
+  font-size: 11px;
   color: var(--fg-faint);
 }
 
 /* ---- 21. Workbench status strip ----------------------------------------- */
-/* Single hairline-separated row between the ops region and the config
-   card. Shows the watcher state + current branch so the user always
-   knows if auto-tracking is live. */
+/* Compact info bar between the ops region and the branch tree. Shows
+   tracking state, current branch, mode (standard / Git / AI), backup
+   kind, and last commit time — all in a single hairline-separated row
+   so the user gets a quick status glance without reading multiple cards. */
 
 .workbench-status-strip {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  gap: 6px;
+  padding: 5px 0;
   border-bottom: 1px solid var(--hairline);
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: var(--fg-dim);
 }
 .workbench-status-dot {
-  width: 7px;
-  height: 7px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: var(--fg-faint);
   flex-shrink: 0;
@@ -2524,14 +2877,71 @@ select option {
 .workbench-status-dot.starting { background: var(--ochre); }
 .workbench-status-dot.running { background: var(--accent); }
 .workbench-status-dot.off { background: var(--fg-faint); }
-.workbench-status-text { color: var(--fg-muted); }
+.workbench-status-text { color: var(--fg-muted); font-size: 10.5px; }
 .workbench-status-sep {
   width: 1px;
-  height: 12px;
-  background: var(--hairline);
+  height: 8px;
+  background: var(--hairline-2);
+  flex-shrink: 0;
 }
-.workbench-status-branch { color: var(--fg-dim); }
-.workbench-status-branch .mono { font-family: var(--font-mono); }
+.workbench-status-branch {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-status-pending {
+  color: var(--ochre);
+  font-weight: 500;
+  font-size: 10.5px;
+}
+.workbench-status-time {
+  color: var(--fg-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.workbench-status-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  background: var(--glass-2);
+  line-height: 16px;
+}
+.workbench-status-mode.ai {
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+}
+.workbench-status-backup {
+  font-size: 10px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+.workbench-edit-link {
+  background: transparent;
+  border: none;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--hairline-2);
+  text-underline-offset: 2px;
+}
+.workbench-edit-link:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 
 
 /* ---- 22. MCP config block (settings page) -------------------------------- */

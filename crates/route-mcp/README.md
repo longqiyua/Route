@@ -77,7 +77,7 @@ per line to stdout. You can drive it from a shell:
 ```bash
 $ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' \
   | route-mcp
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"serverInfo":{"name":"route-mcp","version":"0.2.0"},...}}
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"serverInfo":{"name":"route-mcp","version":"0.4.0-beta"},...}}
 
 $ echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | route-mcp
 {"jsonrpc":"2.0","id":2,"result":{"tools":[{...},{...},...]}}

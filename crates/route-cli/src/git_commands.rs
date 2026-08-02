@@ -422,3 +422,71 @@ pub fn backup() -> Result<()> {
     println!("✓ Backup created: {}", archive_path.display());
     Ok(())
 }
+
+pub fn restore(paths: Vec<String>) -> Result<()> {
+    if paths.is_empty() {
+        return Err(anyhow!("At least one path is required for restore"));
+    }
+    let mut args = vec!["restore"];
+    for p in &paths { args.push(p.as_str()); }
+    run_git(&args)?;
+    println!("✓ Restored: {}", paths.join(", "));
+    Ok(())
+}
+
+pub fn set_mode(mode: String) -> Result<()> {
+    run_git(&["config", "route.mode", &mode])?;
+    println!("✓ Git mode set to '{mode}'");
+    Ok(())
+}
+
+pub fn push_set_upstream(remote: Option<String>, branch: Option<String>) -> Result<()> {
+    let r = remote.unwrap_or_else(|| "origin".to_string());
+    let b = branch.unwrap_or_else(|| {
+        run_git(&["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    });
+    run_git(&["push", "-u", &r, &b])?;
+    println!("✓ Push with upstream set: {r}/{b}");
+    Ok(())
+}
+
+pub fn rebase_in_progress() -> Result<()> {
+    let git_dir = run_git(&["rev-parse", "--git-dir"])?.trim().to_string();
+    let git_dir_path = std::path::Path::new(&git_dir);
+    let rebase_merge = git_dir_path.join("rebase-merge");
+    let rebase_apply = git_dir_path.join("rebase-apply");
+    let in_progress = rebase_merge.exists() || rebase_apply.exists();
+    if in_progress {
+        println!("✓ Rebase in progress");
+    } else {
+        println!("✓ No rebase in progress");
+    }
+    Ok(())
+}
+
+pub fn backup_list() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let backup_dir = cwd.join(".route").join("git-backups");
+    if !backup_dir.exists() {
+        println!("(no backups)");
+        return Ok(());
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "tar"))
+        .collect();
+    entries.sort_by_key(|e| e.path().metadata().ok().and_then(|m| m.created().ok()));
+    if entries.is_empty() {
+        println!("(no backups)");
+        return Ok(());
+    }
+    for e in &entries {
+        let name = e.file_name().to_string_lossy().to_string();
+        let size = e.metadata().ok().map(|m| m.len()).unwrap_or(0);
+        println!("  {}  ({} bytes)", name, size);
+    }
+    Ok(())
+}

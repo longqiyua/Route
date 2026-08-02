@@ -1,12 +1,14 @@
 //! Application state — holds the currently open repository.
 
 use std::path::PathBuf;
+use std::process::Child;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use route_basic::BasicRepository;
 use route_sync::Scheduler;
 
+use crate::permissions::PermissionLevel;
 use crate::watcher::WatcherHandle;
 
 /// Identity of the AI agent currently driving the software, if any.
@@ -31,6 +33,8 @@ pub struct AppState {
     pub project_path: Mutex<Option<PathBuf>>,
     /// Currently running sync scheduler (if any).
     pub sync_scheduler: Mutex<Option<Scheduler>>,
+    /// Currently running tracking scheduler (if any).
+    pub tracking_scheduler: Mutex<Option<crate::tracking::TrackingScheduler>>,
     /// Currently running file-system watcher (if any). The watcher
     /// auto-commits changes; only one may run at a time.
     pub watcher: Mutex<Option<WatcherHandle>>,
@@ -43,6 +47,27 @@ pub struct AppState {
     /// via the `git_mode_set` command so the backend watcher sees the
     /// change without a restart.
     pub git_mode: Arc<AtomicBool>,
+    /// Permission level for CLI/MCP. The GUI always runs at High.
+    /// Defaults to Normal, which restricts remote operations.
+    pub permission_level: Mutex<PermissionLevel>,
+}
+
+/// Holds handles to child processes started by the GUI (CLI daemon, MCP server).
+pub struct ManagedProcesses {
+    pub cli: Option<Child>,
+    pub mcp: Option<Child>,
+}
+
+/// Wrapper around `ManagedProcesses` for Tauri managed state.
+pub struct ProcessManager(pub Mutex<ManagedProcesses>);
+
+impl Default for ProcessManager {
+    fn default() -> Self {
+        Self(Mutex::new(ManagedProcesses {
+            cli: None,
+            mcp: None,
+        }))
+    }
 }
 
 impl AppState {

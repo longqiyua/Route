@@ -49,6 +49,11 @@ pub fn dispatch(repo: Option<&BasicRepository>, project_path: &Path, input: &str
             print_help();
             return Action::Continue;
         }
+        "ai" | "chat" => {
+            // AI works even without a repo (limited context but still useful)
+            crate::ai::handle_ai_command(project_path, &args);
+            return Action::Continue;
+        }
         "clear" | "cls" => {
             // ANSI clear screen + move cursor home.
             print!("\x1b[2J\x1b[H");
@@ -150,6 +155,7 @@ fn print_help() {
     println!();
     let rows: &[(&str, &str, &str)] = &[
         ("help, ?", "", "Show this help"),
+        ("ai, chat", "<question>", "AI assistant (Claude-Code-style)"),
         ("status, st", "", "Repository status"),
         ("log, lg", "[limit]", "Commit history (table)"),
         ("commit, ci", "<message>", "Commit working directory"),

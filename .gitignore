@@ -17,7 +17,9 @@ packages/desktop/src-tauri/target/
 
 # Tauri build cache and large generated files
 .tauri/
-gen/schemas/
+
+# Tauri-generated schema files (auto-regenerated on build)
+**/gen/schemas/
 
 # Vite / TypeScript incremental
 *.tsbuildinfo
@@ -34,3 +36,16 @@ gen/schemas/
 /_*.png
 /_*.ps1
 /_*.jpg
+
+# Debug runtime artifacts
+.dbg/
+
+# Demo / sandbox directories
+sandbox-demo/
+demo/
+
+# Third-party AI skill assets (external references, not part of the Route source)
+PPAM/
+
+# Design reference documents (not part of the Route source code)
+FrontDesignSkill.md

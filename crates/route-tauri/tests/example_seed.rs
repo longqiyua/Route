@@ -104,7 +104,14 @@ fn seed_writes_expected_files() {
         let project = tmp.path().join("example");
         let _ = seed_example(&project).unwrap();
 
-        for rel in ["README.md", "app.py", "tests.py", "config.json", "notes.md"] {
+        for rel in ["README.md", "package.json", "tsconfig.json", "next.config.js", "tailwind.config.ts"] {
+            assert!(
+                project.join(rel).exists(),
+                "expected file {} to exist on disk",
+                rel
+            );
+        }
+        for rel in ["src/components/ui/Button.tsx", "src/pages/index.tsx", "src/types/index.ts", "src/hooks/useAuth.ts", "prisma/schema.prisma"] {
             assert!(
                 project.join(rel).exists(),
                 "expected file {} to exist on disk",

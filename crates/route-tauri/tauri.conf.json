@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Route",
-  "version": "0.2.0",
+  "version": "0.4.0-beta",
   "identifier": "dev.route.app",
   "build": {
     "beforeBuildCommand": { "script": "npm run build", "cwd": "web" },
@@ -12,10 +12,10 @@
     "windows": [
       {
         "title": "Route",
-        "width": 960,
-        "height": 600,
+        "width": 1200,
+        "height": 760,
         "resizable": true,
-        "minWidth": 720,
+        "minWidth": 900,
         "minHeight": 480,
         "decorations": false,
         "shadow": false,

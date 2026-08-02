@@ -500,3 +500,485 @@ fn format_bytes(n: u64) -> String {
         format!("{:.1} {}", value, UNITS[unit_idx])
     }
 }
+
+// ---------------------------------------------------------------------------
+// Undo / Redo / Checkpoint
+// ---------------------------------------------------------------------------
+
+pub fn undo() -> Result<()> {
+    let repo = open_repo()?;
+    let commit = repo.undo_last()?;
+    println!("✓ Undo — commit [{}] undone", short_id(&commit.id));
+    Ok(())
+}
+
+pub fn redo() -> Result<()> {
+    let repo = open_repo()?;
+    let commit = repo.redo_last()?;
+    println!("✓ Redo — commit [{}] re-applied", short_id(&commit.id));
+    Ok(())
+}
+
+pub fn checkpoint(title: String, body: Option<String>) -> Result<()> {
+    let repo = open_repo()?;
+    let commit = repo.checkpoint_create(&title, body.as_deref(), Some("user"))?;
+    println!("✓ Checkpoint [{}] created: {}", short_id(&commit.id), title);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tracking (active sync with remote repos)
+// ---------------------------------------------------------------------------
+
+/// Helper: read the tracking config file.
+fn read_tracking_config(project_path: &std::path::Path) -> Result<serde_json::Value> {
+    let path = project_path.join(".route").join("tracking.json");
+    if !path.exists() {
+        return Ok(serde_json::json!({ "folders": [] }));
+    }
+    let content = std::fs::read_to_string(&path)?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+/// Helper: write the tracking config file.
+fn write_tracking_config(project_path: &std::path::Path, config: &serde_json::Value) -> Result<()> {
+    let path = project_path.join(".route").join("tracking.json");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, serde_json::to_string_pretty(config)?)?;
+    Ok(())
+}
+
+pub fn tracking_list() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = read_tracking_config(&cwd)?;
+    let folders = config["folders"].as_array().cloned().unwrap_or_default();
+    if folders.is_empty() {
+        println!("(no tracking targets)");
+        return Ok(());
+    }
+    println!("Active tracking targets:");
+    for (i, f) in folders.iter().enumerate() {
+        let local = f["local_path"].as_str().unwrap_or("");
+        let remote = f["remote_url"].as_str().unwrap_or("");
+        let branch = f["branch"].as_str().unwrap_or("main");
+        let enabled = f["enabled"].as_bool().unwrap_or(false);
+        let status = f["last_status"].as_str().unwrap_or("pending");
+        println!(
+            "  {}. {} [{}] {} → {} ({})",
+            i + 1,
+            if enabled { "✓" } else { "○" },
+            branch,
+            local,
+            remote,
+            status
+        );
+    }
+    Ok(())
+}
+
+pub fn tracking_add(local: String, remote: String, branch: String, interval: u64) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let mut config = read_tracking_config(&cwd)?;
+    let folders = config["folders"].as_array_mut().unwrap();
+    folders.push(serde_json::json!({
+        "local_path": local,
+        "remote_url": remote,
+        "branch": branch,
+        "enabled": true,
+        "interval_secs": interval,
+        "last_sync": null,
+        "last_status": "pending",
+        "syncing": false,
+    }));
+    write_tracking_config(&cwd, &config)?;
+    println!("✓ Tracking target added: {} → {} ({})", local, remote, branch);
+    Ok(())
+}
+
+pub fn tracking_remove(local: String) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let mut config = read_tracking_config(&cwd)?;
+    let folders = config["folders"].as_array_mut().unwrap();
+    folders.retain(|f| f["local_path"].as_str() != Some(&local));
+    write_tracking_config(&cwd, &config)?;
+    println!("✓ Tracking target removed: {}", local);
+    Ok(())
+}
+
+pub fn tracking_sync(local: Option<String>) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = read_tracking_config(&cwd)?;
+    let folders = config["folders"].as_array().cloned().unwrap_or_default();
+    let targets: Vec<&serde_json::Value> = match &local {
+        Some(l) => {
+            let filtered: Vec<_> = folders.iter().filter(|f| f["local_path"].as_str() == Some(l.as_str())).collect();
+            if filtered.is_empty() {
+                return Err(anyhow!("no tracking target matches: {}", l));
+            }
+            filtered
+        }
+        None => folders.iter().collect(),
+    };
+    for target in targets {
+        let local_path = target["local_path"].as_str().unwrap();
+        let remote_url = target["remote_url"].as_str().unwrap();
+        let branch = target["branch"].as_str().unwrap_or("main");
+        println!("Syncing {} → {} ({})...", local_path, remote_url, branch);
+        let path = std::path::Path::new(local_path);
+        if !path.exists() {
+            println!("  ⚠ Local path does not exist, skipping");
+            continue;
+        }
+        // Perform git fetch + pull
+        let fetch_result = std::process::Command::new("git")
+            .args(["-C", local_path, "fetch", "origin"])
+            .output();
+        match fetch_result {
+            Ok(out) if out.status.success() => {
+                println!("  ✓ Fetch OK");
+                let pull_result = std::process::Command::new("git")
+                    .args(["-C", local_path, "pull", "--rebase", "origin", branch])
+                    .output();
+                match pull_result {
+                    Ok(pout) if pout.status.success() => {
+                        println!("  ✓ Pull OK: {}", String::from_utf8_lossy(&pout.stdout).trim().lines().last().unwrap_or("done"));
+                    }
+                    Ok(pout) => {
+                        println!("  ⚠ Pull issue: {}", String::from_utf8_lossy(&pout.stderr).trim());
+                    }
+                    Err(e) => {
+                        println!("  ⚠ Pull failed: {e}");
+                    }
+                }
+            }
+            Ok(out) => {
+                println!("  ⚠ Fetch issue: {}", String::from_utf8_lossy(&out.stderr).trim());
+            }
+            Err(e) => {
+                println!("  ⚠ Fetch failed: {e}");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn tracking_history() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let history_path = cwd.join(".route").join("tracking-history.json");
+    if !history_path.exists() {
+        println!("(no sync history)");
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&history_path)?;
+    let history: Vec<serde_json::Value> = serde_json::from_str(&content)?;
+    if history.is_empty() {
+        println!("(no sync history)");
+        return Ok(());
+    }
+    println!("Sync history (newest first):");
+    for entry in history.iter().rev().take(20) {
+        let time = entry["timestamp"].as_str().unwrap_or("?");
+        let local = entry["local_path"].as_str().unwrap_or("?");
+        let status = entry["status"].as_str().unwrap_or("?");
+        println!("  [{}] {} — {}", time, local, status);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Extensions (skills and references)
+// ---------------------------------------------------------------------------
+
+pub fn extensions_skills() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let skills_dir = cwd.join(".route").join("skills");
+    if !skills_dir.exists() {
+        println!("(no skills directory — create .route/skills/ to add skills)");
+        return Ok(());
+    }
+    let mut files: Vec<_> = std::fs::read_dir(&skills_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+    files.sort_by_key(|e| e.file_name());
+    if files.is_empty() {
+        println!("(no skill files)");
+        return Ok(());
+    }
+    println!("Skill files:");
+    for f in &files {
+        let meta = f.metadata()?;
+        let name = f.file_name().to_string_lossy().to_string();
+        let size = format_bytes(meta.len());
+        println!("  {} ({})", name, size);
+    }
+    Ok(())
+}
+
+pub fn extensions_references() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let refs_dir = cwd.join(".route").join("references");
+    if !refs_dir.exists() {
+        println!("(no references directory — create .route/references/ to add references)");
+        return Ok(());
+    }
+    let mut files: Vec<_> = std::fs::read_dir(&refs_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+    files.sort_by_key(|e| e.file_name());
+    if files.is_empty() {
+        println!("(no reference files)");
+        return Ok(());
+    }
+    println!("Reference files:");
+    for f in &files {
+        let meta = f.metadata()?;
+        let name = f.file_name().to_string_lossy().to_string();
+        let size = format_bytes(meta.len());
+        println!("  {} ({})", name, size);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// AI Configuration
+// ---------------------------------------------------------------------------
+
+pub fn ai_config(show: bool) -> Result<()> {
+    if !show {
+        println!("AI Configuration:");
+    }
+    let key = std::env::var("ROUTE_AI_KEY").unwrap_or_default();
+    if key.is_empty() {
+        println!("  Status: disabled (set ROUTE_AI_KEY to enable)");
+        return Ok(());
+    }
+    let masked = if key.len() > 8 {
+        format!("{}...{}", &key[..4], &key[key.len() - 4..])
+    } else {
+        "****".to_string()
+    };
+    println!("  Provider:   {}", std::env::var("ROUTE_AI_PROVIDER").unwrap_or_else(|_| "openai".to_string()));
+    println!("  Endpoint:   {}", std::env::var("ROUTE_AI_ENDPOINT").unwrap_or_else(|_| "https://api.openai.com/v1".to_string()));
+    println!("  Model:      {}", std::env::var("ROUTE_AI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()));
+    println!("  Key:        {}", masked);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// AI Chat
+// ---------------------------------------------------------------------------
+
+pub fn ai_chat(message: String, system: Option<String>) -> Result<()> {
+    let key = std::env::var("ROUTE_AI_KEY").map_err(|_| {
+        anyhow!("ROUTE_AI_KEY not set. Set ROUTE_AI_KEY to enable AI chat.")
+    })?;
+    let endpoint = std::env::var("ROUTE_AI_ENDPOINT")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+    let model = std::env::var("ROUTE_AI_MODEL")
+        .unwrap_or_else(|_| "gpt-4o".to_string());
+
+    let client = reqwest::blocking::Client::new();
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let system_prompt = system.unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 4096,
+    });
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .map_err(|e| anyhow!("AI request failed: {}", e))?;
+
+    let status = response.status();
+    let body_text = response
+        .text()
+        .map_err(|e| anyhow!("Cannot read AI response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(anyhow!("AI API error ({}): {}", status.as_u16(), body_text));
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body_text).map_err(|e| anyhow!("Cannot parse AI response: {}", e))?;
+
+    let content = parsed["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No content in AI response"))?;
+
+    println!("{}", content);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Project Context
+// ---------------------------------------------------------------------------
+
+pub fn project_context() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+
+    // 1. Git branch
+    println!("=== Git Branch ===");
+    let branch_output = std::process::Command::new("git")
+        .args(["-C", &cwd.to_string_lossy(), "branch", "--show-current"])
+        .output();
+    match branch_output {
+        Ok(out) if out.status.success() => {
+            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            println!("  {}", branch);
+        }
+        _ => {
+            println!("  (not a git repository or git not available)");
+        }
+    }
+    println!();
+
+    // 2. Recent commits
+    println!("=== Recent Commits ===");
+    let log_output = std::process::Command::new("git")
+        .args([
+            "-C",
+            &cwd.to_string_lossy(),
+            "log",
+            "--oneline",
+            "-10",
+        ])
+        .output();
+    match log_output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let lines: Vec<&str> = text.lines().collect();
+            if lines.is_empty() {
+                println!("  (no commits)");
+            } else {
+                for line in &lines {
+                    println!("  {}", line);
+                }
+            }
+        }
+        _ => {
+            println!("  (no git history)");
+        }
+    }
+    println!();
+
+    // 3. Skills
+    println!("=== Skills (.route/skills/) ===");
+    let skills_dir = cwd.join(".route").join("skills");
+    if skills_dir.exists() {
+        let mut files: Vec<_> = std::fs::read_dir(&skills_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .collect();
+        files.sort_by_key(|e| e.file_name());
+        if files.is_empty() {
+            println!("  (no skill files)");
+        } else {
+            for f in &files {
+                let name = f.file_name().to_string_lossy().to_string();
+                let content = std::fs::read_to_string(f.path()).unwrap_or_default();
+                let preview: String = content.chars().take(200).collect();
+                let trunc = if content.len() > 200 { "..." } else { "" };
+                println!("  - {}:\n    {}{}", name, preview, trunc);
+            }
+        }
+    } else {
+        println!("  (no skills directory)");
+    }
+    println!();
+
+    // 4. References
+    println!("=== References (.route/references/) ===");
+    let refs_dir = cwd.join(".route").join("references");
+    if refs_dir.exists() {
+        let mut files: Vec<_> = std::fs::read_dir(&refs_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .collect();
+        files.sort_by_key(|e| e.file_name());
+        if files.is_empty() {
+            println!("  (no reference files)");
+        } else {
+            for f in &files {
+                let name = f.file_name().to_string_lossy().to_string();
+                let content = std::fs::read_to_string(f.path()).unwrap_or_default();
+                let preview: String = content.chars().take(200).collect();
+                let trunc = if content.len() > 200 { "..." } else { "" };
+                println!("  - {}:\n    {}{}", name, preview, trunc);
+            }
+        }
+    } else {
+        println!("  (no references directory)");
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// MCP Configuration
+// ---------------------------------------------------------------------------
+
+pub fn mcp_config(show_config: bool) -> Result<()> {
+    if show_config {
+        let mcp_config = serde_json::json!({
+            "mcpServers": {
+                "route": {
+                    "command": "route",
+                    "args": ["mcp"],
+                    "env": {}
+                }
+            }
+        });
+        println!("{}", serde_json::to_string_pretty(&mcp_config)?);
+    } else {
+        println!("MCP Server Configuration");
+        println!("  Command: route mcp");
+        println!("  Use --config to print JSON config snippet for AI client integration");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Permission level
+// ---------------------------------------------------------------------------
+
+pub fn permission_status() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config_path = cwd.join(".route").join("permission.json");
+    let level = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        let config: serde_json::Value = serde_json::from_str(&content)?;
+        config["level"].as_str().unwrap_or("normal").to_string()
+    } else {
+        "normal".to_string()
+    };
+    println!("Current permission level: {}", level);
+    Ok(())
+}
+
+pub fn permission_set(level: String) -> Result<()> {
+    let l = level.to_lowercase();
+    if l != "normal" && l != "high" {
+        return Err(anyhow!("invalid permission level: {} (use normal|high)", l));
+    }
+    let cwd = std::env::current_dir()?;
+    let route_dir = cwd.join(".route");
+    std::fs::create_dir_all(&route_dir)?;
+    let config_path = route_dir.join("permission.json");
+    let config = serde_json::json!({ "level": l });
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    println!("✓ Permission level set to: {}", l);
+    Ok(())
+}

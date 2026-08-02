@@ -1,6 +1,7 @@
 //! Route CLI — command-line interface for basic mode.
 
 mod commands;
+mod git_commands;
 mod plugin_commands;
 mod sync_commands;
 
@@ -135,6 +136,297 @@ enum Commands {
     },
     /// Show working-directory changes (what would be committed)
     Changes,
+    /// Undo last commit (step back one snapshot)
+    Undo,
+    /// Redo last undone commit (step forward one snapshot)
+    Redo,
+    /// Create a named checkpoint at the current state
+    Checkpoint {
+        /// Checkpoint title (required)
+        #[arg(short, long)]
+        title: String,
+        /// Optional body text
+        #[arg(short, long)]
+        body: Option<String>,
+    },
+    /// Git operations — drive the user's own git binary
+    #[command(subcommand)]
+    Git(GitAction),
+    /// Manage active tracking targets (auto-sync with remote repos)
+    #[command(subcommand)]
+    Tracking(TrackingAction),
+    /// Manage extensions (skills and references for AI pre-injection)
+    #[command(subcommand)]
+    Extensions(ExtensionAction),
+    /// AI operations
+    #[command(subcommand)]
+    Ai(AiAction),
+    /// Show project context for AI injection
+    ProjectContext,
+    /// Show MCP configuration
+    Mcp {
+        /// Show config snippet for AI client integration
+        #[arg(long)]
+        config: bool,
+    },
+    /// Get or set the permission level (normal|high)
+    #[command(subcommand)]
+    Permission(PermissionAction),
+}
+
+#[derive(Subcommand)]
+enum GitAction {
+    /// Initialize a git repository (idempotent)
+    Init,
+    /// Show working tree status
+    Status,
+    /// Show commit log
+    Log {
+        /// Max entries
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+        /// Show ASCII graph with branch topology
+        #[arg(short, long)]
+        graph: bool,
+        /// Show all branches (not just current)
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Stage all changes and commit
+    Commit {
+        /// Commit message
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Manage branches
+    #[command(subcommand)]
+    Branch(GitBranchAction),
+    /// Manage remotes
+    #[command(subcommand)]
+    Remote(GitRemoteAction),
+    /// Fetch from a remote
+    Fetch {
+        /// Remote name (default: origin)
+        #[arg(short, long)]
+        remote: Option<String>,
+    },
+    /// Pull from a remote branch (with rebase)
+    Pull {
+        /// Remote name (default: origin)
+        #[arg(short, long)]
+        remote: Option<String>,
+        /// Branch name (default: current)
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
+    /// Push to a remote branch
+    Push {
+        /// Remote name (default: origin)
+        #[arg(short, long)]
+        remote: Option<String>,
+        /// Branch name (default: current)
+        #[arg(short, long)]
+        branch: Option<String>,
+        /// Force push (with lease)
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show diff (working tree or against a ref)
+    Diff {
+        /// Target ref (default: HEAD)
+        target: Option<String>,
+    },
+    /// Stage files
+    Add {
+        /// Paths to stage (empty = all)
+        paths: Vec<String>,
+    },
+    /// Unstage files
+    Reset {
+        /// Paths to unstage (empty = all)
+        paths: Vec<String>,
+    },
+    /// Stash operations
+    #[command(subcommand)]
+    Stash(GitStashAction),
+    /// Tag operations
+    #[command(subcommand)]
+    Tag(GitTagAction),
+    /// Get/set git config
+    Config {
+        #[command(subcommand)]
+        action: GitConfigAction,
+    },
+    /// Revert a commit (safe, creates new commit)
+    Revert {
+        /// Commit SHA to revert
+        sha: String,
+    },
+    /// Cherry-pick commits onto current HEAD
+    CherryPick {
+        /// Commit SHAs to cherry-pick
+        shas: Vec<String>,
+        /// Optional commit message
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+    /// Rebase current branch onto another branch
+    Rebase {
+        /// Target branch
+        target: String,
+    },
+    /// Abort an in-progress rebase
+    RebaseAbort,
+    /// Continue a rebase after resolving conflicts
+    RebaseContinue,
+    /// Clean untracked files
+    Clean {
+        /// Dry-run (default: true)
+        #[arg(long)]
+        dry_run: Option<bool>,
+        /// Remove untracked directories
+        #[arg(short, long)]
+        directories: bool,
+        /// Actually remove files (default: dry-run)
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show commit details
+    Show {
+        /// Commit SHA
+        sha: String,
+    },
+    /// Create a git archive
+    Archive {
+        /// Output file path
+        output: String,
+        /// Format: zip, tar, tgz (default: zip)
+        #[arg(short, long)]
+        format: Option<String>,
+        /// Tree-ish ref (default: HEAD)
+        #[arg(short, long)]
+        treeish: Option<String>,
+    },
+    /// Clone a remote repository
+    Clone {
+        /// Remote URL
+        url: String,
+        /// Target directory
+        target: String,
+    },
+    /// Merge a branch into current
+    Merge {
+        /// Source branch
+        source: String,
+    },
+    /// Create a safety backup
+    Backup,
+    /// Restore working tree files
+    Restore {
+        /// Paths to restore
+        paths: Vec<String>,
+    },
+    /// Set git mode (route.mode config)
+    Mode {
+        /// Mode string
+        mode: String,
+    },
+    /// Push with upstream (set upstream tracking)
+    PushSetUpstream {
+        /// Remote name (default: origin)
+        #[arg(short, long)]
+        remote: Option<String>,
+        /// Branch name (default: current)
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
+    /// Check if rebase is in progress
+    RebaseInProgress,
+    /// List git backups
+    BackupList,
+}
+
+#[derive(Subcommand)]
+enum GitBranchAction {
+    /// List branches
+    List,
+    /// Create a branch
+    Create {
+        name: String,
+    },
+    /// Switch to a branch
+    Switch {
+        name: String,
+    },
+    /// Delete a branch
+    Delete {
+        name: String,
+        /// Force delete (even if not merged)
+        #[arg(short, long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GitRemoteAction {
+    /// List remotes
+    List,
+    /// Add a remote
+    Add {
+        name: String,
+        url: String,
+    },
+    /// Remove a remote
+    Remove {
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum GitStashAction {
+    /// List stashes
+    List,
+    /// Push working tree changes to stash
+    Push {
+        /// Optional message
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+    /// Pop the top stash
+    Pop,
+}
+
+#[derive(Subcommand)]
+enum GitTagAction {
+    /// List tags
+    List,
+    /// Create a tag at HEAD
+    Create {
+        name: String,
+        /// Optional message (creates annotated tag)
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+    /// Delete a tag
+    Delete {
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum GitConfigAction {
+    /// Get a config value
+    Get {
+        key: String,
+    },
+    /// Set a config value
+    Set {
+        key: String,
+        value: String,
+        /// Scope: local, global, system (default: local)
+        #[arg(short, long)]
+        scope: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -304,6 +596,72 @@ enum TagAction {
     },
 }
 
+#[derive(Subcommand)]
+enum TrackingAction {
+    /// List all active tracking targets
+    List,
+    /// Add a new tracking target
+    Add {
+        /// Local folder path
+        #[arg(short, long)]
+        local: String,
+        /// Remote URL
+        #[arg(short, long)]
+        remote: String,
+        /// Branch to track
+        #[arg(short, long, default_value = "main")]
+        branch: String,
+        /// Sync interval in seconds
+        #[arg(short, long, default_value = "600")]
+        interval: u64,
+    },
+    /// Remove a tracking target
+    Remove {
+        /// Local folder path
+        local: String,
+    },
+    /// Sync all (or a specific) tracking target now
+    Sync {
+        /// Specific local folder path to sync
+        local: Option<String>,
+    },
+    /// Show sync history
+    History,
+}
+
+#[derive(Subcommand)]
+enum ExtensionAction {
+    /// List all skill files in .route/skills/
+    Skills,
+    /// List all reference files in .route/references/
+    References,
+}
+
+#[derive(Subcommand)]
+enum AiAction {
+    /// Send a chat message to the AI provider
+    Chat {
+        /// The message to send
+        message: String,
+        /// Optional system prompt
+        #[arg(short, long)]
+        system: Option<String>,
+    },
+    /// Show AI configuration
+    Config,
+}
+
+#[derive(Subcommand)]
+enum PermissionAction {
+    /// Show current permission level
+    Status,
+    /// Set permission level (normal|high)
+    Set {
+        /// Permission level: normal or high
+        level: String,
+    },
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -412,5 +770,84 @@ fn main() -> Result<()> {
         },
         Commands::Diff { from, to } => commands::diff_snapshots(from, to),
         Commands::Changes => commands::changes(),
+        Commands::Undo => commands::undo(),
+        Commands::Redo => commands::redo(),
+        Commands::Checkpoint { title, body } => commands::checkpoint(title, body),
+        Commands::Git(action) => match action {
+            GitAction::Init => git_commands::init(),
+            GitAction::Status => git_commands::status(),
+            GitAction::Log { limit, graph, all } => git_commands::log(limit, graph, all),
+            GitAction::Commit { message } => git_commands::commit(message),
+            GitAction::Branch(b) => match b {
+                GitBranchAction::List => git_commands::branch_list(),
+                GitBranchAction::Create { name } => git_commands::branch_create(name),
+                GitBranchAction::Switch { name } => git_commands::branch_switch(name),
+                GitBranchAction::Delete { name, force } => git_commands::branch_delete(name, force),
+            },
+            GitAction::Remote(r) => match r {
+                GitRemoteAction::List => git_commands::remote_list(),
+                GitRemoteAction::Add { name, url } => git_commands::remote_add(name, url),
+                GitRemoteAction::Remove { name } => git_commands::remote_remove(name),
+            },
+            GitAction::Fetch { remote } => git_commands::fetch(remote),
+            GitAction::Pull { remote, branch } => git_commands::pull(remote, branch),
+            GitAction::Push { remote, branch, force } => git_commands::push(remote, branch, force),
+            GitAction::Diff { target } => git_commands::diff(target),
+            GitAction::Add { paths } => git_commands::add(paths),
+            GitAction::Reset { paths } => git_commands::reset(paths),
+            GitAction::Stash(s) => match s {
+                GitStashAction::List => git_commands::stash_list(),
+                GitStashAction::Push { message } => git_commands::stash_push(message),
+                GitStashAction::Pop => git_commands::stash_pop(),
+            },
+            GitAction::Tag(t) => match t {
+                GitTagAction::List => git_commands::tag_list(),
+                GitTagAction::Create { name, message } => git_commands::tag_create(name, message),
+                GitTagAction::Delete { name } => git_commands::tag_delete(name),
+            },
+            GitAction::Config { action } => match action {
+                GitConfigAction::Get { key } => git_commands::config_get(key),
+                GitConfigAction::Set { key, value, scope } => git_commands::config_set(key, value, scope),
+            },
+            GitAction::Revert { sha } => git_commands::revert(sha),
+            GitAction::CherryPick { shas, message } => git_commands::cherry_pick(shas, message),
+            GitAction::Rebase { target } => git_commands::rebase(target),
+            GitAction::RebaseAbort => git_commands::rebase_abort(),
+            GitAction::RebaseContinue => git_commands::rebase_continue(),
+            GitAction::Clean { dry_run, directories, force } => {
+                git_commands::clean(dry_run.unwrap_or(true), directories, force)
+            }
+            GitAction::Show { sha } => git_commands::show(sha),
+            GitAction::Archive { output, format, treeish } => git_commands::archive(output, format, treeish),
+            GitAction::Clone { url, target } => git_commands::clone(url, target),
+            GitAction::Merge { source } => git_commands::merge(source),
+            GitAction::Backup => git_commands::backup(),
+            GitAction::Restore { paths } => git_commands::restore(paths),
+            GitAction::Mode { mode } => git_commands::set_mode(mode),
+            GitAction::PushSetUpstream { remote, branch } => git_commands::push_set_upstream(remote, branch),
+            GitAction::RebaseInProgress => git_commands::rebase_in_progress(),
+            GitAction::BackupList => git_commands::backup_list(),
+        },
+        Commands::Tracking(action) => match action {
+            TrackingAction::List => commands::tracking_list(),
+            TrackingAction::Add { local, remote, branch, interval } => commands::tracking_add(local, remote, branch, interval),
+            TrackingAction::Remove { local } => commands::tracking_remove(local),
+            TrackingAction::Sync { local } => commands::tracking_sync(local),
+            TrackingAction::History => commands::tracking_history(),
+        },
+        Commands::Extensions(action) => match action {
+            ExtensionAction::Skills => commands::extensions_skills(),
+            ExtensionAction::References => commands::extensions_references(),
+        },
+        Commands::Ai(action) => match action {
+            AiAction::Chat { message, system } => commands::ai_chat(message, system),
+            AiAction::Config => commands::ai_config(true),
+        },
+        Commands::ProjectContext => commands::project_context(),
+        Commands::Mcp { config } => commands::mcp_config(config),
+        Commands::Permission(action) => match action {
+            PermissionAction::Status => commands::permission_status(),
+            PermissionAction::Set { level } => commands::permission_set(level),
+        },
     }
 }

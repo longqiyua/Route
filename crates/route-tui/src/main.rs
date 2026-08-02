@@ -5,6 +5,7 @@
 //! not a Route repository the REPL still starts but only `help` /
 //! `exit` / `clear` are usable.
 
+mod ai;
 mod banner;
 mod commands;
 mod fmt;

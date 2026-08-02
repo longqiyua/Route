@@ -11,9 +11,16 @@ mod autostart_commands;
 mod git_commands;
 mod mcp_commands;
 mod ai_commands;
+mod permissions;
+mod llm_integration;
+mod tracking;
+mod extensions;
+mod project_context;
+// mod tui_adapt;  // unused — terminal-UI adaptation not needed in the Tauri desktop app
 
 use autostart_commands::AutostartConfig;
 use state::AppState;
+use state::ProcessManager;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -63,6 +70,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .manage(ProcessManager::default())
         .setup(move |app| {
             // Apply the configured startup priority to this process.
             // We load the config the same way `autostart_get` does so the
@@ -190,6 +198,7 @@ pub fn run() {
             commands::commit_diff_detail,
             commands::working_dir_status,
             commands::diff_snapshots,
+            commands::read_file,
             commands::tag_list,
             commands::tag_create,
             commands::tag_delete,
@@ -249,9 +258,61 @@ pub fn run() {
             git_commands::git_tag_delete,
             git_commands::git_restore,
             git_commands::git_mode_set,
+            // New git operations (Phase 6 — comprehensive Git coverage)
+            git_commands::git_add,
+            git_commands::git_reset,
+            git_commands::git_branch_delete,
+            git_commands::git_revert,
+            git_commands::git_cherry_pick,
+            git_commands::git_remote_list,
+            git_commands::git_remote_add,
+            git_commands::git_remote_remove,
+            git_commands::git_fetch,
+            git_commands::git_pull,
+            git_commands::git_push,
+            git_commands::git_push_set_upstream,
+            git_commands::git_clean,
+            git_commands::git_show,
+            git_commands::git_config_get,
+            git_commands::git_config_set,
+            git_commands::git_log_graph,
+            git_commands::git_archive,
+            git_commands::git_rebase,
+            git_commands::git_rebase_in_progress,
+            git_commands::git_rebase_abort,
+            git_commands::git_rebase_continue,
+            git_commands::git_clone,
+            git_commands::git_backup_create,
+            git_commands::git_backup_list,
+            // Permission commands
+            permissions::get_permission_level,
+            permissions::set_permission_level,
+            // LLM injection commands
+            llm_integration::llm_injection_get,
+            llm_integration::llm_injection_set,
+            llm_integration::llm_injection_build,
+            llm_integration::llm_chat_with_injection,
             commands::branch_merge,
             mcp_commands::mcp_get_config,
+            mcp_commands::mcp_get_config_for_client,
+            mcp_commands::mcp_list_clients,
             ai_commands::ai_chat,
+            // Tracking commands
+            tracking::tracking_list,
+            tracking::tracking_add,
+            tracking::tracking_remove,
+            tracking::tracking_update,
+            tracking::tracking_sync_now,
+            tracking::tracking_history,
+            tracking::tracking_start,
+            tracking::tracking_stop,
+            tracking::tracking_status,
+            // Extension commands
+            extensions::skills_list,
+            extensions::references_list,
+            // Project context command
+            project_context::project_context,
+            // TUI adapt commands
             show_window,
             hide_window,
         ])
