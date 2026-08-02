@@ -1,0 +1,41 @@
+[package]
+name = "route-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route desktop app (Tauri + React)"
+
+[lib]
+name = "route_tauri"
+path = "src/lib.rs"
+
+[[bin]]
+name = "route-tauri"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+route-core = { path = "../route-core", version = "0.2.0" }
+route-basic = { path = "../route-basic", version = "0.2.0" }
+route-sync = { path = "../route-sync", version = "0.2.0" }
+route-stats = { path = "../route-stats", version = "0.2.0" }
+route-plugins = { path = "../route-plugins", version = "0.2.0" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+tracing.workspace = true
+ignore.workspace = true
+tauri = { version = "2.1", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.0"
+auto-launch = "0.5"
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls-tls"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile.workspace = true

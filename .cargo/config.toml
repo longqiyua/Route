@@ -1,0 +1,10 @@
+# Cargo build configuration for the Route workspace.
+#
+# Cap parallel compilation jobs to keep peak memory manageable on machines
+# with ~16 GB RAM. The route-tauri crate pulls in a heavy dependency tree
+# (Tauri + reqwest + rusqlite + the route-* crates); with default
+# parallelism (one job per CPU core) a clean build can trigger
+# `rustc-LLVM ERROR: out of memory` during the final codegen step.
+# Two jobs is a safe balance between speed and memory headroom.
+[build]
+jobs = 2

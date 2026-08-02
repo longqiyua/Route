@@ -1,0 +1,31 @@
+[package]
+name = "route-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route plugin runtime: event bus, native plugins, and (future) WASM runtime"
+
+[lib]
+name = "route_plugins"
+path = "src/lib.rs"
+
+[features]
+default = ["hmac_signing"]
+# Enables HMAC-SHA256 signing of webhook bodies. Adds the `hmac`, `sha2`,
+# and `hex` crates. Off by default would let users build route-plugins
+# without crypto deps, but the workspace always enables it.
+hmac_signing = ["dep:hmac", "dep:sha2", "dep:hex"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+hmac = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

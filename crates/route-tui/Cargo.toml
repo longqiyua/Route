@@ -1,0 +1,20 @@
+[package]
+name = "route-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route interactive TUI — Claude-Code-style REPL"
+
+[[bin]]
+name = "route-tui"
+path = "src/main.rs"
+
+[dependencies]
+route-core = { path = "../route-core", version = "0.2.0" }
+route-basic = { path = "../route-basic", version = "0.2.0" }
+anyhow.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+rustyline.workspace = true
+owo-colors = { workspace = true, features = ["supports-colors"] }
+comfy-table.workspace = true

@@ -1,0 +1,22 @@
+{
+  "name": "route",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight version manager for Web Coding — conversation-driven backups, rollback, and branches",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @route/core && npm run build -w @route/desktop-bridge && npm run build -w @route/cli && npm run build -w @route/desktop",
+    "dev:cli": "npm run dev -w @route/cli",
+    "dev:desktop": "npm run tauri:dev -w @route/desktop",
+    "tauri:dev": "node scripts/start-dev.mjs",
+    "tauri:dev:direct": "cargo tauri dev",
+    "test:whitebox": "node scripts/test-all.cjs",
+    "test": "npm run build -w @route/core && npm run test -w @route/core"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

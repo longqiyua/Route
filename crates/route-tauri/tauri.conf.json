@@ -1,0 +1,41 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Route",
+  "version": "0.2.0",
+  "identifier": "dev.route.app",
+  "build": {
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "web" },
+    "frontendDist": "./web/dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Route",
+        "width": 960,
+        "height": 600,
+        "resizable": true,
+        "minWidth": 720,
+        "minHeight": 480,
+        "decorations": false,
+        "shadow": false,
+        "transparent": false
+      }
+    ],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

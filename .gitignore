@@ -1,0 +1,36 @@
+node_modules/
+dist/
+target/
+**/target/
+crates/*/target/
+crates/*/web/dist/
+*.rs.bk
+.route/
+.route-basic/
+*.log
+.DS_Store
+Thumbs.db
+packages/desktop/dist/
+packages/desktop/src-tauri/target/
+.env
+.env.*
+
+# Tauri build cache and large generated files
+.tauri/
+gen/schemas/
+
+# Vite / TypeScript incremental
+*.tsbuildinfo
+.vite/
+
+# IDE / editor / tool local config
+.trae/
+.vibe/
+.ts/
+.vscode/
+.idea/
+
+# Debug screenshots & throwaway capture scripts (root-level)
+/_*.png
+/_*.ps1
+/_*.jpg

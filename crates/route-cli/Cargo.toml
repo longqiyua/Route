@@ -1,0 +1,28 @@
+[package]
+name = "route-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route command-line interface"
+
+[[bin]]
+name = "route"
+path = "src/main.rs"
+
+[dependencies]
+route-core = { path = "../route-core", version = "0.2.0" }
+route-basic = { path = "../route-basic", version = "0.2.0" }
+route-sync = { path = "../route-sync", version = "0.2.0" }
+route-stats = { path = "../route-stats", version = "0.2.0" }
+route-plugins = { path = "../route-plugins", version = "0.2.0" }
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+anyhow.workspace = true
