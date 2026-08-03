@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dash Board</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f0f2f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: white;
+        }
+
+        .top-bar {
+            height: 4rem;
+            display: flex;
+            align-items: center;
+            padding-left: 1.5rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        .top-bar h1 {
+            margin: 0;
+            color: #666;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .version-badge {
+            font-size: 0.85rem;
+            color: #888;
+            font-weight: 400;
+            margin-left: 0.5rem;
+        }
+
+        .content-area {
+            display: flex;
+            flex: 1;
+            padding: 1.5rem;
+            gap: 1.25rem;
+        }
+
+        .categories-wrapper {
+            flex: 1;
+            display: flex;
+            gap: 1.25rem;
+        }
+
+        .category {
+            flex: 1;
+            background: white;
+            border: 1.5px solid #e0e0e0;
+            border-radius: 0.875rem;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .category-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.875rem;
+        }
+
+        .category-title {
+            font-size: 1.25rem;
+            color: #222;
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .category-en {
+            font-size: 0.875rem;
+            color: #888;
+            margin-left: 0.5rem;
+        }
+
+        .tasks-list {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .task-card {
+            background: white;
+            border: 1px solid #e8e8e8;
+            border-radius: 10px;
+            padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+            display: flex;
+            align-items: flex-start;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+        .task-card.done {
+            background: #f0f0f0;
+            color: #888;
+        }
+
+        .task-card.archiving {
+            opacity: 0.6;
+            transform: translateX(-10px);
+            transition: all 0.3s ease;
+        }
+
+        .archive-square {
+            width: 16px;
+            height: 16px;
+            background: #ddd;
+            border-radius: 2px;
+            margin-right: 0.75rem;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.2s ease;
+        }
+
+        .archive-square:hover {
+            background: #bbb;
+        }
+
+        .task-content {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .task-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin: 0 0 0.25rem 0;
+            color: #222;
+            word-break: break-word;
+        }
+
+        .task-detail {
+            font-size: 0.8125rem;
+            color: #666;
+            margin: 0 0 0.3rem 0;
+            word-break: break-word;
+        }
+
+        .priority-stripes {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        .stripe {
+            width: 100%;
+            height: 16px;
+            background: #ccc;
+            border-radius: 2px;
+        }
+
+        .priority-high .stripe { background: #ff4d4f; }
+        .priority-medium .stripe { background: #faad14; }
+        .priority-low .stripe { background: #52c41a; }
+
+        .context-menu,
+        .edit-task-form {
+            position: absolute;
+            background: white;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .context-menu {
+            min-width: 140px;
+            padding: 0.25rem 0;
+        }
+
+        .context-item {
+            padding: 0.5rem 1rem;
+            font-size: 0.95rem;
+            color: #333;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .context-item.delete {
+            color: #ff4d4f;
+        }
+
+        .context-item:hover {
+            background: #f0f9ff;
+        }
+
+        .edit-task-form {
+            padding: 1rem;
+            min-width: 220px;
+        }
+
+        .edit-task-form input,
+        .edit-task-form textarea {
+            width: 100%;
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .edit-task-form textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .form-buttons {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .form-buttons button {
+            padding: 0.3rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .form-buttons .cancel {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .form-buttons .save {
+            background: #1890ff;
+            color: white;
+        }
+
+        .right-space {
+            width: 0;
+            opacity: 0;
+            pointer-events: none;
+            transition: width 0.3s ease, opacity 0.2s ease;
+        }
+
+        .right-space.active {
+            width: 320px;
+            opacity: 1;
+            pointer-events: auto;
+            background: white;
+            border-left: 1.5px solid #e0e0e0;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .task-form-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .task-input-card {
+            background: #fafafa;
+            border: 1px solid #e8e8e8;
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .task-title-input,
+        .task-detail-input {
+            width: 100%;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            outline: none;
+            resize: none;
+            padding: 0;
+        }
+
+        .task-title-input {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #222;
+        }
+
+        .task-detail-input {
+            font-size: 0.875rem;
+            color: #555;
+            line-height: 1.4;
+            min-height: 50px;
+        }
+
+        .short-divider {
+            height: 1px;
+            background: #ddd;
+            width: 40px;
+            align-self: flex-start;
+            margin: 0.25rem 0;
+        }
+
+        .combined-control {
+            display: flex;
+            height: 40px;
+            background: white;
+            border: 1px solid #d9d9d9;
+            border-radius: 10px;
+            padding: 0 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            position: relative;
+        }
+
+        .combined-control::before {
+            content: '';
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            left: 50%;
+            width: 1px;
+            background-color: #ddd;
+            transform: translateX(-50%);
+        }
+
+        .priority-dropdown,
+        .date-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .priority-toggle {
+            width: 100%;
+            height: 32px;
+            padding: 0 12px;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            font-size: 0.92rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .priority-toggle::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #ccc;
+        }
+
+        .priority-toggle.HIGH::before   { background: #ff4d4f; }
+        .priority-toggle.MEDIUM::before { background: #faad14; }
+        .priority-toggle.LOW::before    { background: #52c41a; }
+
+        .priority-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #d9d9d9;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            z-index: 10;
+            display: none;
+        }
+
+        .priority-menu.show {
+            display: block;
+        }
+
+        .priority-option {
+            height: 32px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .priority-option::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #ccc;
+        }
+
+        .priority-option.HIGH::before   { background: #ff4d4f; }
+        .priority-option.MEDIUM::before { background: #faad14; }
+        .priority-option.LOW::before    { background: #52c41a; }
+
+        .priority-option:hover {
+            background: #f0f9ff;
+        }
+
+        .date-input {
+            width: 100%;
+            height: 32px;
+            border: none;
+            border-radius: 8px;
+            padding: 0 12px;
+            font-size: 0.92rem;
+            background: white;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .panel-buttons {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: auto;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.55rem;
+            border: none;
+            border-radius: 0.6rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .btn.cancel {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .btn.save {
+            background: #1890ff;
+            color: white;
+        }
+
+        .add-button {
+            width: 4rem;
+            height: 4rem;
+            background: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 2rem;
+            cursor: pointer;
+            box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 100;
+        }
+
+        .add-button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 8px 20px rgba(24, 144, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+<div class="main-container">
+    <div class="top-bar">
+        <h1>Dash Board <span class="version-badge">v1.2.0</span></h1>
+    </div>
+
+    <div class="content-area">
+        <div class="categories-wrapper">
+            <div class="category" data-category="done">
+                <div class="category-header">
+                    <h2 class="category-title">已完成</h2>
+                    <span class="category-en">Done</span>
+                </div>
+                <div class="tasks-list" id="done-list"></div>
+            </div>
+            <div class="category" data-category="doing">
+                <div class="category-header">
+                    <h2 class="category-title">现在做</h2>
+                    <span class="category-en">Doing!</span>
+                </div>
+                <div class="tasks-list" id="doing-list"></div>
+            </div>
+            <div class="category" data-category="todo">
+                <div class="category-header">
+                    <h2 class="category-title">之后做</h2>
+                    <span class="category-en">To Do</span>
+                </div>
+                <div class="tasks-list" id="todo-list"></div>
+            </div>
+        </div>
+
+        <div class="right-space" id="rightPanel"></div>
+        <button class="add-button" id="addButton">+</button>
+    </div>
+
+    <div class="context-menu" id="contextMenu">
+        <div class="context-item" data-action="refactor">重构任务</div>
+        <div class="context-item" data-action="edit-priority">更改优先级</div>
+        <div class="context-item" data-action="edit-date">更改截止时间</div>
+        <div class="context-item delete" data-action="delete">删除</div>
+    </div>
+
+    <div class="edit-task-form" id="editTaskForm"></div>
+</div>
+
+<script>
+    const API_BASE = '/api';
+
+    let tasks = [];
+    const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    let currentRightClickTaskId = null;
+
+    const doneList = document.getElementById('done-list');
+    const doingList = document.getElementById('doing-list');
+    const todoList = document.getElementById('todo-list');
+    const rightPanel = document.getElementById('rightPanel');
+    const addButton = document.getElementById('addButton');
+    const contextMenu = document.getElementById('contextMenu');
+    const editTaskForm = document.getElementById('editTaskForm');
+
+    async function apiFetch(url, options = {}) {
+        const config = { ...options };
+
+        if (config.method && config.method.toUpperCase() !== 'GET') {
+            config.headers = {
+                'Content-Type': 'application/json',
+                ...(config.headers || {})
+            };
+        }
+
+        try {
+            const res = await fetch(API_BASE + url, config);
+            if (res.status === 204) return null;
+            if (!res.ok) {
+                console.error(`API Error ${res.status}: ${res.statusText}`);
+                alert(`请求失败：${res.status} ${res.statusText}`);
+                return null;
+            }
+            return await res.json();
+        } catch (err) {
+            console.error('Network error:', err);
+            alert('网络错误，请检查后端是否运行');
+            return null;
+        }
+    }
+
+    // 🔥 关键：后端返回的是 HIGH/MEDIUM/LOW，直接使用
+    function backendToFrontend(backendTask) {
+        let priority = backendTask.priority;
+        if (typeof priority !== 'string') {
+            priority = 'LOW';
+        } else {
+            priority = priority.trim().toUpperCase();
+            if (!['HIGH', 'MEDIUM', 'LOW'].includes(priority)) {
+                console.warn('Invalid priority in task ID ' + backendTask.id + ':', backendTask.priority);
+                priority = 'LOW';
+            }
+        }
+
+        return {
+            id: backendTask.id,
+            title: backendTask.name,
+            detail: backendTask.detail || null,
+            priority: priority,
+            dueDate: backendTask.duedate || null, // 格式是 "2025-12-31"
+            status: backendTask.status === 'fi' ? 'done' :
+                backendTask.status === 'wd' ? 'doing' : 'todo',
+            timestamp: backendTask.timestamp || Date.now()
+        };
+    }
+
+    // 🔥 关键：发送给后端的 priority 必须是 HIGH/MEDIUM/LOW（大写）
+    function frontendToBackend(frontendTask) {
+        return {
+            name: frontendTask.title,
+            detail: frontendTask.detail,
+            priority: frontendTask.priority, // ← 直接传大写字符串
+            duedate: frontendTask.dueDate,   // ← 格式 "2025-12-31"
+            status: frontendTask.status === 'done' ? 'fi' :
+                frontendTask.status === 'doing' ? 'wd' : 'nd'
+        };
+    }
+
+    async function loadTasks() {
+        const data = await apiFetch('/tasks');
+        if (data) {
+            tasks = Array.isArray(data) ? data.map(backendToFrontend) : [];
+            renderTasks();
+        }
+    }
+
+    function renderTasks() {
+        doneList.innerHTML = '';
+        doingList.innerHTML = '';
+        todoList.innerHTML = '';
+
+        const doneTasks = tasks.filter(t => t.status === 'done');
+        const doingTasks = tasks.filter(t => t.status === 'doing');
+        const todoTasks = tasks.filter(t => t.status === 'todo');
+
+        const sortTasks = (list) => {
+            return list.sort((a, b) => {
+                if (a.priority !== b.priority) {
+                    return priorityOrder[a.priority] - priorityOrder[b.priority];
+                }
+                return a.timestamp - b.timestamp;
+            });
+        };
+
+        sortTasks(doingTasks).forEach(task => appendTaskCard(task, doingList));
+        sortTasks(todoTasks).forEach(task => appendTaskCard(task, todoList));
+        sortTasks(doneTasks).forEach(task => appendTaskCard(task, doneList));
+    }
+
+    function createStripes(priority) {
+        const container = document.createElement('div');
+        container.className = `priority-stripes priority-${priority.toLowerCase()}`;
+        const count = priority === 'HIGH' ? 3 : priority === 'MEDIUM' ? 2 : 1;
+        for (let i = 0; i < count; i++) {
+            const stripe = document.createElement('div');
+            stripe.className = 'stripe';
+            container.appendChild(stripe);
+        }
+        return container;
+    }
+
+    function appendTaskCard(task, container) {
+        const card = document.createElement('div');
+        card.className = task.status === 'done' ? 'task-card done' : 'task-card';
+        card.dataset.id = task.id;
+
+        if (task.status !== 'done') {
+            card.draggable = true;
+            card.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', task.id);
+                setTimeout(() => card.style.opacity = '0.5', 0);
+            });
+            card.addEventListener('dragend', () => {
+                card.style.opacity = '1';
+            });
+
+            card.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                currentRightClickTaskId = task.id;
+                showContextMenu(e.clientX, e.clientY);
+            });
+        }
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'task-content';
+
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'task-title';
+        titleDiv.textContent = task.title;
+        contentDiv.appendChild(titleDiv);
+
+        if (task.detail) {
+            const detailDiv = document.createElement('div');
+            detailDiv.className = 'task-detail';
+            detailDiv.textContent = task.detail;
+            contentDiv.appendChild(detailDiv);
+        }
+
+        card.appendChild(contentDiv);
+
+        if (task.status !== 'done') {
+            const archiveBtn = document.createElement('div');
+            archiveBtn.className = 'archive-square';
+            archiveBtn.addEventListener('click', async () => {
+                card.classList.add('archiving');
+                setTimeout(async () => {
+                    const updatedFrontend = { ...tasks.find(t => t.id === task.id), status: 'done' };
+                    const updatedBackend = await apiFetch(`/tasks/${task.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(frontendToBackend(updatedFrontend))
+                    });
+                    if (updatedBackend) {
+                        loadTasks();
+                    } else {
+                        card.classList.remove('archiving');
+                    }
+                }, 300);
+            });
+            card.insertBefore(archiveBtn, contentDiv);
+        }
+
+        const stripes = createStripes(task.priority);
+        card.appendChild(stripes);
+
+        container.appendChild(card);
+    }
+
+    function hideAllMenus() {
+        contextMenu.style.display = 'none';
+        editTaskForm.style.display = 'none';
+        const prioWin = document.getElementById('priorityEditor');
+        if (prioWin) document.body.removeChild(prioWin);
+    }
+
+    function showContextMenu(x, y) {
+        contextMenu.style.display = 'block';
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+
+        const rect = contextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) contextMenu.style.left = `${window.innerWidth - rect.width - 5}px`;
+        if (rect.bottom > window.innerHeight) contextMenu.style.top = `${window.innerHeight - rect.height - 5}px`;
+    }
+
+    contextMenu.addEventListener('click', async (e) => {
+        const action = e.target.dataset.action;
+        if (!action || !currentRightClickTaskId) return;
+
+        const task = tasks.find(t => t.id === currentRightClickTaskId);
+        if (!task) return;
+
+        hideAllMenus();
+
+        if (action === 'refactor') {
+            editTaskForm.innerHTML = `
+                <input type="text" id="editTitle" placeholder="任务名称" maxlength="50" value="${task.title.replace(/"/g, '&quot;')}" />
+                <textarea id="editDetail" placeholder="任务详情">${task.detail || ''}</textarea>
+                <div class="form-buttons">
+                    <button class="cancel" id="cancelEdit">取消</button>
+                    <button class="save" id="saveEdit">保存</button>
+                </div>
+            `;
+            editTaskForm.style.left = contextMenu.style.left;
+            editTaskForm.style.top = contextMenu.style.top;
+            editTaskForm.style.display = 'block';
+
+            document.getElementById('cancelEdit').onclick = hideAllMenus;
+            document.getElementById('saveEdit').onclick = async () => {
+                const title = document.getElementById('editTitle').value.trim();
+                if (!title) { alert('任务名称不能为空'); return; }
+                const detail = document.getElementById('editDetail').value.trim() || null;
+
+                const updatedFrontend = { ...task, title, detail };
+                const updatedBackend = await apiFetch(`/tasks/${task.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(frontendToBackend(updatedFrontend))
+                });
+                if (updatedBackend) {
+                    loadTasks();
+                }
+                hideAllMenus();
+            };
+
+        } else if (action === 'edit-date') {
+            const today = task.dueDate || new Date().toISOString().split('T')[0];
+            editTaskForm.innerHTML = `
+                <label style="font-size:0.95rem;color:#555;margin-bottom:0.5rem;">截止日期</label>
+                <input type="date" id="editDueDate" value="${today}" style="width:100%;padding:0.4rem 0.6rem;border:1px solid #d9d9d9;border-radius:6px;font-size:0.95rem;" />
+                <div class="form-buttons">
+                    <button class="cancel" id="cancelEdit">取消</button>
+                    <button class="save" id="saveEdit">保存</button>
+                </div>
+            `;
+            editTaskForm.style.left = contextMenu.style.left;
+            editTaskForm.style.top = contextMenu.style.top;
+            editTaskForm.style.display = 'block';
+
+            document.getElementById('cancelEdit').onclick = hideAllMenus;
+            document.getElementById('saveEdit').onclick = async () => {
+                const dueDate = document.getElementById('editDueDate').value || null;
+                const updatedFrontend = { ...task, dueDate };
+                const updatedBackend = await apiFetch(`/tasks/${task.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(frontendToBackend(updatedFrontend))
+                });
+                if (updatedBackend) {
+                    loadTasks();
+                }
+                hideAllMenus();
+            };
+
+        } else if (action === 'edit-priority') {
+            const editor = document.createElement('div');
+            editor.id = 'priorityEditor';
+            editor.className = 'context-menu';
+            editor.style.left = contextMenu.style.left;
+            editor.style.top = contextMenu.style.top;
+            editor.innerHTML = `
+                <div class="context-item" data-priority="HIGH">高</div>
+                <div class="context-item" data-priority="MEDIUM">中</div>
+                <div class="context-item" data-priority="LOW">低</div>
+            `;
+            document.body.appendChild(editor);
+
+            const rect = editor.getBoundingClientRect();
+            if (rect.right > window.innerWidth) editor.style.left = `${window.innerWidth - rect.width - 5}px`;
+            if (rect.bottom > window.innerHeight) editor.style.top = `${window.innerHeight - rect.height - 5}px`;
+
+            editor.querySelectorAll('.context-item').forEach(item => {
+                item.addEventListener('click', async () => {
+                    const priority = item.dataset.priority;
+                    const updatedFrontend = { ...task, priority };
+                    const updatedBackend = await apiFetch(`/tasks/${task.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(frontendToBackend(updatedFrontend))
+                    });
+                    if (updatedBackend) {
+                        loadTasks();
+                    }
+                    document.body.removeChild(editor);
+                });
+            });
+
+            const clickHandler = (e) => {
+                if (!editor.contains(e.target)) {
+                    document.body.removeChild(editor);
+                    document.removeEventListener('click', clickHandler);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', clickHandler), 100);
+
+        } else if (action === 'delete') {
+            if (!confirm(`确定要删除任务 “${task.title}” 吗？此操作不可恢复！`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/tasks/${task.id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                if (response.ok || response.status === 204) {
+                    console.log("✅ 任务删除成功");
+                    loadTasks();
+                } else {
+                    console.error("❌ 删除失败，状态码:", response.status);
+                    alert(`删除失败：${response.status} ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error("💥 网络错误或请求失败:", error);
+                alert("删除失败：网络错误，请检查后端是否运行");
+            }
+        }
+    });
+
+    [doingList, todoList, doneList].forEach(list => {
+        list.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        list.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const taskId = e.dataTransfer.getData('text/plain');
+            const targetCategory = list.closest('.category').dataset.category;
+            if (targetCategory === 'done') return;
+
+            const task = tasks.find(t => t.id == taskId);
+            if (!task) return;
+
+            if ((task.status === 'doing' && targetCategory === 'todo') ||
+                (task.status === 'todo' && targetCategory === 'doing')) {
+
+                const updatedFrontend = { ...task, status: targetCategory };
+                const updatedBackend = await apiFetch(`/tasks/${task.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(frontendToBackend(updatedFrontend))
+                });
+                if (updatedBackend) {
+                    loadTasks();
+                }
+            }
+        });
+    });
+
+    function openAddPanel() {
+        const today = new Date().toISOString().split('T')[0];
+        let currentPriority = 'HIGH';
+
+        rightPanel.className = 'right-space active';
+        rightPanel.innerHTML = `
+        <div class="task-form-section">
+          <div class="task-input-card">
+            <input type="text" id="taskTitle" class="task-title-input" placeholder="任务名称" maxlength="50" />
+            <div class="short-divider"></div>
+            <textarea id="taskDetail" class="task-detail-input" placeholder="任务详情"></textarea>
+          </div>
+
+          <div class="combined-control">
+            <div class="priority-dropdown">
+              <div class="priority-toggle ${currentPriority}" id="priorityToggle">
+                ${({ HIGH: '高', MEDIUM: '中', LOW: '低' })[currentPriority]}
+              </div>
+              <div class="priority-menu" id="priorityMenu">
+                <div class="priority-option HIGH" data-value="HIGH">高</div>
+                <div class="priority-option MEDIUM" data-value="MEDIUM">中</div>
+                <div class="priority-option LOW" data-value="LOW">低</div>
+              </div>
+            </div>
+            <div class="date-wrapper">
+              <input type="date" id="taskDueDate" class="date-input" value="${today}" />
+            </div>
+          </div>
+
+          <div class="panel-buttons">
+            <button class="btn cancel" id="cancelTask">取消</button>
+            <button class="btn save" id="saveTask">保存</button>
+          </div>
+        </div>
+        <div class="other-section" style="height:60%;display:flex;align-items:center;justify-content:center;color:#888;font-size:0.95rem;">
+          💡 新任务将添加到 “Doing!”
+        </div>
+      `;
+
+        const toggle = document.getElementById('priorityToggle');
+        const menu = document.getElementById('priorityMenu');
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.toggle('show');
+        });
+        menu.querySelectorAll('.priority-option').forEach(opt => {
+            opt.addEventListener('click', () => {
+                currentPriority = opt.dataset.value;
+                toggle.className = `priority-toggle ${currentPriority}`;
+                toggle.textContent = ({ HIGH: '高', MEDIUM: '中', LOW: '低' })[currentPriority];
+                menu.classList.remove('show');
+            });
+        });
+        document.addEventListener('click', (e) => {
+            if (!toggle.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
+        document.getElementById('cancelTask').onclick = closePanel;
+        document.getElementById('saveTask').onclick = async () => {
+            const title = document.getElementById('taskTitle').value.trim();
+            if (!title) {
+                alert('请输入任务名称');
+                return;
+            }
+            const detail = document.getElementById('taskDetail').value.trim();
+            const dueDate = document.getElementById('taskDueDate').value;
+
+            const newFrontendTask = {
+                title,
+                detail: detail || null,
+                priority: currentPriority,
+                dueDate: dueDate || null,
+                status: 'doing'
+            };
+
+            const savedBackend = await apiFetch('/tasks', {
+                method: 'POST',
+                body: JSON.stringify(frontendToBackend(newFrontendTask))
+            });
+
+            if (savedBackend) {
+                loadTasks();
+                closePanel();
+            }
+        };
+    }
+
+    function closePanel() {
+        rightPanel.className = 'right-space';
+    }
+
+    addButton.addEventListener('click', openAddPanel);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closePanel();
+            hideAllMenus();
+        }
+    });
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.contains(e.target) && !editTaskForm.contains(e.target)) {
+            hideAllMenus();
+        }
+    });
+    document.addEventListener('scroll', hideAllMenus);
+
+    loadTasks();
+</script>
+</body>
+</html>

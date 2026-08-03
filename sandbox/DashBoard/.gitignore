@@ -1,0 +1,57 @@
+# ======================
+# Maven
+# ======================
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+# ======================
+# IntelliJ IDEA
+# ======================
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# ======================
+# Local IDE / Editor Config (even if you use IntelliJ, these may appear)
+# ======================
+.vscode/
+tasks.json
+launch.json
+settings.json
+
+# ======================
+# HTTP Client (IntelliJ / VS Code)
+# ======================
+*.http
+*.rest
+
+# Common HTTP test files
+test.http
+requests.http
+api.http
+
+# ======================
+# Operating System
+# ======================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ======================
+# Logs & Temp Files
+# ======================
+*.log
+logs/
+*～
+*.swp
+*.swo
+
+# ======================
+# Local Configuration (NEVER commit!)
+# ======================
+application-local.properties
+application-dev.properties
+.env
+*.secret
+secrets.properties
