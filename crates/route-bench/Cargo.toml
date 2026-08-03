@@ -1,0 +1,21 @@
+[package]
+name = "route-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route Benchmark — custom benchmark system for Route Agent and project memory"
+
+[lib]
+name = "route_bench"
+path = "src/lib.rs"
+
+[dependencies]
+route-agent = { path = "../route-agent" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+tracing.workspace = true

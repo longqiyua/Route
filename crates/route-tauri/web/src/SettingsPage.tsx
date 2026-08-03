@@ -552,23 +552,30 @@ function AutostartSection({ tr }: { tr: Dict }) {
 
 function CloseBehaviorSection({ tr }: { tr: Dict }) {
   const [cfg, setCfg] = useState<AutostartConfig | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
     autostartGet()
       .then((c) => {
         if (!cancelled) setCfg(c);
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   const update = (patch: Partial<AutostartConfig>) => {
+    setError(null);
     autostartSet(patch)
       .then((c) => setCfg(c))
-      .catch(() => {});
+      .catch((e) => {
+        setError(String(e));
+      });
   };
 
   return (
@@ -598,6 +605,11 @@ function CloseBehaviorSection({ tr }: { tr: Dict }) {
           </div>
         </div>
       </div>
+      {error && (
+        <div className="settings-section-hint" style={{ color: 'var(--danger)' }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }

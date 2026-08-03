@@ -16,6 +16,7 @@ mod llm_integration;
 mod tracking;
 mod extensions;
 mod project_context;
+mod agent_commands;
 // mod tui_adapt;  // unused — terminal-UI adaptation not needed in the Tauri desktop app
 
 use autostart_commands::AutostartConfig;
@@ -312,6 +313,12 @@ pub fn run() {
             extensions::references_list,
             // Project context command
             project_context::project_context,
+            // Agent + Benchmark commands
+            agent_commands::agent_list_models,
+            agent_commands::agent_list_skills,
+            agent_commands::agent_run_task,
+            agent_commands::bench_list_suites,
+            agent_commands::bench_run_suite,
             // TUI adapt commands
             show_window,
             hide_window,

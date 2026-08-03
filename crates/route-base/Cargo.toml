@@ -1,0 +1,23 @@
+[package]
+name = "route-base"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Root Base — 顶层编排器，驱动 Root Engine + Root Memory"
+
+[dependencies]
+route-engine = { path = "../route-engine", version = "0.4.0-beta" }
+route-memory = { path = "../route-memory", version = "0.4.0-beta" }
+route-vm = { path = "../route-vm", version = "0.4.0-beta", optional = true }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+default = ["vm"]
+vm = ["route-vm"]

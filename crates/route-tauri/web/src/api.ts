@@ -1600,3 +1600,72 @@ export async function skillsList(): Promise<ExtensionEntry[]> {
 export async function referencesList(): Promise<ExtensionEntry[]> {
   return safeInvoke<ExtensionEntry[]>("references_list");
 }
+
+// ============================================================
+// Agent commands (route-agent crate)
+// ============================================================
+
+export interface AgentModelInfo {
+  id: string;
+  display_name: string;
+  kind: string;
+  code_quality: number;
+  tool_calling: boolean;
+  long_context: boolean;
+  features: string[];
+  cost_per_second_cents: number | null;
+}
+
+export interface AgentSkillInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  triggers: string[];
+}
+
+export interface AgentRunResponse {
+  success: boolean;
+  status: string;
+  iterations: number;
+  duration_ms: number;
+  final_answer: string;
+  tool_calls: string[];
+  skill_executions: string[];
+  memory_total_entries: number;
+}
+
+export interface BenchSuiteInfo {
+  id: string;
+  name: string;
+  cases: number;
+}
+
+export async function agentListModels(projectPath?: string | null): Promise<AgentModelInfo[]> {
+  return safeInvoke<AgentModelInfo[]>("agent_list_models", { projectPath });
+}
+
+export async function agentListSkills(projectPath?: string | null): Promise<AgentSkillInfo[]> {
+  return safeInvoke<AgentSkillInfo[]>("agent_list_skills", { projectPath });
+}
+
+export async function agentRunTask(params: {
+  task: string;
+  projectPath?: string | null;
+  modelId?: string | null;
+  maxIterations?: number | null;
+}): Promise<AgentRunResponse> {
+  return safeInvoke<AgentRunResponse>("agent_run_task", params);
+}
+
+export async function benchListSuites(): Promise<BenchSuiteInfo[]> {
+  return safeInvoke<BenchSuiteInfo[]>("bench_list_suites");
+}
+
+export async function benchRunSuite(params: {
+  suiteId: string;
+  format?: "markdown" | "json" | "pretty";
+  workDir?: string | null;
+}): Promise<string> {
+  return safeInvoke<string>("bench_run_suite", params);
+}

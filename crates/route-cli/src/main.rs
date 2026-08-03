@@ -1,5 +1,6 @@
 //! Route CLI — command-line interface for basic mode.
 
+mod base_commands;
 mod commands;
 mod git_commands;
 mod plugin_commands;
@@ -172,6 +173,109 @@ enum Commands {
     /// Get or set the permission level (normal|high)
     #[command(subcommand)]
     Permission(PermissionAction),
+    /// Run Agent plan-act-observe loop with tools
+    #[command(subcommand)]
+    Agent(AgentAction),
+    /// Run benchmark suite
+    #[command(subcommand)]
+    Bench(BenchAction),
+    /// Vibe — natural language mode for vibecoding (just talk, Route handles the rest)
+    Vibe {
+        /// Your task — just say what you want
+        task: String,
+        /// Project path (defaults to current dir)
+        #[arg(long)]
+        project: Option<String>,
+        /// Enable memory mode (load/save project memory)
+        #[arg(long)]
+        memory: bool,
+        /// Enable causal control (side effect detection)
+        #[arg(long)]
+        causal: bool,
+        /// Enable auto git commit
+        #[arg(long)]
+        auto_git: bool,
+    },
+    /// VM — version management agent (low-level control)
+    #[command(subcommand)]
+    Vm(VmAction),
+    /// Test — run Route Test benchmark suite
+    #[command(subcommand)]
+    Test(TestAction),
+    /// Root Base — Root Engine + Root Memory integration (requires route-base feature)
+    #[command(subcommand)]
+    Base(BaseAction),
+    /// GUI desktop app toggle (hidden feature, disabled by default)
+    #[command(subcommand)]
+    Gui(GuiAction),
+}
+
+#[derive(Subcommand)]
+pub enum BaseAction {
+    /// Show Root Base status
+    Status,
+    /// Initialize Root Base data
+    Init,
+    /// Search project code using the three-mechanism engine
+    Search {
+        /// Query string
+        query: String,
+        /// Top-K results to return
+        #[arg(short, long, default_value = "10")]
+        top_k: usize,
+    },
+    /// Show Root Memory statistics
+    Memory,
+    /// Show causal chain
+    Causal {
+        /// Max entries to show
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
+    /// Self-referential management — Route manages its own codebase
+    #[command(subcommand)]
+    SelfManage(SelfManageAction),
+}
+
+#[derive(Subcommand)]
+pub enum SelfManageAction {
+    /// Index Route's own source code into Root Engine
+    Index,
+    /// Show Route's own project structure (Mermaid)
+    Structure,
+    /// Record a causal link for Route's own development
+    Record {
+        /// Action description
+        #[arg(short, long)]
+        action: String,
+        /// File path
+        #[arg(short, long)]
+        file: String,
+        /// Reason for the change
+        #[arg(short, long)]
+        reason: String,
+        /// Effect of the change
+        #[arg(short, long)]
+        effect: String,
+    },
+    /// Show Route's own git history as a causal chain
+    GitLog {
+        /// Max entries
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
+    /// Full introspection — scan all Route crates and update memory
+    Introspect,
+}
+
+#[derive(Subcommand)]
+pub enum GuiAction {
+    /// Enable GUI desktop app
+    Enable,
+    /// Disable GUI desktop app
+    Disable,
+    /// Show GUI status
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -662,6 +766,105 @@ enum PermissionAction {
     },
 }
 
+#[derive(Subcommand)]
+enum AgentAction {
+    /// List available models registered via plugins
+    Models,
+    /// List registered skills
+    Skills,
+    /// Run a single agent task (plan → act → observe loop)
+    Run {
+        /// The task prompt
+        task: String,
+        /// Model ID to use (defaults to first registered)
+        #[arg(long)]
+        model: Option<String>,
+        /// Max iterations (default 20)
+        #[arg(long, default_value_t = 20)]
+        max_iters: usize,
+        /// Project path (defaults to current dir)
+        #[arg(long)]
+        project: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchAction {
+    /// List available benchmark suites
+    List,
+    /// Run a benchmark suite (default | memory | structure | full)
+    Run {
+        /// Suite id
+        #[arg(default_value = "default")]
+        suite: String,
+        /// Output format: markdown | json
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+        /// Write report to file instead of stdout
+        #[arg(short, long)]
+        out: Option<String>,
+        /// Working directory (defaults to a temp dir)
+        #[arg(long)]
+        work_dir: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum VmAction {
+    /// List available models
+    Models,
+    /// List registered skills
+    Skills,
+    /// Run a version management task
+    Run {
+        /// The task prompt
+        task: String,
+        /// Model ID to use
+        #[arg(long)]
+        model: Option<String>,
+        /// Max iterations
+        #[arg(long, default_value_t = 10)]
+        max_iters: usize,
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+        /// Enable memory mode
+        #[arg(long)]
+        memory: bool,
+        /// Enable causal control
+        #[arg(long)]
+        causal: bool,
+        /// Enable auto git commit
+        #[arg(long)]
+        auto_git: bool,
+    },
+    /// Show project memory info
+    MemoryInfo,
+    /// Show project structure (Mermaid)
+    Structure,
+}
+
+#[derive(Subcommand)]
+enum TestAction {
+    /// List available test suites
+    List,
+    /// Run a test suite
+    Run {
+        /// Suite id: memory-smoke | memory-deep | structure-drift | causal-control | full
+        #[arg(default_value = "memory-smoke")]
+        suite: String,
+        /// Output format: json | pretty | markdown
+        #[arg(short, long, default_value = "pretty")]
+        format: String,
+        /// Work directory
+        #[arg(long)]
+        work_dir: Option<String>,
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -849,5 +1052,67 @@ fn main() -> Result<()> {
             PermissionAction::Status => commands::permission_status(),
             PermissionAction::Set { level } => commands::permission_set(level),
         },
+        Commands::Agent(action) => match action {
+            AgentAction::Models => commands::agent_models(),
+            AgentAction::Skills => commands::agent_skills(),
+            AgentAction::Run { task, model, max_iters, project } => commands::agent_run(task, model, max_iters, project),
+        },
+        Commands::Bench(action) => match action {
+            BenchAction::List => commands::bench_list(),
+            BenchAction::Run { suite, format, out, work_dir } => commands::bench_run(suite, format, out, work_dir),
+        },
+        Commands::Vibe { task, project, memory, causal, auto_git } => {
+            commands::vibe_run(task, project, memory, causal, auto_git)
+        }
+        Commands::Vm(action) => match action {
+            VmAction::Models => commands::vm_models(),
+            VmAction::Skills => commands::vm_skills(),
+            VmAction::Run { task, model, max_iters, project, memory, causal, auto_git } => {
+                commands::vm_run(task, model, max_iters, project, memory, causal, auto_git)
+            }
+            VmAction::MemoryInfo => commands::vm_memory_info(),
+            VmAction::Structure => commands::vm_structure(),
+        },
+        Commands::Test(action) => match action {
+            TestAction::List => commands::test_list(),
+            TestAction::Run { suite, format, work_dir, verbose } => {
+                commands::test_run(suite, format, work_dir, verbose)
+            }
+        },
+        #[cfg(feature = "route-base")]
+        Commands::Base(action) => match action {
+            BaseAction::Status => base_commands::base_status(),
+            BaseAction::Init => base_commands::base_init(),
+            BaseAction::Search { query, top_k } => base_commands::base_search(&query, top_k),
+            BaseAction::Memory => base_commands::base_memory(),
+            BaseAction::Causal { limit } => base_commands::base_causal(limit),
+            BaseAction::SelfManage(sm) => match sm {
+                SelfManageAction::Index => base_commands::self_manage_index(),
+                SelfManageAction::Structure => base_commands::self_manage_structure(),
+                SelfManageAction::Record { action, file, reason, effect } => {
+                    base_commands::self_manage_record(&action, &file, &reason, &effect)
+                }
+                SelfManageAction::GitLog { limit } => base_commands::self_manage_git_log(limit),
+                SelfManageAction::Introspect => base_commands::self_manage_introspect(),
+            },
+        },
+        #[cfg(not(feature = "route-base"))]
+        Commands::Base(_) => {
+            eprintln!("error: 'route base' commands require the 'route-base' feature");
+            eprintln!("  Rebuild with: cargo build --features route-base");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "route-base")]
+        Commands::Gui(action) => match action {
+            GuiAction::Enable => base_commands::gui_enable(),
+            GuiAction::Disable => base_commands::gui_disable(),
+            GuiAction::Status => base_commands::gui_status(),
+        },
+        #[cfg(not(feature = "route-base"))]
+        Commands::Gui(_) => {
+            eprintln!("error: 'route gui' commands require the 'route-base' feature");
+            eprintln!("  Rebuild with: cargo build --features route-base");
+            std::process::exit(1);
+        }
     }
 }

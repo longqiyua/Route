@@ -1,0 +1,22 @@
+[package]
+name = "route-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+memory = ["route-memory"]
+engine = ["route-engine"]
+full = ["memory", "engine"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+route-engine = { path = "../route-engine", optional = true }
+route-memory = { path = "../route-memory", optional = true }
+reqwest.workspace = true

@@ -56,11 +56,20 @@ import {
   watchStatus as watchStatusApi,
   watchStop,
   projectContext,
+  agentListModels,
+  agentListSkills,
+  agentRunTask,
+  benchListSuites,
+  benchRunSuite,
   type GitDetectDto,
   type GitLogEntryDto,
   type AiProvider,
   type ChatMessage,
   type ProjectContextDto,
+  type AgentModelInfo,
+  type AgentSkillInfo,
+  type AgentRunResponse,
+  type BenchSuiteInfo,
 } from "./api";
 import { isTauriBridgeAvailable } from "./ipc";
 import {
@@ -113,7 +122,7 @@ interface Project {
   addedAt: number;
 }
 
-type Page = "workspace" | "settings" | "chat";
+type Page = "workspace" | "settings" | "chat" | "agent" | "bench";
 // Sort modes for the project list. "alpha" / "time" / "reverse" form the
 // click-cycle on the square sort button; "custom" is only entered by
 // dragging a card (preserved manual order) and is not part of the cycle.
@@ -870,6 +879,24 @@ function Sidebar({
             {tr.aiChat}
           </button>
         )}
+        <button
+          type="button"
+          className={page === "agent" ? "active" : ""}
+          onClick={() => onPageChange("agent")}
+          title="Route Agent — plan → act → observe loop with tools + skills"
+        >
+          <span className="page-glyph" style={{ fontSize: 18, fontWeight: 700 }}>A</span>
+          Agent
+        </button>
+        <button
+          type="button"
+          className={page === "bench" ? "active" : ""}
+          onClick={() => onPageChange("bench")}
+          title="Route Benchmark — memory drift &amp; structure accuracy"
+        >
+          <span className="page-glyph" style={{ fontSize: 18, fontWeight: 700 }}>B</span>
+          Benchmark
+        </button>
         <button
           type="button"
           className={page === "workspace" ? "active" : ""}
@@ -2512,6 +2539,366 @@ function NoProjectHint({
 }
 
 // ---------------------------------------------------------------------------
+// AgentPage — run plan→act→observe loop with tools + skills, see models
+// ---------------------------------------------------------------------------
+
+function AgentPage({ projectPath, tr }: { projectPath: string | null; tr: Dict }) {
+  const [models, setModels] = useState<AgentModelInfo[]>([]);
+  const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [maxIter, setMaxIter] = useState<number>(20);
+  const [task, setTask] = useState<string>(
+    "Summarise the project structure, list the 3 most important files, and confirm memory is persisted.",
+  );
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [result, setResult] = useState<AgentRunResponse | null>(null);
+
+  const refreshModels = () =>
+    agentListModels(projectPath)
+      .then((ms) => {
+        setModels(ms);
+        if (!selectedModel && ms.length) setSelectedModel(ms[0].id);
+      })
+      .catch((e) => setError(String(e)));
+  const refreshSkills = () =>
+    agentListSkills(projectPath)
+      .then(setSkills)
+      .catch((e) => setError(String(e)));
+
+  useEffect(() => {
+    refreshModels();
+    refreshSkills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath]);
+
+  const run = async () => {
+    setRunning(true);
+    setError("");
+    setResult(null);
+    try {
+      const r = await agentRunTask({
+        task,
+        projectPath,
+        modelId: selectedModel || null,
+        maxIterations: maxIter,
+      });
+      setResult(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="agent-page page-scroll">
+      <section className="card">
+        <h2>Route Agent</h2>
+        <p className="muted">
+          Preset plugins act as models. Skills are auto-selected by trigger keywords. Tools (read_file / write_file / list_dir / search / glob) are always available.
+        </p>
+
+        <div className="grid-2">
+          <div>
+            <h3>Models ({models.length})</h3>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="input"
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} — {m.kind} · cq={m.code_quality}
+                  {m.cost_per_second_cents != null
+                    ? ` · ¢${m.cost_per_second_cents}/s`
+                    : " · free"}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {models.map((m) => (
+                <span
+                  key={m.id}
+                  className={"pill " + (m.id === selectedModel ? "active" : "")}
+                  onClick={() => setSelectedModel(m.id)}
+                  style={{
+                    cursor: "pointer",
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                    background: "var(--panel-2)",
+                    fontSize: 12,
+                  }}
+                  title={m.features.join(", ")}
+                >
+                  <strong>{m.display_name || m.id}</strong>
+                  <span className="muted" style={{ marginLeft: 6 }}>
+                    {m.kind}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3>Skills ({skills.length})</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflow: "auto" }}>
+              {skills.length === 0 && <div className="muted">No skills in .route/skills/</div>}
+              {skills.map((s) => (
+                <div
+                  key={s.id}
+                  style={{
+                    padding: "8px 10px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    background: "var(--panel-2)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <strong>{s.name}</strong>
+                    <span className="muted">{s.id} · {s.version}</span>
+                  </div>
+                  {s.description && <div className="muted" style={{ fontSize: 12 }}>{s.description}</div>}
+                  {s.triggers.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                      {s.triggers.map((t) => (
+                        <span key={t} style={{
+                          fontSize: 11,
+                          padding: "1px 6px",
+                          borderRadius: 999,
+                          background: "var(--accent-soft)",
+                        }}>#{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <button type="button" className="ghost" onClick={refreshSkills}>🔄 Refresh skills</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3>Run Agent Task</h3>
+        <textarea
+          className="input"
+          rows={4}
+          value={task}
+          onChange={(e) => setTask(e.target.value)}
+          placeholder="Describe the task. The agent will plan → run tools → observe, for up to max iterations."
+          style={{ width: "100%", fontFamily: "var(--mono)" }}
+        />
+        <div className="flex-row" style={{ gap: 12, marginTop: 8 }}>
+          <label style={{ fontSize: 13 }}>
+            Max iterations
+            <input
+              type="number"
+              className="input"
+              min={1}
+              max={200}
+              value={maxIter}
+              onChange={(e) => setMaxIter(Math.max(1, Math.min(200, Number(e.target.value) || 20)))}
+              style={{ width: 90, marginLeft: 8 }}
+            />
+          </label>
+          <button type="button" className="primary" disabled={running || !task.trim()} onClick={run}>
+            {running ? "Running…" : "▶ Run Agent"}
+          </button>
+          {error && <span style={{ color: "var(--danger)" }}>{error}</span>}
+        </div>
+
+        {result && (
+          <div style={{ marginTop: 16, padding: 14, border: "1px solid var(--border)", borderRadius: 10, background: "var(--panel-2)" }}>
+            <div className="flex-row" style={{ gap: 12, marginBottom: 8 }}>
+              <span className={"tag " + (result.success ? "ok" : "bad")}>{result.status}</span>
+              <span className="muted">{result.iterations} iterations · {result.duration_ms} ms</span>
+              <span className="muted">memory entries: {result.memory_total_entries}</span>
+            </div>
+            <details open>
+              <summary style={{ cursor: "pointer", marginBottom: 6 }}>Final answer ({result.final_answer.length} chars)</summary>
+              <pre className="mono-box" style={{ whiteSpace: "pre-wrap" }}>{result.final_answer}</pre>
+            </details>
+            {result.tool_calls.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Tool calls ({result.tool_calls.length})</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {result.tool_calls.map((t, i) => (
+                    <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "var(--accent-soft)" }}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.skill_executions.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Skills executed</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {result.skill_executions.map((s, i) => (
+                    <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "var(--panel-3)" }}>
+                      ✓ {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BenchPage — run memory-drift & structure-accuracy benchmarks
+// ---------------------------------------------------------------------------
+
+function BenchPage({ tr }: { tr: Dict }) {
+  const [suites, setSuites] = useState<BenchSuiteInfo[]>([]);
+  const [selected, setSelected] = useState<string>("default");
+  const [format, setFormat] = useState<"markdown" | "json" | "pretty">("markdown");
+  const [workDir, setWorkDir] = useState<string>("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [report, setReport] = useState<string>("");
+
+  useEffect(() => {
+    benchListSuites()
+      .then((ss) => {
+        setSuites(ss);
+        if (ss.length && !suites.find((s) => s.id === selected)) {
+          setSelected(ss[0].id);
+        }
+      })
+      .catch((e) => setError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = async () => {
+    setRunning(true);
+    setError("");
+    setReport("");
+    try {
+      const r = await benchRunSuite({
+        suiteId: selected,
+        format,
+        workDir: workDir.trim() || null,
+      });
+      setReport(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(report);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="bench-page page-scroll">
+      <section className="card">
+        <h2>Route Benchmark</h2>
+        <p className="muted">
+          Quantify memory retention under high-frequency CRUD, and project-structure recall accuracy.
+          Runs are reproducible: the same seed yields the same drift/accuracy numbers.
+        </p>
+
+        <div className="grid-2">
+          <div>
+            <h3>Suites</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {suites.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={"pill-btn " + (s.id === selected ? "active" : "")}
+                  onClick={() => setSelected(s.id)}
+                  style={{
+                    textAlign: "left",
+                    padding: 10,
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    background: "var(--panel-2)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <strong>{s.id}</strong>
+                    <span className="muted">{s.cases} cases</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>{s.name}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3>Run options</h3>
+            <label className="block" style={{ marginBottom: 8 }}>
+              <div className="muted" style={{ fontSize: 12 }}>Output format</div>
+              <select
+                className="input"
+                value={format}
+                onChange={(e) => setFormat(e.target.value as typeof format)}
+                style={{ width: "100%" }}
+              >
+                <option value="markdown">Markdown</option>
+                <option value="json">JSON</option>
+                <option value="pretty">Pretty</option>
+              </select>
+            </label>
+            <label className="block" style={{ marginBottom: 12 }}>
+              <div className="muted" style={{ fontSize: 12 }}>Work dir (optional — uses a temp dir if blank)</div>
+              <input
+                className="input"
+                value={workDir}
+                onChange={(e) => setWorkDir(e.target.value)}
+                placeholder="e.g. C:\Temp\route-bench"
+                style={{ width: "100%" }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="primary" disabled={running} onClick={run}>
+                {running ? "Running…" : `▶ Run ${selected}`}
+              </button>
+              {report && (
+                <button type="button" className="ghost" onClick={copy}>📋 Copy report</button>
+              )}
+              {error && <span style={{ color: "var(--danger)" }}>{error}</span>}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {report && (
+        <section className="card">
+          <h3>Report</h3>
+          <pre
+            className="mono-box"
+            style={{
+              whiteSpace: format === "json" ? "pre" : "pre-wrap",
+              maxHeight: "60vh",
+              overflow: "auto",
+              fontFamily: "var(--mono)",
+              fontSize: 12,
+            }}
+          >{report}</pre>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // App — root component
 // ---------------------------------------------------------------------------
 
@@ -3494,6 +3881,12 @@ export default function App() {
               activeProjectId={activeProjectId}
               tr={tr}
             />
+          )}
+          {page === "agent" && (
+            <AgentPage projectPath={activeProject?.path ?? null} tr={tr} />
+          )}
+          {page === "bench" && (
+            <BenchPage tr={tr} />
           )}
           {page === "workspace" && activeProject && info && (
             <WorkbenchPage

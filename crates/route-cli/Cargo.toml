@@ -15,6 +15,15 @@ route-basic = { path = "../route-basic", version = "0.4.0-beta" }
 route-sync = { path = "../route-sync", version = "0.4.0-beta" }
 route-stats = { path = "../route-stats", version = "0.4.0-beta" }
 route-plugins = { path = "../route-plugins", version = "0.4.0-beta" }
+route-agent = { path = "../route-agent", version = "0.4.0-beta" }
+route-bench = { path = "../route-bench", version = "0.4.0-beta" }
+route-vm = { path = "../route-vm", version = "0.4.0-beta", optional = true }
+route-vibe = { path = "../route-vibe", version = "0.4.0-beta", optional = true }
+route-test = { path = "../route-test", version = "0.4.0-beta", optional = true }
+route-skill = { path = "../route-skill", version = "0.4.0-beta", optional = true }
+route-engine = { path = "../route-engine", version = "0.4.0-beta", optional = true }
+route-memory = { path = "../route-memory", version = "0.4.0-beta", optional = true }
+route-base = { path = "../route-base", version = "0.4.0-beta", optional = true }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
@@ -23,6 +32,16 @@ chrono.workspace = true
 reqwest = { workspace = true, features = ["json", "blocking"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[features]
+default = ["route-vibe", "route-vm", "route-test", "route-skill", "route-engine", "route-memory", "route-base"]
+route-vibe = ["dep:route-vibe"]
+route-vm = ["dep:route-vm", "route-vibe/vm"]
+route-test = ["dep:route-test"]
+route-skill = ["dep:route-skill", "route-vibe/skill"]
+route-engine = ["dep:route-engine", "route-vibe/engine"]
+route-memory = ["dep:route-memory", "route-vibe/memory"]
+route-base = ["dep:route-base"]
 
 [dev-dependencies]
 tempfile.workspace = true

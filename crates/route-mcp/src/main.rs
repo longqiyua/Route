@@ -922,6 +922,32 @@ fn tool_registry() -> Vec<ToolDef> {
             description: "Get the full project context for AI injection. Returns the project structure, recent commits, current branch, references, and tracking history. Call this when you need to understand the project before making suggestions or changes.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
+        // ===================================================================
+        // Root Base tools
+        // ===================================================================
+        ToolDef {
+            name: "route_base_status",
+            description: "Get the Root Base status: memory mode, causal control, hot/cold index stats, and registered services. Call this to learn how the Root Engine + Root Memory system is configured.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
+            name: "route_base_search",
+            description: "Search the project code using the three-mechanism code graph engine (Vector + Graph + Keyword). Returns scored results with file paths and line numbers. Pass `query` (required) and `top_k` (optional, default 10).",
+            input_schema: json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string", "description": "Search query string." },
+                    "top_k": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_base_memory",
+            description: "Get Root Memory statistics: total entries, causal chains, entry kind breakdown, project structure (Mermaid format), and project meta JSON. Use this to understand the project's memory state before making changes.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
     ]
 }
 
@@ -2338,6 +2364,77 @@ fn do_project_context(_args: Value) -> Result<Value> {
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Root Base tool handlers
+// ---------------------------------------------------------------------------
+
+/// Root Base status — returns the Root Base configuration and memory stats.
+fn do_base_status(_args: Value) -> Result<Value> {
+    let cwd = project_path().map_err(|e| anyhow!("[{}] {e}", RPC_ERR_TOOL))?;
+    let base = route_base::RootBase::new(&cwd)
+        .map_err(|e| anyhow!("[{}] failed to open Root Base: {e}", RPC_ERR_TOOL))?;
+    let status = base.status();
+    Ok(json!({
+        "project": status.project,
+        "memory_mode": status.memory_mode,
+        "causal_control": status.causal_control,
+        "auto_git": status.auto_git,
+        "adaptive_debounce": status.adaptive_debounce,
+        "memory_entries": status.memory_entries,
+        "memory_chains": status.memory_chains,
+        "hot_blocks": status.hot_blocks,
+        "cold_blocks": status.cold_blocks,
+        "estimated_bytes": status.estimated_bytes,
+        "services": status.services,
+    }))
+}
+
+/// Root Base search — search project code using the three-mechanism engine.
+fn do_base_search(args: Value) -> Result<Value> {
+    let query = args.get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("[{}] missing 'query' string", RPC_ERR_PARAMS))?;
+    let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+
+    let cwd = project_path().map_err(|e| anyhow!("[{}] {e}", RPC_ERR_TOOL))?;
+    let base = route_base::RootBase::new(&cwd)
+        .map_err(|e| anyhow!("[{}] failed to open Root Base: {e}", RPC_ERR_TOOL))?;
+    let results = base.search(query, top_k);
+
+    let items: Vec<Value> = results.iter().map(|r| json!({
+        "text": r.text,
+        "score": r.score,
+        "file_path": r.file_path,
+        "line": r.line,
+        "source": r.source,
+    })).collect();
+
+    Ok(json!({ "query": query, "results": items, "total": items.len() }))
+}
+
+/// Root Base memory — return memory statistics and project structure.
+fn do_base_memory(_args: Value) -> Result<Value> {
+    let cwd = project_path().map_err(|e| anyhow!("[{}] {e}", RPC_ERR_TOOL))?;
+    let base = route_base::RootBase::new(&cwd)
+        .map_err(|e| anyhow!("[{}] failed to open Root Base: {e}", RPC_ERR_TOOL))?;
+    let stats = base.memory.stats();
+    let chains = base.memory.chain.links.len();
+    let mermaid = base.project_structure();
+    let meta = base.project_meta();
+
+    Ok(json!({
+        "total_entries": stats.total_entries,
+        "total_chains": chains,
+        "by_kind": stats.by_kind,
+        "oldest_entry": stats.oldest_entry,
+        "newest_entry": stats.newest_entry,
+        "structure_mermaid": mermaid,
+        "project_meta_json": meta.map(|s| {
+            serde_json::from_str::<Value>(&s).unwrap_or(Value::Null)
+        }),
+    }))
+}
+
 fn dispatch_tool(name: &str, args: Value) -> Result<Value> {
     match name {
         "route_status"        => do_status(args),
@@ -2413,6 +2510,10 @@ fn dispatch_tool(name: &str, args: Value) -> Result<Value> {
         "route_extension_references"   => do_extension_references(args),
         // Project context tool
         "route_project_context"        => do_project_context(args),
+        // Root Base tools
+        "route_base_status"            => do_base_status(args),
+        "route_base_search"            => do_base_search(args),
+        "route_base_memory"            => do_base_memory(args),
         other => Err(anyhow!("unknown tool: {}", other)),
     }
 }

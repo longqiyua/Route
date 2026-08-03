@@ -982,3 +982,674 @@ pub fn permission_set(level: String) -> Result<()> {
     println!("✓ Permission level set to: {}", l);
     Ok(())
 }
+
+// ============================================================
+// Agent commands (route-agent crate)
+// ============================================================
+
+/// Build a ModelRegistry by wrapping the built-in plugins that are chat-capable.
+fn build_agent_registry() -> Result<route_agent::ModelRegistry> {
+    let mut reg = route_agent::ModelRegistry::new();
+    let cwd = std::env::current_dir()?;
+    let paths = route_core::RoutePaths::new(&cwd);
+    // Attempt to load plugins.json for API keys/base_url overrides.
+    let plugins_cfg = route_plugins::load_plugin_config(&paths.route_dir).ok();
+
+    // ----- Mock + Echo as zero-cost deterministic baseline models -----
+    reg.register(route_agent::model::MockPluginModel::new("agent-mock"));
+
+    // ----- OpenAI-like provider (OpenAiPluginModel) -----
+    let mut openai_key: Option<String> = None;
+    let mut openai_base: Option<String> = None;
+    let mut openai_model: Option<String> = None;
+    if let Some(cfg) = &plugins_cfg {
+        for p in &cfg.plugins {
+            if let Some(m) = p.config.as_object() {
+                if openai_key.is_none() {
+                    openai_key = m.get("openai_api_key").and_then(|x| x.as_str()).map(String::from);
+                }
+                if openai_base.is_none() {
+                    openai_base = m.get("openai_base_url").and_then(|x| x.as_str()).map(String::from);
+                }
+                if openai_model.is_none() {
+                    openai_model = m.get("openai_model").and_then(|x| x.as_str()).map(String::from);
+                }
+            }
+        }
+    }
+    if openai_key.is_none() { openai_key = std::env::var("OPENAI_API_KEY").ok(); }
+    if openai_base.is_none() { openai_base = std::env::var("OPENAI_BASE_URL").ok(); }
+    if openai_model.is_none() {
+        openai_model = std::env::var("OPENAI_MODEL").ok().or(Some("gpt-4o-mini".to_string()));
+    }
+    if let Some(key) = openai_key {
+        reg.register(route_agent::model::OpenAiPluginModel::new(
+            route_agent::model::OpenAiLikeConfig {
+                api_key: key,
+                base_url: openai_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                model: openai_model.unwrap_or_else(|| "gpt-4o-mini".to_string()),
+                temperature: 0.7,
+                max_tokens: None,
+            }
+        ));
+    }
+
+    // Echo fallback model.
+    reg.register(route_agent::model::MockPluginModel::echo("agent-echo"));
+
+    Ok(reg)
+}
+
+pub fn agent_models() -> Result<()> {
+    let reg = build_agent_registry()?;
+    println!("Registered models:");
+    for m in reg.list_models() {
+        println!("  - {} [{:?}] (cost/s: {:?})",
+            m.id, m.capability.kind, m.capability.cost_per_second_cents);
+        println!("      features: {:?}", m.capability.features);
+    }
+    Ok(())
+}
+
+pub fn agent_skills() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let skills_dir = cwd.join(".route").join("skills");
+    if !skills_dir.exists() {
+        println!("(no skills directory at {:?}, showing harness only)", skills_dir);
+    }
+    let harness = match route_agent::skill::SkillHarness::load(&skills_dir) {
+        Ok(h) => h,
+        Err(e) => {
+            println!("! skill load error: {} — using empty harness", e);
+            route_agent::skill::SkillHarness::new()
+        }
+    };
+    let skills = harness.list();
+    if skills.is_empty() {
+        println!("No skills registered.");
+    } else {
+        println!("{} skill(s):", skills.len());
+        for s in skills {
+            println!("  - [{}] {} (triggers: {:?})",
+                s.id, s.name, s.triggers);
+        }
+    }
+    Ok(())
+}
+
+pub fn agent_run(task: String, model_id: Option<String>, max_iters: usize, project: Option<String>) -> Result<()> {
+    let registry = build_agent_registry()?;
+    let cwd = std::env::current_dir()?;
+    let project_path = match project {
+        Some(p) => std::path::PathBuf::from(p),
+        None => cwd,
+    };
+    let skills_dir = project_path.join(".route").join("skills");
+    let harness = route_agent::skill::SkillHarness::load_from_dir(&skills_dir)
+        .unwrap_or_else(|_| route_agent::skill::SkillHarness::new());
+    let mut agent = route_agent::Agent::new(registry, harness)
+        .with_project(project_path.clone())
+        .with_max_iterations(max_iters);
+    if let Some(mid) = model_id {
+        agent.select_model(&mid)?;
+    }
+    println!("[agent] project: {}", project_path.display());
+    println!("[agent] task: {}", task);
+    println!("[agent] iterating up to {} steps...", max_iters);
+    let result = agent.run(task);
+    println!("\n======== AGENT RESULT ========");
+    println!("status: {:?} (success={})", result.status, result.success);
+    println!("iterations: {} (took {} ms)", result.iterations, result.total_duration_ms);
+    println!("final answer:\n{}", result.final_answer());
+    let tc = result.tool_calls();
+    if !tc.is_empty() {
+        println!("\ntool calls ({}):", tc.len());
+        for (i, tc) in tc.iter().enumerate() {
+            println!("  #{:02} {} → {} chars", i + 1, tc.tool_name, tc.result.len());
+        }
+    }
+    Ok(())
+}
+
+// ============================================================
+// Benchmark commands (route-bench crate)
+// ============================================================
+
+pub fn bench_list() -> Result<()> {
+    use route_bench::suite::BenchmarkRegistry;
+    let reg = BenchmarkRegistry::new();
+    println!("Available benchmark suites:");
+    for (id, name, count) in reg.list_suites() {
+        println!("  - {} — {} ({} cases)", id, name, count);
+    }
+    Ok(())
+}
+
+pub fn bench_run(suite: String, format: String, out: Option<String>, work_dir: Option<String>) -> Result<()> {
+    use route_bench::suite::BenchmarkRegistry;
+    let reg = match work_dir {
+        Some(p) => BenchmarkRegistry::new().with_temp_root(p),
+        None => BenchmarkRegistry::new(),
+    };
+    let report = reg.run(&suite)
+        .ok_or_else(|| anyhow!("no such suite: {} (run `route bench list`)", suite))?;
+    let fmt = match format.as_str() {
+        "json" => route_bench::report::Format::Json,
+        "markdown" | "md" => route_bench::report::Format::Markdown,
+        other => return Err(anyhow!("unknown format: {} (use markdown|json)", other)),
+    };
+    let rendered = route_bench::report::render_report(&report, fmt);
+    match out {
+        Some(path) => {
+            std::fs::write(&path, &rendered)?;
+            println!("✓ Report written to {} ({} bytes)", path, rendered.len());
+        }
+        None => {
+            println!("{}", rendered);
+        }
+    }
+    Ok(())
+}
+
+// ============================================================
+// Vibe — natural language mode for vibecoding
+// ============================================================
+
+pub fn vibe_run(
+    task: String,
+    project: Option<String>,
+    memory: bool,
+    causal: bool,
+    auto_git: bool,
+) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let project_path = project.map(PathBuf::from).unwrap_or(cwd);
+
+    println!("🎯 任务: {}", task);
+    println!("📁 项目: {}", project_path.display());
+    println!("⚙️  记忆模式={}, 因果控制={}, 自动Git={}", memory, causal, auto_git);
+
+    #[cfg(feature = "route-vibe")]
+    {
+        use route_vibe::{VibeConfig, VibeSession, process_natural_language};
+
+        let config = VibeConfig {
+            auto_mode: true,
+            memory_mode: memory,
+            causal_control: causal,
+            auto_git,
+            project_path: Some(project_path.clone()),
+        };
+
+        let mut session = VibeSession::new(Some(project_path.clone()), config);
+
+        // 初始化各组件
+        #[cfg(feature = "route-vm")]
+        {
+            let _ = session.init_vm();
+        }
+        #[cfg(feature = "route-memory")]
+        if memory {
+            let _ = session.init_memory();
+        }
+        #[cfg(feature = "route-skill")]
+        {
+            let _ = session.init_skill();
+        }
+        #[cfg(feature = "route-engine")]
+        {
+            let _ = session.init_engine();
+        }
+
+        // 处理自然语言任务
+        match process_natural_language(&mut session, &task) {
+            Ok(output) => {
+                println!("\n{}", output);
+                println!("✅ 任务完成");
+            }
+            Err(e) => {
+                println!("❌ 任务失败: {}", e);
+            }
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "route-vibe"))]
+    {
+        let _ = (task, project_path, memory, causal, auto_git);
+        println!("[vibe] 需要启用 route-vibe feature (cargo build --features route-vibe)");
+        Ok(())
+    }
+}
+
+// ============================================================
+// VM — version management agent (low-level control)
+// ============================================================
+
+pub fn vm_models() -> Result<()> {
+    #[cfg(feature = "route-vm")]
+    {
+        println!("VM Agent — 可用模型:");
+        println!("  - mock (内置模拟模型, 无需 API Key)");
+        println!("  - openai (需要设置 ROUTE_AI_KEY)");
+        println!("");
+        println!("通过 `route vm run --model <name> --task <task>` 使用");
+        Ok(())
+    }
+
+    #[cfg(not(feature = "route-vm"))]
+    {
+        println!("route-vm feature 未启用。编译时添加 --features route-vm");
+        Ok(())
+    }
+}
+
+pub fn vm_skills() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let skills_dir = cwd.join(".route").join("skills");
+    if !skills_dir.exists() {
+        println!("(无技能目录 — 创建 .route/skills/ 添加技能)");
+        return Ok(());
+    }
+
+    let mut files: Vec<_> = std::fs::read_dir(&skills_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+    files.sort_by_key(|e| e.file_name());
+
+    if files.is_empty() {
+        println!("(无技能文件)");
+        return Ok(());
+    }
+
+    println!("已注册的技能 (VM):");
+    for f in &files {
+        let name = f.file_name().to_string_lossy().to_string();
+        let content = std::fs::read_to_string(f.path()).unwrap_or_default();
+        let preview: String = content.chars().take(100).collect();
+        let trunc = if content.len() > 100 { "..." } else { "" };
+        println!("  [{}] {}{}", name, preview, trunc);
+    }
+
+    #[cfg(feature = "route-vm")]
+    {
+        let mut registry = route_vm::tools::ToolRegistry::new();
+        registry.register_builtin(Box::new(route_vm::tools::ReadFileTool));
+        registry.register_builtin(Box::new(route_vm::tools::WriteFileTool));
+        registry.register_builtin(Box::new(route_vm::tools::ListDirTool));
+        registry.register_builtin(Box::new(route_vm::tools::RunCommandTool));
+        println!("\n内置工具 ({}):", registry.count());
+        for tool in registry.list_tools() {
+            println!("  - {}", tool);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn vm_run(
+    task: String,
+    _model: Option<String>,
+    _max_iters: usize,
+    project: Option<String>,
+    memory: bool,
+    causal: bool,
+    auto_git: bool,
+) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let project_path = project.map(PathBuf::from).unwrap_or(cwd);
+
+    println!("[vm] 🎯 任务: {}", task);
+    println!("[vm] 📁 项目: {}", project_path.display());
+    println!("[vm] ⚙️  memory={}, causal={}, auto_git={}", memory, causal, auto_git);
+
+    #[cfg(feature = "route-vm")]
+    {
+        use route_vm::{VmAgent, VmConfig, VmMode};
+
+        let config = VmConfig {
+            mode: VmMode::Agent,
+            memory_mode: memory,
+            causal_control: causal,
+            auto_git,
+            max_iterations: _max_iters,
+            project_path: Some(project_path.clone()),
+        };
+
+        let mut agent = VmAgent::new(config);
+        agent.project_path = Some(project_path.clone());
+
+        let result = if memory {
+            agent.run_with_memory(&task)?
+        } else {
+            agent.run(&task)?
+        };
+
+        println!("\n===== VM 执行结果 =====");
+        println!("状态:   {}", result.status);
+        println!("耗时:   {}ms", result.duration_ms);
+        println!("输出:");
+        for line in result.output.lines() {
+            println!("  {}", line);
+        }
+        if !result.git_changes.is_empty() {
+            println!("\nGit 变更:");
+            for change in &result.git_changes {
+                println!("  • {}", change);
+            }
+        }
+        if !result.side_effects.is_empty() {
+            println!("\n⚠️  副作用检测:");
+            for effect in &result.side_effects {
+                println!("  • {}", effect);
+            }
+        }
+        if !result.memory_updates.is_empty() {
+            println!("\n记忆更新:");
+            for update in &result.memory_updates {
+                println!("  • {}", update);
+            }
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "route-vm"))]
+    {
+        let _ = (task, project_path, _model, _max_iters);
+        println!("[vm] 需要启用 route-vm feature");
+        Ok(())
+    }
+}
+
+pub fn vm_memory_info() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let memory_dir = cwd.join(".route").join("memory");
+
+    if !memory_dir.exists() {
+        println!("(无记忆目录 — 项目尚未初始化记忆)");
+        println!("使用 --memory 模式运行任务可自动创建记忆");
+        return Ok(());
+    }
+
+    println!("📚 项目记忆");
+    println!("  目录: {}", memory_dir.display());
+
+    // 项目元信息
+    let meta_path = memory_dir.join("project.json");
+    if meta_path.exists() {
+        match std::fs::read_to_string(&meta_path) {
+            Ok(content) => {
+                if let Ok(meta) = serde_json::from_str::<route_memory::project::ProjectMeta>(&content) {
+                    println!("\n  项目元信息:");
+                    println!("    名称:        {}", meta.name);
+                    println!("    描述:        {}", meta.description);
+                    println!("    语言:        {}", meta.language);
+                    if let Some(ref fw) = meta.framework {
+                        println!("    框架:        {}", fw);
+                    }
+                    println!("    约束:        {}", meta.constraints.join(", "));
+                    println!("    入口点:      {}", meta.entry_points.join(", "));
+                    println!("    关键模块:    {}", meta.key_modules.join(", "));
+                    println!("    版本:        {}", meta.version);
+                    println!("    创建时间:    {}", meta.created_at);
+                    println!("    更新时间:    {}", meta.updated_at);
+                }
+            }
+            Err(e) => {
+                println!("  ⚠ 无法读取 project.json: {}", e);
+            }
+        }
+    } else {
+        println!("  (无项目元信息)");
+    }
+
+    // 项目结构
+    let structure_path = memory_dir.join("structure.json");
+    if structure_path.exists() {
+        match std::fs::read_to_string(&structure_path) {
+            Ok(content) => {
+                if let Ok(structure) = serde_json::from_str::<route_memory::structure::ProjectStructure>(&content) {
+                    println!("\n  项目结构:");
+                    println!("    文件数:  {}", structure.total_files);
+                    println!("    目录数:  {}", structure.total_dirs);
+                    println!("    语言分布:");
+                    let mut langs: Vec<_> = structure.languages.iter().collect();
+                    langs.sort_by(|a, b| b.1.cmp(a.1));
+                    for (lang, count) in &langs {
+                        println!("      .{}: {} 文件", lang, count);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("  ⚠ 无法读取 structure.json: {}", e);
+            }
+        }
+    }
+
+    // 记忆条目
+    let entries_path = memory_dir.join("entries.jsonl");
+    if entries_path.exists() {
+        match std::fs::read_to_string(&entries_path) {
+            Ok(content) => {
+                let entries: Vec<_> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+                println!("\n  记忆条目: {} 条", entries.len());
+                if entries.len() > 0 {
+                    println!("  (使用 `route vm structure` 查看项目结构图)");
+                }
+            }
+            Err(e) => {
+                println!("  ⚠ 无法读取 entries.jsonl: {}", e);
+            }
+        }
+    }
+
+    // 因果链
+    let chain_path = memory_dir.join("chain.jsonl");
+    if chain_path.exists() {
+        match std::fs::read_to_string(&chain_path) {
+            Ok(content) => {
+                let links: Vec<_> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+                println!("\n  因果链: {} 条记录", links.len());
+            }
+            Err(e) => {
+                println!("  ⚠ 无法读取 chain.jsonl: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn vm_structure() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let memory_dir = cwd.join(".route").join("memory");
+    let structure_path = memory_dir.join("structure.json");
+
+    if !structure_path.exists() {
+        println!("(无项目结构数据 — 运行任务时将自动创建)");
+        // 尝试扫描当前目录
+        println!("\n是否立即扫描项目结构? ...");
+        println!("\n正在扫描项目结构...");
+        match route_memory::structure::ProjectStructure::scan(&cwd) {
+            Ok(structure) => {
+                // 打印 Mermaid
+                println!("\n项目结构 (Mermaid):\n");
+                println!("```mermaid");
+                println!("{}", structure.to_mermaid());
+                println!("```");
+
+                println!("\n模块视图 (Mermaid):\n");
+                println!("```mermaid");
+                println!("{}", structure.to_mermaid_modules());
+                println!("```");
+
+                // 保存
+                std::fs::create_dir_all(&memory_dir)?;
+                std::fs::write(
+                    &structure_path,
+                    serde_json::to_string_pretty(&structure)?,
+                )?;
+                println!("\n✅ 结构已保存到: {}", structure_path.display());
+            }
+            Err(e) => {
+                println!("❌ 扫描失败: {}", e);
+            }
+        }
+        return Ok(());
+    }
+
+    // 读取已保存的结构
+    match std::fs::read_to_string(&structure_path) {
+        Ok(content) => {
+            if let Ok(structure) = serde_json::from_str::<route_memory::structure::ProjectStructure>(
+                &content,
+            ) {
+                println!("\n项目结构 (完整 Mermaid):\n");
+                println!("```mermaid");
+                println!("{}", structure.to_mermaid());
+                println!("```");
+
+                println!("\n模块视图 (Mermaid):\n");
+                println!("```mermaid");
+                println!("{}", structure.to_mermaid_modules());
+                println!("```");
+
+                println!("\n统计:");
+                println!("  文件: {}", structure.total_files);
+                println!("  目录: {}", structure.total_dirs);
+                println!("  语言: {}", structure.languages.len());
+            } else {
+                println!("⚠ 无法解析 structure.json");
+            }
+        }
+        Err(e) => {
+            println!("⚠ 无法读取 structure.json: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================
+// Test — Route Test benchmark suite
+// ============================================================
+
+pub fn test_list() -> Result<()> {
+    #[cfg(feature = "route-test")]
+    {
+        let suites = route_test::default_suites();
+        println!("Route Test — 可用测试套件:\n");
+        for suite in &suites {
+            println!("  [{}] {}", suite.id, suite.name);
+            println!("      描述: {}", suite.description);
+            println!("      类别: {:?}", suite.category);
+            println!("      用例: {} 个", suite.cases.len());
+            for case in &suite.cases {
+                println!("        - {} (权重: {:.1})", case.name, case.weight);
+            }
+            println!();
+        }
+        println!("使用 `route test run --suite <id>` 运行测试套件");
+        Ok(())
+    }
+
+    #[cfg(not(feature = "route-test"))]
+    {
+        println!("route-test feature 未启用。编译时添加 --features route-test");
+        Ok(())
+    }
+}
+
+pub fn test_run(
+    suite: String,
+    format: String,
+    work_dir: Option<String>,
+    verbose: bool,
+) -> Result<()> {
+    #[cfg(feature = "route-test")]
+    {
+        use route_test::{RouteTest, TestConfig, TestReport};
+
+        let config = TestConfig {
+            name: format!("Route Test - {}", suite),
+            description: format!("Running suite: {}", suite),
+            iterations: if verbose { 200 } else { 100 },
+            verbose,
+            work_dir: work_dir.map(PathBuf::from),
+            ..Default::default()
+        };
+
+        let mut test = RouteTest::new(config);
+        let mut report = TestReport::new();
+        report.name = format!("Route Test - {}", suite);
+
+        println!("🧪 运行测试套件: {} ...", suite);
+
+        match test.run_suite(&suite) {
+            Some(result) => {
+                report.add_result(result.clone());
+
+                let icon = if result.passed { "✅" } else { "❌" };
+                println!("\n{} 结果", icon);
+                println!("  分数:   {:.1}/100", result.score);
+                println!("  耗时:   {}ms", result.duration_ms);
+
+                if !result.details.is_empty() {
+                    println!("\n  详情:");
+                    for detail in &result.details {
+                        println!("    • {}", detail);
+                    }
+                }
+
+                if !result.metrics.is_empty() {
+                    println!("\n  指标:");
+                    let mut sorted: Vec<_> = result.metrics.iter().collect();
+                    sorted.sort_by_key(|(k, _)| *k);
+                    for (key, value) in &sorted {
+                        println!("    {}: {:.2}", key, value);
+                    }
+                }
+
+                if !result.recommendations.is_empty() {
+                    println!("\n  建议:");
+                    for rec in &result.recommendations {
+                        println!("    💡 {}", rec);
+                    }
+                }
+
+                // 输出格式化报告
+                match format.as_str() {
+                    "json" => {
+                        report.finalize();
+                        println!("\nJSON 报告:\n{}", report.to_json());
+                    }
+                    "markdown" => {
+                        report.finalize();
+                        println!("\nMarkdown 报告:\n{}", report.to_markdown());
+                    }
+                    _ => {
+                        // pretty 格式（默认）
+                        report.finalize();
+                        println!("\n{}", report.to_pretty());
+                    }
+                }
+            }
+            None => {
+                println!("❌ 未知测试套件: {}", suite);
+                println!("使用 `route test list` 查看可用套件");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "route-test"))]
+    {
+        let _ = (suite, format, work_dir, verbose);
+        println!("route-test feature 未启用。编译时添加 --features route-test");
+        Ok(())
+    }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "route-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Route Test — Built-in Benchmark System for AI drift, memory loss, and structural understanding deviation"
+
+[lib]
+name = "route_test"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+route-engine = { path = "../route-engine", optional = true }
+route-memory = { path = "../route-memory", optional = true }
+route-vm = { path = "../route-vm", optional = true }
