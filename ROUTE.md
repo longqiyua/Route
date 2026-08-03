@@ -19,7 +19,6 @@ cd /path/to/route
 
 # Or download a release
 curl -fsSL https://github.com/longqiyua/route/releases/latest/download/route-x86_64-pc-windows-msvc.zip -o route.zip
-# Extract (adjust filename for your OS)
 ```
 
 ### Step 2: Build the Project
@@ -85,7 +84,7 @@ route init
 | `route base gui enable/disable/status` | Toggle GUI feature |
 | `route ai chat <message>` | AI chat with project context |
 | `route ai config` | Show AI configuration |
-| `route permission status/set high\|normal` | Manage permissions |
+| `route permission status/set high|normal` | Manage permissions |
 | `route mcp --config` | Show MCP configuration |
 | `route project-context` | Get project context |
 
@@ -160,18 +159,7 @@ Root Base (orchestrator)
 Route uses two directories inside the user's project for AI context injection:
 
 ### `.route/skills/`
-Place markdown skill files here. Each skill defines a capability the AI can use:
-```markdown
-# my-skill.md
----
-trigger: ["deploy", "release"]
----
-
-## Steps
-1. Run `cargo build --release`
-2. Copy binary to target server
-3. Restart service
-```
+Place markdown skill files here. Each skill defines a capability the AI can use.
 
 ### `.route/references/`
 Place reference materials here. The AI reads these files for project-specific context:
