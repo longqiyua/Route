@@ -52,3 +52,9 @@ FrontDesignSkill.md
 
 # Python virtual environment
 .venv/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyd
+*.pdb
