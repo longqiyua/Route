@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Route basic mode: graph + tree mindmap, edge-centric commits"
+repository.workspace = true
 
 [lib]
 name = "route_basic"

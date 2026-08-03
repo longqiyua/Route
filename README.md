@@ -1,5 +1,10 @@
 # Route
 
+> **One Markdown, give it to your AI, and start using Route.**
+> **一个 Markdown，交给你的 AI，然后开始使用 Route。**
+>
+> *From Route to Routine.*
+
 **Route** — 面向 Web Coding / Vibe Coding 的轻量版本管理软件，集成智能权责审计与 AI 协同管理。
 
 以「用户与 AI 的一轮对话」为最小版本单元，支持按对话回退、分支管理、混合备份策略，并提供桌面 GUI、CLI 与 MCP 三种接入方式。

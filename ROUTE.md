@@ -1,8 +1,11 @@
-# Route
+# V---
 
-> **From Route to Routine.**
 > **One Markdown, give it to your AI, and start using Route.**
 > **一个 Markdown，交给你的 AI，然后开始使用 Route。**
+>
+> *From Route to Routine.*
+>
+> *Version 0.5 — 2026-08-04*
 
 ---
 
@@ -31,7 +34,9 @@ cargo build --release
 cargo build --release -p route          # CLI binary
 cargo build --release -p route-mcp      # MCP server binary
 cargo build --release -p route-tui      # TUI binary
-cargo build --release -p route-pyo3     # Python bindings
+cargo build --release -p route-http     # HTTP REST API server
+cargo build --release -p route-pyo3    # Python native module (.pyd)
+maturin develop -m packages/route-py/pyproject.toml  # Install as pip package
 ```
 
 ### Step 3: Configure MCP Server
@@ -57,6 +62,9 @@ Once configured, you can call these MCP tools:
 - `extension_skills` / `extension_references` — manage skills & references
 - `project_context` — get full project context
 - `ai_chat` — AI-assisted chat with project context
+- `conversation_new` / `conversation_list` / `conversation_show` — conversation tracking
+- `conversation_record` / `conversation_rollback` — record & rollback messages
+- `conversation_archive` / `conversation_delete` — manage sessions
 
 ### Step 4: Initialize Route in the User's Project
 
@@ -81,19 +89,76 @@ route init
 | `route base search <query>` | Search code with semantic fuzzy matching |
 | `route base memory` | Show memory statistics |
 | `route base self-manage introspect` | Route introspects its own codebase |
-| `route base gui enable/disable/status` | Toggle GUI feature |
-| `route ai chat <message>` | AI chat with project context |
-| `route ai config` | Show AI configuration |
 | `route permission status/set high|normal` | Manage permissions |
 | `route mcp --config` | Show MCP configuration |
 | `route project-context` | Get project context |
+| `route ai chat <message>` | AI chat with project context |
+| `route ai config` | Show AI configuration |
+| `route conversation list` | List conversation sessions |
+| `route conversation new <title>` | Create a new conversation |
+| `route conversation show <id>` | Show messages in a session |
+| `route conversation record <id> <role> <content>` | Record a message |
+| `route conversation rollback <sid> <mid>` | Rollback to a specific message |
+| `route conversation archive <id>` | Archive a session |
+| `route conversation delete <id>` | Delete a session |
 
-### Step 6: Read explain.md
+### Step 6: Use Python Bindings (Optional)
 
-The repository also contains `explain.md` with detailed Feature Toggle documentation. Read it for:
-- GUI desktop application enable/disable
-- All extension interfaces (CLI, MCP, HTTP, PyO3)
-- Architecture overview
+**Option A — Install via pip (recommended for daily use):**
+
+```bash
+# Install maturin (one-time)
+pip install maturin
+
+# Build and install the route Python package
+maturin develop -m packages/route-py/pyproject.toml
+
+# Now you can use it anywhere:
+python -c "import route; print(route.__version__)"
+```
+
+**Option B — Direct import from build output:**
+
+After building, the Python native module is at `target/release/route.dll` (Windows) / `route.so` (Linux/macOS). Copy it to your project and use it:
+
+```python
+import route
+
+# Initialize or open a repository
+route.init("/path/to/project")
+# route.open("/path/to/project")  # open existing
+
+# Basic operations
+status = route.status()
+print(status["current_branch"])  # "main"
+
+commit = route.commit("feat: add login", author="AI")
+print(commit["id"])
+
+# History
+commits = route.log(limit=5)
+for c in commits:
+    print(f"{c['id']}: {c['message']}")
+
+# Branch management
+route.branch_create("feature-x", kind="inherited")
+route.branch_switch("feature-x")
+branches = route.branch_list()
+
+# Tags
+route.tag_create("v1.0", message="first release")
+tags = route.tag_list()
+
+# Conversation tracking
+session = route.conversation_new("chat about refactoring")
+route.conversation_record(session, "user", "Hello, how do I refactor this?")
+route.conversation_record(session, "ai", "Let me analyze the code...")
+msgs = route.conversation_show(session)
+```
+
+### Step 7: Read Architecture Docs
+
+The repository contains `document/architect.md` with detailed architecture documentation.
 
 ---
 
@@ -102,25 +167,31 @@ The repository also contains `explain.md` with detailed Feature Toggle documenta
 ```
 route/
 ├── ROUTE.md              ← This file — give this to any AI
-├── explain.md            ← Feature Toggle & extension docs
+├── document/architect.md ← Architecture documentation
 ├── LICENSE               ← AGPL-3.0
 ├── crates/
-│   ├── route-base/       ← Root Base — top-level orchestrator
-│   ├── route-engine/     ← Root Engine — search, fuzzy match, vector, code graph, RAG
-│   ├── route-memory/     ← Root Memory — project memory, causal chain, hot/cold index
+│   ├── route-core/       ← Core primitives (paths, hash, guard, schema)
+│   ├── route-basic/      ← Core repository engine
+│   ├── route-engine/     ← Search, fuzzy match, vector, RAG
+│   ├── route-memory/     ← Memory, causal chain, conversation tracking
 │   ├── route-cli/        ← CLI binary
 │   ├── route-mcp/        ← MCP server binary
-│   ├── route-tui/        ← TUI binary
-│   ├── route-pyo3/       ← Python bindings (PyO3)
+│   ├── route-tui/        ← TUI binary (Claude-Code-style REPL)
+│   ├── route-http/       ← HTTP REST API server
 │   ├── route-sync/       ← Backup & sync (WebDAV/S3/SSH)
-│   ├── route-skill/      ← Skill & reference system, RAG engine
-│   ├── route-vibe/       ← Vibe session & model proxy
-│   ├── route-vm/         ← VM agent, causal control, git ops
 │   ├── route-plugins/    ← Plugin system (webhook, logger)
-│   ├── route-stats/      ← Statistics collector
-│   └── route-tauri/      ← Desktop app (Tauri, feature-gated)
+│   ├── route-pyo3/       ← Python native bindings (PyO3)
+│   └── route-stats/      ← Statistics collector
 ├── packages/
-│   └── desktop/          ← GUI frontend (Tauri, feature-gated)
+│   ├── cli/              ← TypeScript CLI wrapper
+│   ├── core/             ← TypeScript core library
+│   └── route-py/         ← Python package (pip install route-vc)
+├── archive/
+│   ├── crates/
+│   │   └── route-tauri/  ← Archived GUI desktop app
+│   └── packages/
+│       ├── desktop/      ← Archived GUI frontend
+│       └── desktop-bridge/ ← Archived GUI bridge
 ```
 
 ---
@@ -143,13 +214,15 @@ Root Base (orchestrator)
 ├── Root Memory (storage layer)
 │   ├── Project Memory      — structured memory entries
 │   ├── Causal Chain        — action → effect tracking
+│   ├── Conversation        — AI chat tracking, snapshot rollback
 │   ├── Tiered Memory       — hot/cold/archived memory tiers
 │   └── Mermaid Output      — visual structure & chain diagrams
 └── Interfaces
     ├── CLI                 — route command
     ├── MCP                 — model context protocol server
-    ├── HTTP                — REST API (in development)
-    └── PyO3                — Python native module
+    ├── HTTP                — REST API server
+    ├── TUI                 — interactive REPL (Claude-Code-style)
+    └── PyO3                — Python native module (import route)
 ```
 
 ---

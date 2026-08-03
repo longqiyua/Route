@@ -172,6 +172,12 @@ enum Commands {
     /// Get or set the permission level (normal|high)
     #[command(subcommand)]
     Permission(PermissionAction),
+    /// Route Base operations: context, guard, status
+    #[command(subcommand)]
+    Base(BaseAction),
+    /// Manage conversation sessions (AI chat tracking)
+    #[command(subcommand)]
+    Conversation(ConversationAction),
 }
 
 #[derive(Subcommand)]
@@ -646,6 +652,12 @@ enum AiAction {
         /// Optional system prompt
         #[arg(short, long)]
         system: Option<String>,
+        /// Session ID to continue (auto-creates if not provided)
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Create a snapshot before recording the message
+        #[arg(short, long)]
+        snapshot: bool,
     },
     /// Show AI configuration
     Config,
@@ -659,6 +671,66 @@ enum PermissionAction {
     Set {
         /// Permission level: normal or high
         level: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum BaseAction {
+    /// Show assembled AI context (project memory + structure + causal chain)
+    Context {
+        /// Maximum token budget for context (default: 3000)
+        #[arg(short, long)]
+        max_tokens: Option<usize>,
+    },
+    /// Show Route Guard protection status
+    Guard,
+}
+
+#[derive(Subcommand)]
+enum ConversationAction {
+    /// List all conversation sessions
+    List,
+    /// Create a new conversation session
+    New {
+        /// Session title
+        title: String,
+    },
+    /// Show messages in a conversation session
+    Show {
+        /// Session ID
+        session_id: String,
+        /// Limit the number of messages shown
+        #[arg(short, long)]
+        limit: Option<usize>,
+    },
+    /// Record a message in a conversation session
+    Record {
+        /// Session ID to record into
+        session_id: String,
+        /// Role: user, ai, or system
+        role: String,
+        /// Message content
+        content: String,
+        /// Optional snapshot ID to link to this message
+        #[arg(short, long)]
+        snapshot: Option<String>,
+    },
+    /// Rollback a session to a specific message
+    Rollback {
+        /// Session ID
+        session_id: String,
+        /// Message ID to rollback to
+        message_id: String,
+    },
+    /// Archive a conversation session
+    Archive {
+        /// Session ID
+        session_id: String,
+    },
+    /// Delete a conversation session
+    Delete {
+        /// Session ID
+        session_id: String,
     },
 }
 
@@ -840,7 +912,9 @@ fn main() -> Result<()> {
             ExtensionAction::References => commands::extensions_references(),
         },
         Commands::Ai(action) => match action {
-            AiAction::Chat { message, system } => commands::ai_chat(message, system),
+            AiAction::Chat { message, system, session, snapshot } => {
+                commands::ai_chat(message, system, session, snapshot)
+            }
             AiAction::Config => commands::ai_config(true),
         },
         Commands::ProjectContext => commands::project_context(),
@@ -848,6 +922,19 @@ fn main() -> Result<()> {
         Commands::Permission(action) => match action {
             PermissionAction::Status => commands::permission_status(),
             PermissionAction::Set { level } => commands::permission_set(level),
+        },
+        Commands::Base(action) => match action {
+            BaseAction::Context { max_tokens } => commands::base_context(max_tokens),
+            BaseAction::Guard => commands::guard_status(),
+        },
+        Commands::Conversation(action) => match action {
+            ConversationAction::List => commands::conversation_list(),
+            ConversationAction::New { title } => commands::conversation_new(&title),
+            ConversationAction::Show { session_id, limit } => commands::conversation_show(&session_id, limit),
+            ConversationAction::Record { session_id, role, content, snapshot } => commands::conversation_record(&session_id, &role, &content, snapshot),
+            ConversationAction::Rollback { session_id, message_id } => commands::conversation_rollback(&session_id, &message_id),
+            ConversationAction::Archive { session_id } => commands::conversation_archive(&session_id),
+            ConversationAction::Delete { session_id } => commands::conversation_delete(&session_id),
         },
     }
 }

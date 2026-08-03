@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Route real-time statistics — derived read-only analytics for basic mode"
+repository.workspace = true
 
 [dependencies]
 route-core = { path = "../route-core", version = "0.4.0-beta" }

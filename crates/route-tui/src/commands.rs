@@ -13,6 +13,7 @@ use route_basic::{
     BasicRepository, BranchKind, CommitOptions, CreateBranchOptions, ExportFormat,
 };
 use route_core::short_id;
+use route_memory::ConversationStore;
 
 use crate::fmt::{accent, dim, err, faint, format_ts, head, id, ok, warn};
 use crate::git;
@@ -52,6 +53,78 @@ pub fn dispatch(repo: Option<&BasicRepository>, project_path: &Path, input: &str
         "ai" | "chat" => {
             // AI works even without a repo (limited context but still useful)
             crate::ai::handle_ai_command(project_path, &args);
+            return Action::Continue;
+        }
+        // ── Conversation ──────────────────────────────────────────────────
+        "conversation" | "conv" => {
+            let (sub, sub_rest) = match rest.find(char::is_whitespace) {
+                Some(i) => (&rest[..i], rest[i..].trim()),
+                None => (rest, ""),
+            };
+            let sub_args: Vec<String> = sub_rest.split_whitespace().map(String::from).collect();
+            let res = match repo {
+                Some(r) => cmd_conversation(r, project_path, sub, &sub_args, sub_rest),
+                None => Err(anyhow!("No repository open. Use `init` or `open` first.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
+            return Action::Continue;
+        }
+        // ── Tag ───────────────────────────────────────────────────────────
+        "tag" => {
+            let (sub, sub_rest) = match rest.find(char::is_whitespace) {
+                Some(i) => (&rest[..i], rest[i..].trim()),
+                None => (rest, ""),
+            };
+            let sub_args: Vec<String> = sub_rest.split_whitespace().map(String::from).collect();
+            let res = match repo {
+                Some(r) => cmd_tag(r, project_path, sub, &sub_args, sub_rest),
+                None => Err(anyhow!("No repository open.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
+            return Action::Continue;
+        }
+        "stats" => {
+            let res = match repo {
+                Some(r) => cmd_stats(r),
+                None => Err(anyhow!("No repository open.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
+            return Action::Continue;
+        }
+        "backup" => {
+            let res = match repo {
+                Some(r) => cmd_backup(r, &args),
+                None => Err(anyhow!("No repository open.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
+            return Action::Continue;
+        }
+        "annotate" => {
+            let res = match repo {
+                Some(r) => cmd_annotate(r, &args, rest),
+                None => Err(anyhow!("No repository open.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
+            return Action::Continue;
+        }
+        "annotations" => {
+            let res = match repo {
+                Some(r) => cmd_annotations(r, &args),
+                None => Err(anyhow!("No repository open.")),
+            };
+            if let Err(e) = res {
+                eprintln!("{}", err(&format!("✗ {e}")));
+            }
             return Action::Continue;
         }
         "clear" | "cls" => {
@@ -149,6 +222,395 @@ pub fn dispatch(repo: Option<&BasicRepository>, project_path: &Path, input: &str
     Action::Continue
 }
 
+// ── Conversation ──────────────────────────────────────────────────────────
+
+fn cmd_conversation(
+    _repo: &BasicRepository,
+    project_path: &Path,
+    sub: &str,
+    _args: &[String],
+    sub_rest: &str,
+) -> Result<()> {
+    let store_path = project_path.join(".route").join("conversations.json");
+    match sub {
+        "new" => {
+            let title = sub_rest.trim();
+            if title.is_empty() {
+                return Err(anyhow!("usage: conversation new <title>"));
+            }
+            let mut store = ConversationStore::with_path(store_path);
+            let session = store.create_session(title)?;
+            println!(
+                "{} {} {}",
+                ok("✓ Created session"),
+                accent(&session.title),
+                dim(&format!("(id: {})", session.id))
+            );
+            Ok(())
+        }
+        "list" | "ls" => {
+            let store = ConversationStore::with_path(store_path);
+            let sessions = store.list_sessions();
+            if sessions.is_empty() {
+                println!("{}", dim("(no conversations — start one with `conversation new <title>`)"));
+                return Ok(());
+            }
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic)
+                .set_header(vec![head("ID"), head("Title"), head("Msgs"), head("Updated")]);
+            for s in sessions {
+                table.add_row(vec![
+                    id(&s.id),
+                    accent(&s.title),
+                    dim(&s.message_count.to_string()),
+                    dim(&format_ts(s.updated_at)),
+                ]);
+            }
+            println!("{table}");
+            Ok(())
+        }
+        "show" => {
+            let parts: Vec<&str> = sub_rest.split_whitespace().collect();
+            let session_id = parts.first().ok_or_else(|| anyhow!("usage: conversation show <id> [limit]"))?;
+            let limit = parts.get(1).and_then(|s| s.parse::<usize>().ok());
+            let store = ConversationStore::with_path(store_path);
+            let session = store
+                .get_session(session_id)
+                .ok_or_else(|| anyhow!("Session '{}' not found", session_id))?;
+            println!(
+                "{} {} {}",
+                head("Session:"),
+                accent(&session.title),
+                dim(&format!("(id: {})", session.id))
+            );
+            println!("  {} {}", dim("Created:"), format_ts(session.created_at));
+            println!("  {} {}", dim("Messages:"), session.message_count);
+            if !session.tags.is_empty() {
+                println!("  {} {:?}", dim("Tags:"), session.tags);
+            }
+            println!();
+            let msgs = store.session_messages(session_id);
+            let msgs = match limit {
+                Some(l) => msgs.into_iter().rev().take(l).rev().collect::<Vec<_>>(),
+                None => msgs,
+            };
+            for msg in &msgs {
+                let ts = dim(&format_ts(msg.created_at));
+                let snap = msg
+                    .snapshot_id
+                    .as_ref()
+                    .map(|s| format!(" [snap: {}]", id(&short_id(s))))
+                    .unwrap_or_default();
+                let role_tag = match msg.role.as_str() {
+                    "user" => ok("USER"),
+                    "ai" => accent("AI"),
+                    "system" => warn("SYS"),
+                    r => faint(r),
+                };
+                println!("  [{role_tag}] {ts}{snap}");
+                for line in msg.content.lines() {
+                    println!("    {}", line);
+                }
+                println!();
+            }
+            Ok(())
+        }
+        "record" => {
+            let parts: Vec<&str> = sub_rest.split_whitespace().collect();
+            let session_id = parts
+                .first()
+                .ok_or_else(|| anyhow!("usage: conversation record <session_id> <role> <content> [snapshot_id]"))?;
+            let role = parts
+                .get(1)
+                .ok_or_else(|| anyhow!("usage: conversation record <session_id> <role> <content> [snapshot_id]"))?;
+            let content_start = parts.iter().position(|&p| p == *role).map(|i| i + 1).unwrap_or(2);
+            let snapshot_id = if parts.len() > content_start + 1 {
+                Some(parts.last().unwrap().to_string())
+            } else {
+                None
+            };
+            let content_end = if snapshot_id.is_some() {
+                parts.len() - 1
+            } else {
+                parts.len()
+            };
+            let content = parts[content_start..content_end].join(" ");
+            if content.is_empty() {
+                return Err(anyhow!("usage: conversation record <session_id> <role> <content> [snapshot_id]"));
+            }
+            let mut store = ConversationStore::with_path(store_path);
+            let sid = session_id.to_string();
+            match store.add_message(&sid, role, &content, snapshot_id)? {
+                Some(msg) => {
+                    println!(
+                        "{} {} {}",
+                        ok("✓ Recorded message"),
+                        id(&msg.id),
+                        dim(&format!("in session '{}'", session_id))
+                    );
+                    Ok(())
+                }
+                None => Err(anyhow!("Session '{}' not found", session_id)),
+            }
+        }
+        "rollback" => {
+            let parts: Vec<&str> = sub_rest.split_whitespace().collect();
+            let session_id = parts
+                .first()
+                .ok_or_else(|| anyhow!("usage: conversation rollback <session_id> <message_id> [reason]"))?;
+            let message_id = parts
+                .get(1)
+                .ok_or_else(|| anyhow!("usage: conversation rollback <session_id> <message_id> [reason]"))?;
+            let reason = if parts.len() > 2 {
+                Some(parts[2..].join(" "))
+            } else {
+                None
+            };
+            let mut store = ConversationStore::with_path(store_path);
+            let result = store.rollback_to_message(session_id, message_id, reason.as_deref());
+            if result.success {
+                println!(
+                    "{} {} {} {} {}",
+                    ok("✓ Rolled back to message"),
+                    id(&result.message_id),
+                    dim("in session"),
+                    accent(session_id),
+                    dim(&format!("(snap: {}, removed: {})", short_id(&result.snapshot_id), result.messages_removed))
+                );
+                Ok(())
+            } else {
+                Err(anyhow!(
+                    "Rollback failed: {}",
+                    result.error.unwrap_or_default()
+                ))
+            }
+        }
+        "archive" => {
+            let session_id = sub_rest.trim();
+            if session_id.is_empty() {
+                return Err(anyhow!("usage: conversation archive <session_id>"));
+            }
+            let mut store = ConversationStore::with_path(store_path);
+            if store.archive_session(session_id)? {
+                println!("{} {}", ok("✓ Archived session"), accent(session_id));
+                Ok(())
+            } else {
+                Err(anyhow!("Session '{}' not found", session_id))
+            }
+        }
+        "delete" | "rm" => {
+            let session_id = sub_rest.trim();
+            if session_id.is_empty() {
+                return Err(anyhow!("usage: conversation delete <session_id>"));
+            }
+            let mut store = ConversationStore::with_path(store_path);
+            if store.delete_session(session_id)? {
+                println!("{} {}", ok("✓ Deleted session"), accent(session_id));
+                Ok(())
+            } else {
+                Err(anyhow!("Session '{}' not found", session_id))
+            }
+        }
+        other => Err(anyhow!(
+            "unknown conversation subcommand: {other} (new|list|show|record|rollback|archive|delete)"
+        )),
+    }
+}
+
+// ── Tag (route-basic, not git tag) ────────────────────────────────────────
+
+fn cmd_tag(
+    repo: &BasicRepository,
+    _project_path: &Path,
+    sub: &str,
+    _args: &[String],
+    sub_rest: &str,
+) -> Result<()> {
+    match sub {
+        "list" | "ls" => {
+            let tags = repo.tag_list()?;
+            if tags.is_empty() {
+                println!("{}", dim("(no tags)"));
+                return Ok(());
+            }
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic)
+                .set_header(vec![head("Name"), head("Snapshot"), head("Created"), head("Message")]);
+            for t in tags {
+                table.add_row(vec![
+                    accent(&t.name),
+                    id(&short_id(&t.snapshot_id)),
+                    dim(&format_ts(t.created_at)),
+                    t.message.as_deref().unwrap_or("").to_string(),
+                ]);
+            }
+            println!("{table}");
+            Ok(())
+        }
+        "create" | "new" => {
+            let parts: Vec<&str> = sub_rest.split_whitespace().collect();
+            let name = parts
+                .first()
+                .ok_or_else(|| anyhow!("usage: tag create <name> <snapshot_id> [-m <message>]"))?;
+            let snapshot_id = parts
+                .get(1)
+                .ok_or_else(|| anyhow!("usage: tag create <name> <snapshot_id> [-m <message>]"))?;
+            let message = if parts.len() > 3 && (parts[2] == "-m" || parts[2] == "--message") {
+                Some(parts[3..].join(" "))
+            } else if parts.len() > 2 {
+                Some(parts[2..].join(" "))
+            } else {
+                None
+            };
+            let tag = repo.tag_create(name, snapshot_id, message.as_deref())?;
+            println!(
+                "{} {} {} {}",
+                ok("✓ Tag"),
+                accent(&tag.name),
+                dim("→"),
+                id(&short_id(&tag.snapshot_id))
+            );
+            Ok(())
+        }
+        "delete" | "rm" => {
+            let name = sub_rest.trim();
+            if name.is_empty() {
+                return Err(anyhow!("usage: tag delete <name>"));
+            }
+            repo.tag_delete(name)?;
+            println!("{} {}", ok("✓ Deleted tag"), accent(name));
+            Ok(())
+        }
+        other => Err(anyhow!("unknown tag subcommand: {other} (list|create|delete)")),
+    }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+
+fn cmd_stats(repo: &BasicRepository) -> Result<()> {
+    let branches = repo.list_branches()?;
+    let snapshots = repo.all_snapshots()?;
+    let commits = repo.list_commits(None, 10000)?;
+
+    let main_count = branches.iter().filter(|b| b.kind == BranchKind::Main).count();
+    let inherited_count = branches
+        .iter()
+        .filter(|b| b.kind == BranchKind::Inherited)
+        .count();
+    let sandbox_count = branches
+        .iter()
+        .filter(|b| b.kind == BranchKind::Sandbox)
+        .count();
+
+    let inc = commits
+        .iter()
+        .filter(|c| c.kind == route_basic::CommitKind::Incremental)
+        .count();
+    let full = commits
+        .iter()
+        .filter(|c| c.kind == route_basic::CommitKind::Full)
+        .count();
+    let rollback = commits
+        .iter()
+        .filter(|c| c.kind == route_basic::CommitKind::Rollback)
+        .count();
+    let merge = commits
+        .iter()
+        .filter(|c| c.kind == route_basic::CommitKind::Merge)
+        .count();
+
+    println!("{}", head("Route — Statistics"));
+    println!("  {}  {}", dim("Branches:"), id(&branches.len().to_string()));
+    println!(
+        "    {} {}  {} {}  {} {}",
+        dim("main:"),
+        main_count,
+        dim("inherited:"),
+        inherited_count,
+        dim("sandbox:"),
+        sandbox_count
+    );
+    println!("  {}  {}", dim("Snapshots:"), id(&snapshots.len().to_string()));
+    println!("  {}  {}", dim("Commits:"), id(&commits.len().to_string()));
+    println!(
+        "    {} {}  {} {}  {} {}  {} {}",
+        dim("incremental:"),
+        inc,
+        dim("full:"),
+        full,
+        dim("rollback:"),
+        rollback,
+        dim("merge:"),
+        merge
+    );
+    Ok(())
+}
+
+// ── Backup ────────────────────────────────────────────────────────────────
+
+fn cmd_backup(repo: &BasicRepository, args: &[String]) -> Result<()> {
+    let target = args
+        .first()
+        .ok_or_else(|| anyhow!("usage: backup <target_directory>"))?;
+    let result = repo.full_backup_to_dir(Path::new(target))?;
+    println!(
+        "{} {}",
+        ok("✓ Full backup completed to"),
+        result.display()
+    );
+    Ok(())
+}
+
+// ── Annotations ───────────────────────────────────────────────────────────
+
+fn cmd_annotate(repo: &BasicRepository, _args: &[String], rest: &str) -> Result<()> {
+    let parts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
+    let commit_id = parts
+        .first()
+        .ok_or_else(|| anyhow!("usage: annotate <commit_id> <text>"))?;
+    let text = parts
+        .get(1)
+        .ok_or_else(|| anyhow!("usage: annotate <commit_id> <text>"))?;
+    let annotation = repo.add_path_annotation(commit_id, text)?;
+    println!(
+        "{} {} {} {}",
+        ok("✓ Annotation"),
+        id(&short_id(&annotation.id)),
+        dim("added to commit"),
+        accent(&short_id(commit_id))
+    );
+    Ok(())
+}
+
+fn cmd_annotations(repo: &BasicRepository, args: &[String]) -> Result<()> {
+    let commit_id = args
+        .first()
+        .ok_or_else(|| anyhow!("usage: annotations <commit_id>"))?;
+    let list = repo.list_path_annotations(commit_id)?;
+    if list.is_empty() {
+        println!("{}", dim("(no annotations)"));
+        return Ok(());
+    }
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec![head("ID"), head("Time"), head("Text")]);
+    for a in list {
+        table.add_row(vec![
+            id(&short_id(&a.id)),
+            dim(&format_ts(a.created_at)),
+            a.text,
+        ]);
+    }
+    println!("{table}");
+    Ok(())
+}
+
 fn print_help() {
     println!();
     println!("{}", head("Route — commands"));
@@ -171,6 +633,13 @@ fn print_help() {
         ("root", "git <net-sub>", "High-privilege git (push/pull/fetch/remote)"),
         ("clear, cls", "", "Clear screen"),
         ("exit, quit, q", "", "Quit route-tui"),
+        ("", "", ""),
+        ("conversation, conv", "<sub>", "Conversation tracking (new|list|show|record|rollback|archive|delete)"),
+        ("tag", "<sub>", "Route tags (list|create|delete)"),
+        ("stats", "", "Repository statistics"),
+        ("backup", "<dir>", "Full backup to a directory"),
+        ("annotate", "<commit> <text>", "Add a text annotation to a commit"),
+        ("annotations", "<commit>", "List annotations on a commit"),
     ];
     for (cmd, args, desc) in rows {
         println!("  {} {}  {}", accent(cmd), faint(args), dim(desc));

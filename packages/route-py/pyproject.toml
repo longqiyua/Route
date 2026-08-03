@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "route-vc"
+version = "0.4.0-beta"
+description = "One Markdown, give it to your AI, and start using Route. 一个 Markdown，交给你的 AI，然后开始使用 Route。"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0" }
+authors = [
+    { name = "Route Contributors" }
+]
+keywords = ["version-control", "vibe-coding", "ai", "mcp", "snapshot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Version Control",
+]
+
+[tool.maturin]
+# 指向 Rust crate 的相对路径
+manifest-path = "../../crates/route-pyo3/Cargo.toml"
+# 编译产物命名
+module-name = "route._native"
+# 发布到 PyPI 时包含的额外文件
+include = [
+    "route/py.typed",
+    "route/_native.pyi",
+]

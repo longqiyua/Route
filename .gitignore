@@ -49,3 +49,6 @@ PPAM/
 
 # Design reference documents (not part of the Route source code)
 FrontDesignSkill.md
+
+# Python virtual environment
+.venv/

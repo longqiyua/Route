@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Route plugin runtime: event bus, native plugins, and (future) WASM runtime"
+repository.workspace = true
 
 [lib]
 name = "route_plugins"

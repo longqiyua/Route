@@ -1,0 +1,22 @@
+[package]
+name = "route-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route Memory: project memory, causal chain, project structure tracking"
+repository.workspace = true
+
+[lib]
+name = "route_memory"
+path = "src/lib.rs"
+
+[dependencies]
+route-engine = { path = "../route-engine", version = "0.4.0-beta" }
+route-basic = { path = "../route-basic", version = "0.4.0-beta" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

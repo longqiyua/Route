@@ -40,6 +40,7 @@ use route_basic::{
     BasicRepository, BranchKind, CommitKind, CommitOptions, CreateBranchOptions, ExportFormat,
 };
 use serde::{Deserialize, Serialize};
+use route_memory::ConversationStore;
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------
@@ -921,6 +922,92 @@ fn tool_registry() -> Vec<ToolDef> {
             name: "route_project_context",
             description: "Get the full project context for AI injection. Returns the project structure, recent commits, current branch, references, and tracking history. Call this when you need to understand the project before making suggestions or changes.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        // ===================================================================
+        // Conversation tracking tools
+        // ===================================================================
+        ToolDef {
+            name: "route_conversation_new",
+            description: "Create a new conversation session. Returns the new session_id. Use this to start tracking a conversation thread.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                    "title": { "type": "string", "description": "Human-readable title for the conversation session." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_conversation_list",
+            description: "List all active (non-archived) conversation sessions, newest first. Each entry shows the session id, title, message count, and timestamps.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
+            name: "route_conversation_show",
+            description: "View the details of a specific conversation session, including its messages. Pass `session_id` to identify the session and optionally `limit` to cap the number of messages returned.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "The session ID to view." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Maximum number of messages to return (default: all)." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_conversation_record",
+            description: "Record a message in a conversation session. `role` must be one of: user, ai, system. Optionally link a `snapshot_id` to associate this message with a project snapshot.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id", "role", "content"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "The session ID to record the message in." },
+                    "role": { "type": "string", "enum": ["user", "ai", "system"], "description": "Message role: user, ai, or system." },
+                    "content": { "type": "string", "description": "The message content." },
+                    "snapshot_id": { "type": "string", "description": "Optional linked snapshot ID from the project." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_conversation_rollback",
+            description: "Rollback a conversation session to a specific message, restoring the linked project snapshot. All messages after the rollback point are removed. Use this to undo changes made during a conversation.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id", "message_id"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "The session ID to rollback in." },
+                    "message_id": { "type": "string", "description": "The message ID to rollback to." },
+                    "reason": { "type": "string", "description": "Optional reason for the rollback." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_conversation_archive",
+            description: "Archive a conversation session. Archived sessions are hidden from the default list but are not deleted. Use this to clean up old conversations while preserving them.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "The session ID to archive." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_conversation_delete",
+            description: "Permanently delete a conversation session and all its messages. This action cannot be undone. Use `route_conversation_archive` instead if you want to preserve the data.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "The session ID to delete." }
+                },
+                "additionalProperties": false
+            }),
         },
     ]
 }
@@ -2413,6 +2500,125 @@ fn dispatch_tool(name: &str, args: Value) -> Result<Value> {
         "route_extension_references"   => do_extension_references(args),
         // Project context tool
         "route_project_context"        => do_project_context(args),
+        // Conversation tracking tools
+        "route_conversation_new" => {
+            let title = args.get("title").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `title`"))?.to_string();
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let mut store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let session = store.create_session(&title).map_err(|e| anyhow!("{}", e))?;
+            Ok(json!({ "session_id": session.id, "title": session.title, "created_at": session.created_at }))
+        }
+        "route_conversation_list" => {
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let sessions = store.list_sessions();
+            Ok(json!({
+                "sessions": sessions.iter().map(|s| json!({
+                    "id": s.id,
+                    "title": s.title,
+                    "message_count": s.message_count,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "archived": s.archived,
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "route_conversation_show" => {
+            let session_id = args.get("session_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `session_id`"))?.to_string();
+            let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let session = store.get_session(&session_id)
+                .ok_or_else(|| anyhow!("session not found: {}", session_id))?;
+            let messages = if let Some(n) = limit {
+                store.last_messages(&session_id, n)
+            } else {
+                store.session_messages(&session_id)
+            };
+            Ok(json!({
+                "session": {
+                    "id": session.id,
+                    "title": session.title,
+                    "message_count": session.message_count,
+                    "created_at": session.created_at,
+                    "updated_at": session.updated_at,
+                    "archived": session.archived,
+                },
+                "messages": messages.iter().map(|m| json!({
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at,
+                    "snapshot_id": m.snapshot_id,
+                    "parent_id": m.parent_id,
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "route_conversation_record" => {
+            let session_id = args.get("session_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `session_id`"))?.to_string();
+            let role = args.get("role").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `role`"))?.to_string();
+            let content = args.get("content").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `content`"))?.to_string();
+            let snapshot_id = args.get("snapshot_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let mut store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let msg = store.add_message(&session_id, &role, &content, snapshot_id)
+                .map_err(|e| anyhow!("{}", e))?
+                .ok_or_else(|| anyhow!("session not found: {}", session_id))?;
+            Ok(json!({
+                "message_id": msg.id,
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at,
+                "snapshot_id": msg.snapshot_id,
+            }))
+        }
+        "route_conversation_rollback" => {
+            let session_id = args.get("session_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `session_id`"))?.to_string();
+            let message_id = args.get("message_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `message_id`"))?.to_string();
+            let reason = args.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let mut store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let result = store.rollback_to_message(&session_id, &message_id, reason.as_deref());
+            if !result.success {
+                return Err(anyhow!("rollback failed: {}", result.error.unwrap_or_default()));
+            }
+            Ok(json!({
+                "session_id": result.session_id,
+                "message_id": result.message_id,
+                "snapshot_id": result.snapshot_id,
+                "messages_removed": result.messages_removed,
+                "success": result.success,
+            }))
+        }
+        "route_conversation_archive" => {
+            let session_id = args.get("session_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `session_id`"))?.to_string();
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let mut store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let archived = store.archive_session(&session_id).map_err(|e| anyhow!("{}", e))?;
+            if !archived {
+                return Err(anyhow!("session not found: {}", session_id));
+            }
+            Ok(json!({ "session_id": session_id, "archived": true }))
+        }
+        "route_conversation_delete" => {
+            let session_id = args.get("session_id").and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("missing required `session_id`"))?.to_string();
+            let project_path = project_path().map_err(|e| anyhow!("{}", e))?;
+            let mut store = ConversationStore::with_path(project_path.join(".route").join("conversations.json"));
+            let deleted = store.delete_session(&session_id).map_err(|e| anyhow!("{}", e))?;
+            if !deleted {
+                return Err(anyhow!("session not found: {}", session_id));
+            }
+            Ok(json!({ "session_id": session_id, "deleted": true }))
+        }
         other => Err(anyhow!("unknown tool: {}", other)),
     }
 }

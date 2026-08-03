@@ -225,3 +225,149 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Conversation e2e tests
+// ---------------------------------------------------------------------------
+
+/// Helper: run `route conversation new <title>` and return the session ID.
+fn create_conversation_session(route: &PathBuf, cwd: &std::path::Path, title: &str) -> Result<String> {
+    let output = Command::new(route)
+        .args(["conversation", "new", title])
+        .current_dir(cwd)
+        .output()?;
+    assert!(output.status.success(), "conversation new failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Parse: "✓ Created session '...' (id: conv-xxx)"
+    let id_part = stdout.split("id: ").nth(1).unwrap_or("").trim();
+    let id = id_part.trim_end_matches(')').trim();
+    assert!(!id.is_empty(), "could not parse session id from: {stdout}");
+    Ok(id.to_string())
+}
+
+#[test]
+fn conversation_workflow() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let route = route_binary();
+    if !route.exists() {
+        return Ok(());
+    }
+
+    // Initialize a route repo (required for some operations)
+    let output = Command::new(&route)
+        .arg("init")
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success(), "init failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // --- Create a session ---
+    let session_id = create_conversation_session(&route, tmp.path(), "test session")?;
+
+    // --- List sessions ---
+    let output = Command::new(&route)
+        .args(["conversation", "list"])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&session_id), "session id not in list: {stdout}");
+    assert!(stdout.contains("test session"), "session title not in list: {stdout}");
+
+    // --- Record user message ---
+    let output = Command::new(&route)
+        .args(["conversation", "record", &session_id, "user", "hello"])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success(), "record failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // --- Record AI response ---
+    let output = Command::new(&route)
+        .args(["conversation", "record", &session_id, "ai", "Hi there!"])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success());
+
+    // --- Show session with messages ---
+    let output = Command::new(&route)
+        .args(["conversation", "show", &session_id])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello"), "user message not shown: {stdout}");
+    assert!(stdout.contains("Hi there!"), "ai message not shown: {stdout}");
+
+    // --- Show with limit ---
+    let output = Command::new(&route)
+        .args(["conversation", "show", &session_id, "--limit", "1"])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success());
+    // With limit=1, only the last message should be shown
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Hi there!"), "limited show missing ai message: {stdout}");
+
+    // --- Archive session ---
+    let output = Command::new(&route)
+        .args(["conversation", "archive", &session_id])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success(), "archive failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // --- List should be empty (archived hidden) ---
+    let output = Command::new(&route)
+        .args(["conversation", "list"])
+        .current_dir(tmp.path())
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("no conversations"), "expected empty list after archive: {stdout}");
+
+    // --- Delete session ---
+    let output = Command::new(&route)
+        .args(["conversation", "delete", &session_id])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(output.status.success(), "delete failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    Ok(())
+}
+
+#[test]
+fn conversation_show_nonexistent() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let route = route_binary();
+    if !route.exists() {
+        return Ok(());
+    }
+
+    // Show a non-existent session should fail
+    let output = Command::new(&route)
+        .args(["conversation", "show", "nonexistent-session"])
+        .current_dir(tmp.path())
+        .output()?;
+    assert!(!output.status.success(), "expected failure for nonexistent session");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not found"), "expected 'not found' error: {stderr}");
+
+    Ok(())
+}
+
+#[test]
+fn conversation_create_after_init() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let route = route_binary();
+    if !route.exists() {
+        return Ok(());
+    }
+
+    // Create a conversation in a directory without route init
+    // (conversation store creates .route/ automatically)
+    let session_id = create_conversation_session(&route, tmp.path(), "standalone session")?;
+    assert!(!session_id.is_empty(), "session id should not be empty");
+
+    // Verify the .route/conversations.json file was created
+    let conv_path = tmp.path().join(".route").join("conversations.json");
+    assert!(conv_path.exists(), "conversations.json not created at: {}", conv_path.display());
+
+    Ok(())
+}

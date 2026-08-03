@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Route directory sync: mirror/backup/archive modes with multiple transports"
+repository.workspace = true
 
 [lib]
 name = "route_sync"

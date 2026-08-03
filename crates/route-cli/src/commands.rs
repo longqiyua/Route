@@ -54,6 +54,8 @@ pub fn init(path: Option<String>) -> Result<()> {
         None => std::env::current_dir()?,
     };
     let repo = BasicRepository::init(&target)?;
+    // Create the Route Guard anchor to protect Route's data files
+    let _ = route_core::ensure_guard_anchor(&target);
     println!("✓ Route basic repository initialized");
     println!("  Path: {}", repo.paths.route_dir.display());
     println!("  Branch: main (default)");
@@ -770,7 +772,12 @@ pub fn ai_config(show: bool) -> Result<()> {
 // AI Chat
 // ---------------------------------------------------------------------------
 
-pub fn ai_chat(message: String, system: Option<String>) -> Result<()> {
+pub fn ai_chat(
+    message: String,
+    system: Option<String>,
+    session_id: Option<String>,
+    create_snapshot: bool,
+) -> Result<()> {
     let key = std::env::var("ROUTE_AI_KEY").map_err(|_| {
         anyhow!("ROUTE_AI_KEY not set. Set ROUTE_AI_KEY to enable AI chat.")
     })?;
@@ -779,6 +786,58 @@ pub fn ai_chat(message: String, system: Option<String>) -> Result<()> {
     let model = std::env::var("ROUTE_AI_MODEL")
         .unwrap_or_else(|_| "gpt-4o".to_string());
 
+    // ---- Conversation tracking ----
+    let mut store = open_conversation_store()?;
+    let sid = match session_id {
+        Some(id) => {
+            // Verify the session exists
+            if store.get_session(&id).is_none() {
+                return Err(anyhow!("Session '{}' not found", id));
+            }
+            id
+        }
+        None => {
+            // Auto-create a session with the message as title
+            let title = if message.len() > 50 {
+                format!("{}...", &message[..50])
+            } else {
+                message.clone()
+            };
+            store.create_session(&title)?;
+            store.list_sessions().first().unwrap().id.clone()
+        }
+    };
+
+    // Optionally create a snapshot before recording the user message
+    let snapshot_id: Option<String> = if create_snapshot {
+        match open_repo() {
+            Ok(repo) => {
+                let commit = repo.commit(CommitOptions {
+                    message: format!("AI chat: {}", if message.len() > 80 { format!("{}...", &message[..80]) } else { message.clone() }),
+                    author: Some("ai-chat".to_string()),
+                    force_full: false,
+                    branch: None,
+                    operator: Some("ai".to_string()),
+                    body: None,
+                    is_checkpoint: false,
+                    is_ai: true,
+                });
+                match commit {
+                    Ok(c) => Some(c.to_snapshot),
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Record user message
+    store.add_message(&sid, "user", &message, snapshot_id.clone())?;
+    store.save()?;
+
+    // ---- AI API call ----
     let client = reqwest::blocking::Client::new();
     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
 
@@ -808,7 +867,11 @@ pub fn ai_chat(message: String, system: Option<String>) -> Result<()> {
         .map_err(|e| anyhow!("Cannot read AI response: {}", e))?;
 
     if !status.is_success() {
-        return Err(anyhow!("AI API error ({}): {}", status.as_u16(), body_text));
+        // Record the error as a system message
+        let error_msg = format!("AI API error ({}): {}", status.as_u16(), body_text);
+        let _ = store.add_message(&sid, "system", &error_msg, None);
+        let _ = store.save();
+        return Err(anyhow!("{}", error_msg));
     }
 
     let parsed: serde_json::Value =
@@ -818,7 +881,13 @@ pub fn ai_chat(message: String, system: Option<String>) -> Result<()> {
         .as_str()
         .ok_or_else(|| anyhow!("No content in AI response"))?;
 
+    // Record AI response
+    store.add_message(&sid, "ai", content, None)?;
+    store.save()?;
+
     println!("{}", content);
+    println!();
+    println!("[session: {}]", sid);
     Ok(())
 }
 
@@ -981,4 +1050,226 @@ pub fn permission_set(level: String) -> Result<()> {
     std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
     println!("✓ Permission level set to: {}", l);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Route Memory: context pipeline (assembles project memory + structure + causal chain)
+// ---------------------------------------------------------------------------
+
+/// Show the assembled AI context using route-memory and route-engine.
+/// This is the primary way AI gets project context — reads memory and structure
+/// first, then falls back to the engine if content exceeds token budget.
+pub fn base_context(max_tokens: Option<usize>) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let project_name = cwd.file_name().map(|n| n.to_string_lossy()).unwrap_or_default().to_string();
+
+    // Build memory store (in-memory for now; can be persisted later)
+    let mut memory = route_memory::MemoryStore::new();
+    memory.set(
+        "route/version",
+        "Route is a version control and code understanding tool. Not an information hub.",
+        route_memory::MemoryTier::Core,
+        vec!["route".to_string()],
+    );
+    memory.set(
+        "route/principle",
+        "Route data is protected. AI must read memory before searching code.",
+        route_memory::MemoryTier::Core,
+        vec!["route".to_string()],
+    );
+
+    // Scan project structure
+    let structure = route_memory::ProjectStructure::scan(&cwd, 4)
+        .map_err(|e| anyhow!("failed to scan project structure: {e}"))?;
+
+    // Build causal chain (in-memory)
+    let causal = route_memory::CausalChain::new();
+
+    // Assemble context with token budget
+    let config = route_memory::ContextConfig {
+        max_tokens: max_tokens.unwrap_or(route_engine::TokenBudget::DEFAULT_MAX),
+        ..Default::default()
+    };
+    let pipeline = route_memory::ContextPipeline::with_config(config);
+    let ctx = pipeline.assemble(&memory, &structure, &causal, &project_name);
+
+    println!("{}", ctx.formatted);
+    println!();
+    println!("--- Context Stats ---");
+    println!("  Token count: {} ({} budget)", ctx.token_count, config.max_tokens);
+    println!("  Memory entries: {}", ctx.memory_entries);
+    println!("  Structure entries: {}", ctx.structure_entries);
+    println!("  Causal entries: {}", ctx.causal_entries);
+    if ctx.truncated {
+        println!("  ⚠ Context was truncated to fit token budget");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Route Guard: protection status
+// ---------------------------------------------------------------------------
+
+/// Show the Route Guard protection status.
+pub fn guard_status() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let active = route_core::is_route_active(&cwd);
+    let guard = route_core::RouteGuard::new();
+
+    println!("Route Guard Status");
+    println!("==================");
+    println!("Active: {}", if active { "yes" } else { "no (run `route init` first)" });
+    println!();
+    println!("Protected directories:");
+    println!("  - .route/     (Route base configuration)");
+    println!("  - .route-basic/ (Route basic mode data)");
+    println!("  - .route-guard  (Route anchor file)");
+    println!();
+    println!("Check a path:");
+    for dir in &[".route", ".route-basic", "src", "Cargo.toml"] {
+        let target = cwd.join(dir);
+        let result = guard.check(&cwd, &target);
+        println!("  {} → {:?}", dir, result);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Conversation: record, list, show, rollback
+// ---------------------------------------------------------------------------
+
+fn conversation_store_path() -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    cwd.join(".route").join("conversations.json")
+}
+
+fn open_conversation_store() -> Result<route_memory::ConversationStore> {
+    let path = conversation_store_path();
+    Ok(route_memory::ConversationStore::with_path(path))
+}
+
+/// List all conversation sessions.
+pub fn conversation_list() -> Result<()> {
+    let store = open_conversation_store()?;
+    let sessions = store.list_sessions();
+
+    if sessions.is_empty() {
+        println!("(no conversations — start one with `route conversation new <title>`)");
+        return Ok(());
+    }
+
+    println!("{:<32}  {:<20}  {:<6}  {}", "SESSION ID", "TITLE", "MSGS", "LAST ACTIVITY");
+    println!("{}", "-".repeat(90));
+    for session in sessions {
+        let time = chrono::DateTime::from_timestamp_millis(session.updated_at)
+            .map(|t| t.format("%m-%d %H:%M").to_string())
+            .unwrap_or_else(|| "?".to_string());
+        println!(
+            "{:<32}  {:<20}  {:<6}  {}",
+            session.id, session.title, session.message_count, time
+        );
+    }
+    Ok(())
+}
+
+/// Create a new conversation session.
+pub fn conversation_new(title: &str) -> Result<()> {
+    let mut store = open_conversation_store()?;
+    let session = store.create_session(title)?;
+    println!("✓ Created session '{}' (id: {})", session.title, session.id);
+    Ok(())
+}
+
+/// Show details of a conversation session.
+pub fn conversation_show(session_id: &str, limit: Option<usize>) -> Result<()> {
+    let store = open_conversation_store()?;
+    let session = match store.get_session(session_id) {
+        Some(s) => s,
+        None => {
+            return Err(anyhow!("Session '{}' not found", session_id));
+        }
+    };
+
+    println!("Session: {} (id: {})", session.title, session.id);
+    println!("Created: {:?}", chrono::DateTime::from_timestamp_millis(session.created_at));
+    println!("Messages: {}", session.message_count);
+    println!("Tags: {:?}", session.tags);
+    println!();
+
+    let msgs = store.session_messages(session_id);
+    let msgs = if let Some(limit) = limit {
+        msgs.into_iter().rev().take(limit).rev().collect::<Vec<_>>()
+    } else {
+        msgs
+    };
+
+    for msg in &msgs {
+        let time = chrono::DateTime::from_timestamp_millis(msg.created_at)
+            .map(|t| t.format("%H:%M:%S").to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let snapshot = msg.snapshot_id.as_ref().map(|s| format!(" [snap: {}]", s)).unwrap_or_default();
+        let role_tag = match msg.role.as_str() {
+            "user" => "USER",
+            "ai" => "AI",
+            "system" => "SYS",
+            _ => &msg.role,
+        };
+        println!("  [{:<4}] {} {}{}", role_tag, time, msg.content, snapshot);
+        println!();
+    }
+    Ok(())
+}
+
+/// Record a message in a conversation session.
+pub fn conversation_record(
+    session_id: &str,
+    role: &str,
+    content: &str,
+    snapshot_id: Option<String>,
+) -> Result<()> {
+    let mut store = open_conversation_store()?;
+    match store.add_message(session_id, role, content, snapshot_id)? {
+        Some(msg) => {
+            println!("✓ Recorded message '{}' in session '{}'", msg.id, session_id);
+            Ok(())
+        }
+        None => Err(anyhow!("Session '{}' not found", session_id)),
+    }
+}
+
+/// Rollback a conversation session to a specific message.
+pub fn conversation_rollback(session_id: &str, message_id: &str) -> Result<()> {
+    let mut store = open_conversation_store()?;
+    let result = store.rollback_to_message(session_id, message_id, Some("CLI rollback"));
+
+    if result.success {
+        println!("✓ Rolled back to message '{}' in session '{}'", message_id, session_id);
+        println!("  Snapshot: {}", result.snapshot_id);
+        println!("  Messages removed: {}", result.messages_removed);
+        Ok(())
+    } else {
+        Err(anyhow!("Rollback failed: {}", result.error.unwrap_or_default()))
+    }
+}
+
+/// Archive a conversation session.
+pub fn conversation_archive(session_id: &str) -> Result<()> {
+    let mut store = open_conversation_store()?;
+    if store.archive_session(session_id)? {
+        println!("✓ Archived session '{}'", session_id);
+        Ok(())
+    } else {
+        Err(anyhow!("Session '{}' not found", session_id))
+    }
+}
+
+/// Delete a conversation session.
+pub fn conversation_delete(session_id: &str) -> Result<()> {
+    let mut store = open_conversation_store()?;
+    if store.delete_session(session_id)? {
+        println!("✓ Deleted session '{}'", session_id);
+        Ok(())
+    } else {
+        Err(anyhow!("Session '{}' not found", session_id))
+    }
 }

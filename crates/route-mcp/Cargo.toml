@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Route Model Context Protocol server — exposes Route CLI as tools for any MCP-compatible AI client"
+repository.workspace = true
 
 [[bin]]
 name = "route-mcp"
@@ -12,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 route-core = { path = "../route-core", version = "0.4.0-beta" }
 route-basic = { path = "../route-basic", version = "0.4.0-beta" }
+route-memory = { path = "../route-memory", version = "0.4.0-beta" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
