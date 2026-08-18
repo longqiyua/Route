@@ -1,0 +1,35 @@
+[package]
+name = "route-basic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Route basic mode: graph + tree mindmap, edge-centric commits"
+repository.workspace = true
+
+[lib]
+name = "route_basic"
+path = "src/lib.rs"
+
+[dependencies]
+route-core = { path = "../route-core", version = "1.0.0" }
+route-plugins = { path = "../route-plugins", version = "1.0.0" }
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+ulid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+route-memory = { path = "../route-memory", version = "1.0.0" }
+tempfile.workspace = true
+rstest.workspace = true
+
+[features]
+default = []
+# Enables the `fail_inject` module so integration tests can simulate
+# crashes at chosen points inside rollback. NOT for release builds.
+test-utils = []

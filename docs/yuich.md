@@ -139,17 +139,19 @@ real Yuich self-modification executed through Route — are **NOT_RUN**. See
     between Yuich Core and external tools.
   - Changed: Created `tool/` container directory; Route declared as BUNDLED
     native handle (tool/route/TOOL.json + adapter); Yuich gained
-    `discover_bundled_tools()` method; Route physical migration to
-    tool/route/ is PROVISIONAL (Cargo workspace restructuring pending).
+    `discover_bundled_tools()` method; Route canonical source relocated to
+    tool/route/ (standalone workspace, CONFIRMED).
   - Why: Tools are external affordances; Yuich Core is Subject implementation.
     Guard against tools gradually dissolving into core.
   - Evidence: Yuich boots without Route (PASS); Route standalone 323 cargo
     tests PASS; zero import coupling verified; tool discovery distinguishes
     BUNDLED (Route) from SYSTEM (tar); enforcement tests for branch/path/
     command/diff gates PASS.
-  - Important boundary: Route migration status = PROVISIONAL. Full physical
-    move requires Cargo workspace restructuring; current adapter layer
-    is the canonical discovery reference.
+  - Important boundary: Route migration status = CONFIRMED. Route canonical
+    source physically lives at `tool/route/` as a standalone Cargo workspace
+    (crates/ + Cargo.toml + Cargo.lock + packages/route-py + .cargo), with no
+    duplicate at the repo root. The adapter at tool/route/__init__.py is a thin
+    discovery reference only (canonical_source="."); it carries no Route code.
 
 ---
 
@@ -598,6 +600,17 @@ There are two update histories:
 Every significant learning, capacity growth, self modification, structural
 change, rollback, and Route self-host change should produce a readable history
 entry. **Failed changes are also kept**; they are not erased.
+
+#### Recent — Route canonical relocation (PROJECT_LAYOUT / PACKAGING / DECOUPLING)
+
+- Route canonical Rust workspace moved from repo root `crates/` +
+  `packages/route-py/` to a standalone root at `tool/route/`.
+- Old root `Cargo.toml`/`Cargo.lock`/`.cargo` relocated into `tool/route/`.
+- No duplicate Route implementation remains at the repo root
+  (single canonical source).
+- Physical colocation (tool/route/ inside this repo) remains logically
+  removable: Yuich imports no Route internals; Route imports no Yuich.
+- Version facts unchanged: Yuich = 1.0.0-beta; Route package version 0.4.0-beta.
 
 ---
 

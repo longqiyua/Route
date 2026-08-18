@@ -1,0 +1,22 @@
+[package]
+name = "route-pyo3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Python bindings for Route — lightweight version manager for Vibe Coding"
+repository.workspace = true
+
+[lib]
+name = "route"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3.workspace = true
+route-basic = { path = "../route-basic", version = "1.0.0" }
+route-core = { path = "../route-core", version = "1.0.0" }
+route-memory = { path = "../route-memory", version = "1.0.0" }
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+once_cell.workspace = true

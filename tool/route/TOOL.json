@@ -5,7 +5,7 @@
   "version": "0.4.0-beta",
   "source": "BUNDLED",
   "description": "Development execution system with AI worker orchestration, safety gates, and causal evidence tracking.",
-  "canonical_source": "crates/",
+  "canonical_source": ".",
   "entrypoint": "route",
   "native_handle": true,
   "handle_id": "handle:route",
@@ -25,8 +25,8 @@
   "state_location": ".route/",
   "standalone": true,
   "license": "MIT",
-  "availability_probe": "route --version",
+  "availability_probe": "manifest-valid AND tool-root/Cargo.toml exists (NAME_COLLISION: OS `route` is the Windows network command, never proof of the Route dev system)",
   "degradation_policy": "Yuich falls back to Skill/Interface mode when Route is unavailable",
-  "migration_status": "PROVISIONAL",
-  "migration_note": "Route Rust workspace (crates/ + Cargo.toml) remains at project root; full physical migration to tool/route/ requires Cargo workspace restructuring. This manifest is the canonical discovery reference."
+  "migration_status": "CONFIRMED",
+  "migration_note": "Route canonical source is physically embedded here as a standalone workspace (crates/ + Cargo.toml + Cargo.lock + packages/route-py + .cargo). canonical_source='.' denotes this tool root itself; no reference points outside tool/route/. This manifest is the canonical discovery reference."
 }

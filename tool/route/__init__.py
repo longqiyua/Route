@@ -1,20 +1,27 @@
 """
-tool/route/__init__.py — Route discovery adapter (NOT a copy of Route).
-This is a thin reference layer that declares Route as a BUNDLED tool.
-It does NOT import Route internals; it only exposes the manifest and
-a probe function that Yuich's tool discovery can use.
+tool/route/__init__.py — Route discovery reference (NOT a copy of Route).
+This is a thin declaration layer that exposes Route as a BUNDLED tool to
+Yuich's tool discovery. It does NOT import Route internals and Route does
+not import this module.
 
-The actual Route source remains at:
-  crates/             (Rust workspace)
-  packages/route-py/  (Python bindings, needs maturin build)
+The complete, standalone Route canonical source physically lives in THIS
+directory (the same directory as this file and TOOL.json):
+  ./
+    Cargo.toml / Cargo.lock   (Rust workspace root)
+    crates/                   (route-core, route-basic, ... )
+    packages/route-py/        (Python bindings, needs maturin build)
+    .cargo/config.toml        (build config)
+    TOOL.json                 (this manifest)
+    __init__.py               (this reference)
 
-This adapter exists so that Yuich's tool discovery can find Route as a
-bundled native handle without hardcoding "route" in Yuich Core.
+Temporary migration redirects (previously pointing at a repo-root crates/)
+were removed when the physical relocation completed. `canonical_source` in
+TOOL.json is now "." (this tool root itself).
 
-IMPORTANT (P30 refresh — real friction): there is a NAME COLLISION between
-the Route development system and the OS `route` command (Windows: "Manipulates
-network routing tables"). The probe below therefore checks the canonical
-source's presence first, and does NOT treat a shell `route` match as proof.
+NAME COLLISION (P8/P30): the OS `route` command on Windows is the network
+routing-table utility, NOT the Route dev system. The probe therefore decides
+availability from this manifest + this directory's Cargo.toml, and never
+treats a shell `route` match as proof.
 """
 
 import os
@@ -22,8 +29,8 @@ import json
 
 _TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
 _MANIFEST_PATH = os.path.join(_TOOL_DIR, "TOOL.json")
-# Canonical Route source lives at the repo root, NOT under tool/route/.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(_TOOL_DIR))
+# Route canonical root is THIS directory after physical relocation (P7).
+_ROUTE_ROOT = _TOOL_DIR
 
 
 def load_manifest():
@@ -35,30 +42,26 @@ def load_manifest():
 def probe_availability():
     """Check Route availability HONESTLY.
 
-    Returns source presence (BUNDLED means the source is physically here) and
-    a runtime binary check, explicitly flagging the OS `route` name collision
-    instead of trusting it as proof that the Route dev system is installed.
+    Availability is decided from the manifest + the presence of the Route
+    workspace root (Cargo.toml) inside this directory — NOT from a shell
+    `route` binary, which on Windows collides with the network utility.
     """
     manifest = load_manifest()
-    canonical = manifest.get("canonical_source", "crates/")
-    source_path = os.path.join(_PROJECT_ROOT, canonical)
+    canonical = manifest.get("canonical_source", ".")
+    source_path = os.path.join(_ROUTE_ROOT, canonical)
     source_present = os.path.isfile(os.path.join(source_path, "Cargo.toml"))
 
-    entrypoint = manifest.get("entrypoint")
-    runtime_available = False
     runtime_error = None
-    if entrypoint == "route":
-        # Name collision: OS `route` (network) vs Route dev system.
-        # We do NOT treat an OS `route` binary as the dev system.
-        runtime_available = False
+    if source_present:
         runtime_error = (
-            "NAME_COLLISION: OS 'route' command is not the Route dev system. "
-            "Route dev system is a Rust workspace at crates/ (build via cargo)."
+            "Route dev system requires building the Rust workspace in this "
+            "directory (cargo build -p route-cli); the OS `route` command is "
+            "not the Route dev system (NAME_COLLISION)."
         )
     return {
         "source_present": source_present,
         "canonical_source": canonical,
-        "runtime_available": runtime_available,
+        "runtime_available": False,
         "runtime_error": runtime_error,
     }
 
