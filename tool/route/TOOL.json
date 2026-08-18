@@ -1,0 +1,32 @@
+{
+  "tool_id": "route",
+  "name": "Route",
+  "kind": "HARNESS",
+  "version": "0.4.0-beta",
+  "source": "BUNDLED",
+  "description": "Development execution system with AI worker orchestration, safety gates, and causal evidence tracking.",
+  "canonical_source": "crates/",
+  "entrypoint": "route",
+  "native_handle": true,
+  "handle_id": "handle:route",
+  "handle_protocol_revision_min": 1,
+  "handle_protocol_revision_max": 2,
+  "capabilities": [
+    "cap:develop-software",
+    "cap:modify-software",
+    "cap:self-modify",
+    "cap:analyze-code",
+    "cap:run-tests",
+    "cap:manage-branches"
+  ],
+  "interfaces": ["DevelopmentIntentPacket", "RouteOutcomePacket", "MutualLearningReview"],
+  "permissions": ["read project files", "write project files", "execute tests", "git operations"],
+  "side_effects": "modifies project files and git state",
+  "state_location": ".route/",
+  "standalone": true,
+  "license": "MIT",
+  "availability_probe": "route --version",
+  "degradation_policy": "Yuich falls back to Skill/Interface mode when Route is unavailable",
+  "migration_status": "PROVISIONAL",
+  "migration_note": "Route Rust workspace (crates/ + Cargo.toml) remains at project root; full physical migration to tool/route/ requires Cargo workspace restructuring. This manifest is the canonical discovery reference."
+}
