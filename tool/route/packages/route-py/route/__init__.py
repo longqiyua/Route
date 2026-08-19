@@ -121,7 +121,7 @@ __all__ = [
     "require_repo",
 ]
 
-__version__ = "0.4.0-beta"
+__version__ = "1.0.0-beta"
 
 
 def get_project_path() -> Optional[str]:

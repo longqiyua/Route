@@ -2378,7 +2378,6 @@ fn print_json<T: serde::Serialize>(json: bool, val: &T) -> Result<()> {
 
 /// `route emerge status` — experimental status, blackboard, champion counts.
 pub fn emerge_status(json: bool) -> Result<()> {
-    use route_basic::emergence::*;
     let store = load_emergence()?;
     if json {
         print_json(true, &store)?;
@@ -2469,7 +2468,6 @@ pub fn emerge_run(json: bool) -> Result<()> {
 
 /// `route emerge court` — show the benchmark court ledger.
 pub fn emerge_court(json: bool) -> Result<()> {
-    use route_basic::emergence::*;
     let store = load_emergence()?;
     if json {
         print_json(true, &store.bench_court)?;
@@ -2493,7 +2491,6 @@ pub fn emerge_court(json: bool) -> Result<()> {
 
 /// `route emerge novelty` — show the high-novelty archive.
 pub fn emerge_novelty(json: bool) -> Result<()> {
-    use route_basic::emergence::*;
     let store = load_emergence()?;
     if json {
         print_json(true, &store.novelty_archive)?;
