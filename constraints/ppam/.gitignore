@@ -1,0 +1,99 @@
+# 🍖 Grill项目标准.gitignore
+
+## 开发依赖
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+## 构建输出
+dist/
+build/
+out/
+.coverage/
+.next/
+.nuxt/
+
+## 运行时文件
+*.log
+logs/
+.env
+.env.local
+.env.*.local
+!.env.example
+
+## 临时文件
+temp/           # 项目临时文件目录（完全忽略）
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+## 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+## 操作系统文件
+Desktop.ini
+
+## 测试相关
+coverage/
+.nyc_output/
+jest-coverage/
+
+## 包管理器锁文件
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+shrinkwrap.yaml
+
+## 安全敏感文件
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+
+## 大型媒体文件
+*.mp4
+*.mov
+*.avi
+*.wmv
+*.zip
+*.rar
+*.7z
+
+## 文档生成
+_site/
+.sass-cache/
+.jekyll-cache/
+
+## 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+## Grill系统临时文件（可选）
+# 如果要提交Grill会话记录，请注释以下行
+# .grill/sessions/temp/
+# .grill/.cache/
+
+## 项目特定忽略规则
+# 在此添加项目特定的忽略规则
+
+## 保留的目录标记
+# 这些.gitkeep文件应该被提交
+!.gitkeep
+
+## 开发工具
+.parcel-cache/
+.cache/
+.turbo/
+.eslintcache
+.stylelintcache

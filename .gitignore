@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 dist/
 target/
 **/target/
@@ -45,7 +45,7 @@ sandbox-demo/
 demo/
 
 # Third-party AI skill assets (external references, not part of the Route source)
-PPAM/
+/PPAM/
 
 # Design reference documents (not part of the Route source code)
 FrontDesignSkill.md

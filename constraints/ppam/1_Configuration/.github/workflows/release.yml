@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Get version
+      id: get_version
+      run: |
+        echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    
+    - name: Validate before release
+      run: |
+        npm run validate
+        npm run compatibility:check
+    
+    - name: Create release archive
+      run: |
+        # Create a clean distribution folder
+        mkdir -p dist
+        
+        # Copy required files
+        cp -r code spec prompt references tests user-profile dist/
+        cp configuration.md dist/
+        cp validate-structure.js dist/
+        cp package.json dist/
+        cp .gitignore dist/
+        cp README.md dist/
+        cp LICENSE dist/
+        cp CONTRIBUTING.md dist/
+        
+        # Create archive
+        tar -czf structured-project-manager-v${{ steps.get_version.outputs.VERSION_NUMBER }}.tar.gz -C dist .
+        
+        # List archive contents
+        echo "Archive contents:"
+        tar -tzf structured-project-manager-v${{ steps.get_version.outputs.VERSION_NUMBER }}.tar.gz | head -20
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          structured-project-manager-v${{ steps.get_version.outputs.VERSION_NUMBER }}.tar.gz
+        generate_release_notes: true
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Update documentation with release info
+      run: |
+        # Update package.json version if needed
+        if [ -f "package.json" ]; then
+          npm version ${{ steps.get_version.outputs.VERSION_NUMBER }} --no-git-tag-version
+        fi
+        
+        echo "Release ${{ steps.get_version.outputs.VERSION }} completed successfully!"
+    
+    - name: Notify success
+      run: |
+        echo "## Release ${{ steps.get_version.outputs.VERSION }} Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Release archive created: structured-project-manager-v${{ steps.get_version.outputs.VERSION_NUMBER }}.tar.gz" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Included:**" >> $GITHUB_STEP_SUMMARY
+        echo "- All core tools and scripts" >> $GITHUB_STEP_SUMMARY
+        echo "- Complete documentation" >> $GITHUB_STEP_SUMMARY
+        echo "- Configuration templates" >> $GITHUB_STEP_SUMMARY
+        echo "- Example files" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Ready for download and use!" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Validate project structure
+      run: npm run validate
+    
+    - name: Run compatibility check
+      run: npm run compatibility:check
+    
+    - name: Test todo generator
+      run: npm run todo:generate "Test feature development"
+    
+    - name: Check generated todo file
+      run: |
+        if [ -f "prompt/"*test*.md ]; then
+          echo "✅ Todo file generated successfully"
+          ls -la prompt/*test*.md
+        else
+          echo "❌ Todo file not generated"
+          exit 1
+        fi
+
+  test-tools:
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Test structure validator
+      run: |
+        # Test basic validation
+        node validate-structure.js
+        
+        # Test with help flag
+        node validate-structure.js --help
+    
+    - name: Test compatibility checker
+      run: |
+        # Run compatibility checker
+        node code/compatibility-checker.js
+        
+        # Check if report was generated
+        if [ -f "tests/compatibility-report.json" ]; then
+          echo "✅ Compatibility report generated"
+        fi
+    
+    - name: Test idea manager
+      run: |
+        # Test idea manager
+        node prompt/pm-idea-manager.js
+        
+        # Check if reports were generated
+        if [ -f "prompt/idea-report.md" ] && [ -f "prompt/idea-visualization.md" ]; then
+          echo "✅ Idea reports generated"
+        fi
+
+  docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check documentation structure
+      run: |
+        # Check required documentation files exist
+        [ -f "README.md" ] && echo "✅ README.md exists"
+        [ -f "CONTRIBUTING.md" ] && echo "✅ CONTRIBUTING.md exists"
+        [ -f "LICENSE" ] && echo "✅ LICENSE exists"
+        [ -f "configuration.md" ] && echo "✅ configuration.md exists"
+        
+        # Check spec folder structure
+        [ -f "spec/quick-start.md" ] && echo "✅ quick-start.md exists"
+        [ -f "spec/complete-guide.md" ] && echo "✅ complete-guide.md exists"
+        [ -f "spec/ai-pm-workflow.md" ] && echo "✅ ai-pm-workflow.md exists"
+        [ -f "spec/architecture-templates.md" ] && echo "✅ architecture-templates.md exists"
+        [ -f "spec/development-standards-checklist.md" ] && echo "✅ development-standards-checklist.md exists"
+        [ -f "spec/emoji-theme.md" ] && echo "✅ emoji-theme.md exists"
+        
+        # Check all folders have README
+        for folder in code spec prompt references tests user-profile; do
+          if [ -f "$folder/README.md" ]; then
+            echo "✅ $folder/README.md exists"
+          else
+            echo "❌ $folder/README.md missing"
+            exit 1
+          fi
+        done
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Security check - npm audit
+      run: |
+        if [ -f "package.json" ]; then
+          npm audit --audit-level=moderate || true
+        fi
+    
+    - name: Security check - check for secrets
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [validate, test-tools, docs, security]
+    
+    steps:
+    - name: Create summary
+      run: |
+        echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ All checks passed!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Validated:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Project structure" >> $GITHUB_STEP_SUMMARY
+        echo "- Tool functionality" >> $GITHUB_STEP_SUMMARY
+        echo "- Documentation completeness" >> $GITHUB_STEP_SUMMARY
+        echo "- Security checks" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Ready for use and contribution!" >> $GITHUB_STEP_SUMMARY

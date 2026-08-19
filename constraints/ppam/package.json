@@ -1,0 +1,54 @@
+{
+  "name": "ppam",
+  "version": "3.0.0",
+  "description": "Point to Programming Auxiliary Materials - vibecoding enhancement system compatible with trae/codex/claude-code/deepcode/tui/opencode",
+  "main": "1_Configuration/scripts/Validate_Structure.js",
+  "scripts": {
+    "validate": "node 1_Configuration/scripts/Validate_Structure.js",
+    "grill:init": "node 1_Configuration/scripts/Grill_Init.js",
+    "grill:start": "node 1_Configuration/scripts/Grill_Start.js",
+    "grill:list": "node 1_Configuration/scripts/grill-list.js",
+    "grill:review": "node 1_Configuration/scripts/grill-review.js",
+    "grill:export": "node 1_Configuration/scripts/grill-export.js",
+    "task:create": "node 1_Configuration/scripts/task-create.js",
+    "task:list": "node 1_Configuration/scripts/task-list.js",
+    "task:update": "node 1_Configuration/scripts/task-update.js",
+    "structure:init": "node 1_Configuration/scripts/structure-init.js",
+    "compatibility:check": "node 1_Configuration/scripts/compatibility-check.js",
+    "help": "echo 'Available commands: validate, grill:init, grill:start, task:create, compatibility:check'",
+    "setup": "npm run structure:init && npm run grill:init"
+  },
+  "keywords": [
+    "grill",
+    "project-management",
+    "ai-collaboration",
+    "decision-tree",
+    "structured-workflow",
+    "documentation",
+    "task-management",
+    "architecture-decisions"
+  ],
+  "author": "Community Contributor",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/grill-project-manager"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/grill-project-manager/issues"
+  },
+  "homepage": "https://github.com/yourusername/grill-project-manager#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "files": [
+    "1_Configuration/scripts/",
+    "1_Configuration/.grill/",
+    "2_Request/",
+    "3_Prompt/",
+    "4_Expand/",
+    "INDEX.md"
+  ]
+}
