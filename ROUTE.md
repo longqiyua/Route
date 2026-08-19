@@ -1,4 +1,4 @@
-﻿# Route — Canonical Description & Operating Manual
+# Route — Canonical Description & Operating Manual
 
 > **One Markdown, give it to your AI, and start using Route.**
 > **一个 Markdown，交给你的 AI，然后开始使用 Route。**
@@ -45,10 +45,19 @@
 2. **构建**：`cargo build -p route-cli --release`（生成 `route` / `route.exe`）。
 3. **进入项目**：在目标项目目录 `route init`（保留既有文件，建立状态）。
 4. **了解项目**：`route status` / `route context` / `route constitution` / `route goal`。
-5. **启动受限开发**：`route task start "TASK"` → `route task exec -- "CMD"` → `route task verify` → `route task end success`。
+5. **启动受限开发**：`route task start "TASK" --target generic` 返回 `SESSION_ID` → `route task exec SESSION_ID -- CMD` → `route task verify SESSION_ID` → `route task end --result success SESSION_ID`（失败则 `--result failed`）。
 6. **提交证据**：`route commit -m "msg"`。
 
-> **验证纪律**：AI 说"测试通过"不算证据。用 `route task verify` 由 Route 实际执行验证。禁止把 AI 自述伪装成系统证据。
+> **验证纪律**：AI 说"测试通过"不算证据。用 `route task verify` 由 Route 实际校验证据链；只有真实执行的 **system evidence**（CheckPass / TestPass / Commit）才算数，AI 自述（`task report`）只是 `AgentFeedback`。禁止把 AI 自述伪装成系统证据。
+
+> **给 AI 的完整操作路径**：见 [docs/AI-USAGE.md](docs/AI-USAGE.md)——一份 **host 中立**、很短、命令已验证的操作指南。本文件是规范与系统描述，不是逐命令速查。
+
+**约束与参考资料（材料边界）**：
+
+- `constraints/` = **binding**（规范性）开发资料，可限制开发决策，优先级最高。
+- `references/` = **non-binding**（参考性）支援资料，帮助理解，**不能覆盖约束**。
+- AI 在开发中下载/发现/保存的辅助资料默认归 **`references/`**。下载 ≠ 获得约束权：`DOWNLOADED INFORMATION IS REFERENCE BY DEFAULT. DISCOVERY DOES NOT CREATE AUTHORITY.`
+- 详见 [constraints/README.md](constraints/README.md) 与 [references/README.md](references/README.md)。
 
 ---
 
@@ -166,7 +175,7 @@ Python surface，但**不为任何特定宿主私有 schema 固化**。Yuich 是
 | `cargo test --workspace` | PASS |
 | `route-basic` | PASS（323） |
 | CLI sanity | PASS |
-| `--version` | `route 1.0.0` |
+| `--version` | `route 1.0.0-beta` |
 | existing project | PASS |
 | `route-py` build | PASS |
 | self-dogfood | PASS |

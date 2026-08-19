@@ -61,10 +61,10 @@ cargo test  --workspace           # 全量回归
 cd /path/to/your/project
 route init                         # 进入项目，保留既有文件，建立状态
 route status                       # 项目概览（integrity / profile / sessions）
-route task start "..."             # 启动一个有边界的开发会话
-route task exec   "-- task ..."    # 有边界地执行（BranchGate/PathGate/CommandGate）
-route task verify                  # 验证（真实测试证据，而非 AI 声称）
-route task end    success          # 收尾，生成 Outcome
+route task start "<task>" --target generic      # 启动一个有边界的开发会话，返回 SESSION_ID
+route task exec <SESSION_ID> -- <cmd>           # 有边界地执行（BranchGate/PathGate/CommandGate）
+route task verify <SESSION_ID>                  # 验证（真实测试证据，而非 AI 声称）
+route task end --result success <SESSION_ID>    # 收尾，生成 Outcome（失败则 --result failed）
 route commit -m "..."              # 把当前状态存为快照
 route log                          # 查看历史
 route rollback <snapshot>          # 回退到快照
@@ -111,6 +111,13 @@ Route 提供 **host 中立** 的合作面，可被 Yuich、Claude/Codex 风格 A
 - **Python** — `route-py`（PyO3 绑定）。
 - **协议层** — `task` / `context` / `constitution` / `protocol` / `reference` / `workflow` / `apply`
   把决策上下文编译给外部 Coding AI（Claude Code、Codex……），`.route/` 才是真值源。
+
+**入口导航：**
+
+- **用 Route 做 AI 开发** → [docs/AI-USAGE.md](docs/AI-USAGE.md)
+- **Route 协议 / 系统描述** → [ROUTE.md](ROUTE.md)
+- **约束（binding）** → [constraints/](constraints/README.md)
+- **参考（non-binding）** → [references/](references/README.md)
 
 Route 与任意宿主**严格解耦**：**ROUTE MUST BE VALUABLE WITHOUT YUICH.** Yuich 只是其中一个高级 Host / dogfood 参与者。
 
