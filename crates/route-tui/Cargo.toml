@@ -11,9 +11,9 @@ name = "route-tui"
 path = "src/main.rs"
 
 [dependencies]
-route-core = { path = "../route-core", version = "1.0.0" }
-route-basic = { path = "../route-basic", version = "1.0.0" }
-route-memory = { path = "../route-memory", version = "1.0.0" }
+route-core = { path = "../route-core", version = "1.0.0-beta" }
+route-basic = { path = "../route-basic", version = "1.0.0-beta" }
+route-memory = { path = "../route-memory", version = "1.0.0-beta" }
 anyhow.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

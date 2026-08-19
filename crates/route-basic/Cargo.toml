@@ -11,8 +11,8 @@ name = "route_basic"
 path = "src/lib.rs"
 
 [dependencies]
-route-core = { path = "../route-core", version = "1.0.0" }
-route-plugins = { path = "../route-plugins", version = "1.0.0" }
+route-core = { path = "../route-core", version = "1.0.0-beta" }
+route-plugins = { path = "../route-plugins", version = "1.0.0-beta" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -24,7 +24,7 @@ tracing.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
-route-memory = { path = "../route-memory", version = "1.0.0" }
+route-memory = { path = "../route-memory", version = "1.0.0-beta" }
 tempfile.workspace = true
 rstest.workspace = true
 

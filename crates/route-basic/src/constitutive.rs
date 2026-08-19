@@ -24,6 +24,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::learn::ScoredLearnedExperience;
+use crate::material::{discover_material, render_constraints, render_references, MaterialSource};
 use crate::memory::MemoryStore;
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1229,15 @@ pub fn build_context(
     }
     out.push_str("\n---\n\n");
 
+    // Project Constraints (binding material from constraints/)
+    {
+        let constraints_block = render_constraints(project_root, &snap.material);
+        out.push_str(&constraints_block);
+        if !constraints_block.is_empty() {
+            out.push_str("---\n\n");
+        }
+    }
+
     // Project Memory (P2: Memory Context integration)
     {
         let memory_section = build_memory_context(project_root, task);
@@ -1354,6 +1364,15 @@ pub fn build_context(
                 }
                 out.push('\n');
             }
+        }
+    }
+
+    // Optional References (informative material from references/)
+    {
+        let refs_block = render_references(project_root, &snap.material);
+        out.push_str(&refs_block);
+        if !refs_block.is_empty() {
+            out.push_str("---\n\n");
         }
     }
 
@@ -2270,6 +2289,12 @@ pub struct ContextSnapshot {
     /// Workflow ids from the active profile.
     #[serde(default)]
     pub workflow_ids: Vec<String>,
+    /// Discovered project material (`constraints/` -> CONSTRAINT,
+    /// `references/` -> REFERENCE). Empty when the project has neither
+    /// directory. Included in the fingerprint only when non-empty so
+    /// that projects without material keep a stable fingerprint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub material: Vec<MaterialSource>,
 }
 
 /// Semantic fields of a [`ReferenceEntry`] — everything that actually
@@ -2379,6 +2404,8 @@ impl ContextSnapshot {
             None => Vec::new(),
         };
 
+        let material = discover_material(project_root).unwrap_or_default();
+
         let fingerprint = {
             let mut bytes: Vec<u8> = Vec::new();
             bytes.extend_from_slice(b"ctx/1\n");
@@ -2396,6 +2423,15 @@ impl ContextSnapshot {
             for wf_id in &workflow_ids {
                 bytes.extend_from_slice(b"workflow=");
                 bytes.extend_from_slice(wf_id.as_bytes());
+                bytes.push(b'\n');
+            }
+            for m in &material {
+                bytes.extend_from_slice(b"material=");
+                bytes.extend_from_slice(m.kind.as_str().as_bytes());
+                bytes.push(b':');
+                bytes.extend_from_slice(m.path.as_bytes());
+                bytes.push(b':');
+                bytes.extend_from_slice(m.content_hash.as_bytes());
                 bytes.push(b'\n');
             }
             sha256_hex(&bytes)
@@ -2417,6 +2453,7 @@ impl ContextSnapshot {
             fingerprint,
             profile_id,
             workflow_ids,
+            material,
         })
     }
 }

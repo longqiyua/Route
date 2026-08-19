@@ -11,8 +11,8 @@ name = "route_memory"
 path = "src/lib.rs"
 
 [dependencies]
-route-engine = { path = "../route-engine", version = "1.0.0" }
-route-basic = { path = "../route-basic", version = "1.0.0" }
+route-engine = { path = "../route-engine", version = "1.0.0-beta" }
+route-basic = { path = "../route-basic", version = "1.0.0-beta" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

@@ -138,7 +138,7 @@ Route 与任意宿主**严格解耦**：**ROUTE MUST BE VALUABLE WITHOUT YUICH.*
 | `cargo test --workspace` | PASS（全 crate 零失败） |
 | `route-basic` | PASS（323 项） |
 | CLI sanity（help / version） | PASS |
-| `route --version` | `route 1.0.0` |
+| `route --version` | `route 1.0.0-beta` |
 | existing-project 测试 | PASS（init→status→commit→log，保留既有文件） |
 | `route-py` `maturin build --release` | PASS（wheel 生成 + import 冒烟） |
 | Route self-dogfood | PASS（route-cli 无害 unused import 清理，测试通过） |
@@ -152,10 +152,10 @@ Route 与任意宿主**严格解耦**：**ROUTE MUST BE VALUABLE WITHOUT YUICH.*
 | 位置 | 值 |
 |------|----|
 | Route 产品 release | `1.0.0-beta`（display: v1.0 beta） |
-| Rust workspace 版本 | `1.0.0` |
+| Rust workspace 版本 | `1.0.0-beta` |
 | route-py（`route-vc`） | `1.0.0-beta` |
 | TOOL.json | `1.0.0-beta` |
-| CLI `--version` | `route 1.0.0` |
+| CLI `--version` | `route 1.0.0-beta` |
 
 产品 release、protocol revision、schema revision、Handle revision **不必是同一个数字**。
 
@@ -180,6 +180,8 @@ route/
 │   ├── route-stats/      # 统计
 │   └── route-pyo3/       # Python 原生绑定
 ├── packages/route-py/    # Python 包（pip install route-vc）
+├── constraints/       # 约束资料（binding material，含 constraints/ppam/）
+├── references/        # 参考资料（informative material）
 ├── README.md             # 本文件
 ├── ROUTE.md              # 给任何 AI 的规范与操作手册
 ├── LICENSE               # AGPL-3.0
@@ -187,6 +189,15 @@ route/
 ```
 
 ---
+
+## 约束与参考资料
+
+Route 可以分别消费项目的约束资料与参考资料：
+
+- `constraints/` — **Binding project rules** used during development（规范性，含 `constraints/ppam/`）。
+- `references/` — **Optional supporting material** used for understanding and decision-making（参考性，不产生强制约束）。
+
+约束优先于参考；参考不能覆盖约束。详见 [constraints/README.md](constraints/README.md) 与 [references/README.md](references/README.md)。
 
 ## 分支
 

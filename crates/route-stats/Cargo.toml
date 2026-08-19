@@ -7,8 +7,8 @@ description = "Route real-time statistics — derived read-only analytics for ba
 repository.workspace = true
 
 [dependencies]
-route-core = { path = "../route-core", version = "1.0.0" }
-route-basic = { path = "../route-basic", version = "1.0.0" }
+route-core = { path = "../route-core", version = "1.0.0-beta" }
+route-basic = { path = "../route-basic", version = "1.0.0-beta" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

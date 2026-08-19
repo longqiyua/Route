@@ -1,6 +1,6 @@
-[package]
+﻿[package]
 name = "route-ppam"
-version = "0.5.0"
+version = "1.0.0-beta"
 edition = "2021"
 license = "AGPL-3.0"
 description = "Route PPAM Bridge — pluggable document enhancement embedding for PPAM"

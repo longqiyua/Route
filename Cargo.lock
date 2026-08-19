@@ -1960,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "route-basic"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1980,7 +1980,7 @@ dependencies = [
 
 [[package]]
 name = "route-cli"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "route-core"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "route-engine"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "serde",
  "serde_json",
@@ -2031,7 +2031,7 @@ dependencies = [
 
 [[package]]
 name = "route-http"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "axum",
@@ -2056,7 +2056,7 @@ dependencies = [
 
 [[package]]
 name = "route-mcp"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "route-memory"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "chrono",
  "route-basic",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "route-plugins"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2102,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "route-pyo3"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "route-stats"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "route-sync"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "base64",
@@ -2151,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "route-tui"
-version = "1.0.0"
+version = "1.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",

@@ -1,4 +1,4 @@
-# Route — Canonical Description & Operating Manual
+﻿# Route — Canonical Description & Operating Manual
 
 > **One Markdown, give it to your AI, and start using Route.**
 > **一个 Markdown，交给你的 AI，然后开始使用 Route。**
@@ -140,10 +140,10 @@ Python surface，但**不为任何特定宿主私有 schema 固化**。Yuich 是
 | 位置 | 值 |
 |------|----|
 | 产品 release | `1.0.0-beta`（display: v1.0 beta） |
-| Rust workspace | `1.0.0` |
+| Rust workspace | `1.0.0-beta` |
 | route-py | `1.0.0-beta` |
 | TOOL.json | `1.0.0-beta` |
-| CLI | `route 1.0.0` |
+| CLI | `route 1.0.0-beta` |
 
 产品 release ≠ protocol revision ≠ schema revision ≠ Handle revision。
 

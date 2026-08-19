@@ -36,6 +36,7 @@ pub mod knowledge_map;
 pub mod learn;
 pub mod loop_detector;
 pub mod maintainer;
+pub mod material;
 pub mod memory;
 pub mod models;
 pub mod next_action;
@@ -109,6 +110,10 @@ pub use curator::{
 pub use discovery::{
     discovery_dir, discovery_proposals_path, format_discovery_proposal, scan_project,
     DiscoveryItem, DiscoveryProposal, DiscoveryStore,
+};
+pub use material::{
+    discover_material, render_constraints, render_references, CONSTRAINTS_DIR, REFERENCES_DIR,
+    MaterialKind, MaterialSource,
 };
 pub use drift::{format_drift, scan_drift, DriftItem, DriftScanResult};
 pub use execution::{
