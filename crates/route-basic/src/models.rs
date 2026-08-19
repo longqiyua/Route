@@ -111,6 +111,29 @@ pub struct Commit {
     pub is_checkpoint: bool,
     /// True if the change came from the AI control channel (CLI / MCP).
     pub is_ai: bool,
+    /// Transaction journal id, set only for rollback commits that carry
+    /// a conversation linkage. Populated by `rollback_to_with` so the
+    /// caller can complete the transaction after conversation ops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_id: Option<String>,
+    /// Development-context fingerprint that was active when this commit
+    /// was created. Populated automatically by the CLI commit path so
+    /// the lineage store can answer: "which rules was AI following when
+    /// it produced this commit?"
+    /// `None` on commits created before this field was introduced —
+    /// backwards-compatible by design.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_hash: Option<String>,
+    /// Version of the constitution at commit time (redundant with the
+    /// history manifest, but handy for quick per-row lookups).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constitution_version: Option<u32>,
+    /// Protocol revision at commit time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_revision: Option<u64>,
+    /// Hash of the reference-entries semantic view at commit time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_entries_hash: Option<String>,
 }
 
 /// Path annotation attached to a commit edge (N-N).
@@ -220,15 +243,27 @@ pub struct TrackOs {
 
 impl TrackOs {
     pub const fn all() -> Self {
-        Self { windows: true, macos: true, linux: true }
+        Self {
+            windows: true,
+            macos: true,
+            linux: true,
+        }
     }
     pub const fn none() -> Self {
-        Self { windows: false, macos: false, linux: false }
+        Self {
+            windows: false,
+            macos: false,
+            linux: false,
+        }
     }
     pub fn is_active_now(&self) -> bool {
-        if cfg!(target_os = "windows") { self.windows }
-        else if cfg!(target_os = "macos") { self.macos }
-        else { self.linux }
+        if cfg!(target_os = "windows") {
+            self.windows
+        } else if cfg!(target_os = "macos") {
+            self.macos
+        } else {
+            self.linux
+        }
     }
 }
 
@@ -302,7 +337,12 @@ impl DiffSummary {
     }
 
     pub fn short(&self) -> String {
-        format!("+{} ~{} -{}", self.added.len(), self.modified.len(), self.removed.len())
+        format!(
+            "+{} ~{} -{}",
+            self.added.len(),
+            self.modified.len(),
+            self.removed.len()
+        )
     }
 }
 

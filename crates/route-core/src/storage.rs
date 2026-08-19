@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
@@ -10,6 +11,39 @@ use sha2::{Digest, Sha256};
 
 use crate::hash::content_hash;
 use crate::paths::RoutePaths;
+
+/// Monotonic counter combined with the PID and a timestamp-y value to
+/// produce a unique temp-file suffix per call. Uniqueness only needs to
+/// hold within a single directory for the lifetime of a crash window;
+/// the counter guarantees that even repeated calls on the same target
+/// path do not collide.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Build a unique temp path for `target` in the same directory.
+///
+/// The temp file is named `<target_file_name>.route-tmp-<pid>-<counter>`.
+/// The `.route-tmp-` marker is what `ProjectScanner` keys on to ignore
+/// stale temp files left by a crashed atomic write.
+fn unique_temp_path(target: &Path) -> PathBuf {
+    let dir = target.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = target
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "target".to_string());
+    let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Include a per-process id so two parallel processes operating on
+    // the same project don't collide. std::process::id is stable.
+    let pid = std::process::id();
+    let tmp_name = format!("{file_name}.route-tmp-{pid}-{n}");
+    dir.join(tmp_name)
+}
+
+/// Returns `true` if `file_name` looks like a Route atomic-write temp
+/// file (`.route-tmp-...`). Used by the scanner to skip stale temp
+/// files left over from a crashed `copy_to_atomic`.
+pub fn is_route_temp_file(file_name: &str) -> bool {
+    file_name.contains(".route-tmp-")
+}
 
 /// Content-addressable blob store. Files stored at `objects/<hash前2>/<hash>`.
 pub struct BlobStore {
@@ -27,9 +61,27 @@ impl BlobStore {
         let blob_path = self.paths.blob_path(&hash);
         if !blob_path.exists() {
             if let Some(parent) = blob_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::PermissionDenied {
+                        anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                            "cannot create blob directory {}: {e}",
+                            parent.display()
+                        )))
+                    } else {
+                        anyhow::Error::from(e)
+                    }
+                })?;
             }
-            std::fs::write(&blob_path, bytes)?;
+            std::fs::write(&blob_path, bytes).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                        "cannot write blob {}: {e}",
+                        blob_path.display()
+                    )))
+                } else {
+                    anyhow::Error::from(e)
+                }
+            })?;
         }
         Ok(hash)
     }
@@ -49,9 +101,102 @@ impl BlobStore {
     pub fn copy_to(&self, hash: &str, target: &Path) -> Result<()> {
         let src = self.paths.blob_path(hash);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                        "cannot create directory {}: {e}",
+                        parent.display()
+                    )))
+                } else {
+                    anyhow::Error::from(e)
+                }
+            })?;
         }
-        std::fs::copy(&src, target)?;
+        std::fs::copy(&src, target).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                    "cannot copy blob {hash} to {}: {e}",
+                    target.display()
+                )))
+            } else {
+                anyhow::Error::from(e)
+            }
+        })?;
+        Ok(())
+    }
+
+    /// Atomically copy a blob to a target path.
+    ///
+    /// Writes to a unique temporary file in the same directory, fsyncs
+    /// it, then renames it onto the target. This ensures that:
+    /// * a crash during the write does not leave a partial or corrupted
+    ///   target file (the rename is atomic on the same filesystem on
+    ///   both POSIX and Windows),
+    /// * two concurrent or interleaved operations on `a` and `a.txt`
+    ///   do not collide on the same temp name (each call gets a unique
+    ///   temp file via a random suffix),
+    /// * a stale temp file from a previous crash is identifiable and
+    ///   ignorable by the scanner (temp files use the
+    ///   `.route-tmp-<id>` suffix, which `ProjectScanner` ignores).
+    ///
+    /// **Crash-safety scope:** this is *per-file* atomic. It does NOT
+    /// provide cross-file transaction atomicity — see the transaction
+    /// journal in `route-basic::transaction` for that.
+    pub fn copy_to_atomic(&self, hash: &str, target: &Path) -> Result<()> {
+        let src = self.paths.blob_path(hash);
+        if let Some(parent) = target.parent() {
+            let path = parent.to_path_buf();
+            std::fs::create_dir_all(&path).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                        "cannot create directory {}: {e}",
+                        path.display()
+                    )))
+                } else {
+                    anyhow::Error::from(e)
+                }
+            })?;
+        }
+        // Unique temp name in the same directory. The `.route-tmp-<id>`
+        // suffix is ignored by the scanner so a crashed operation does
+        // not pollute the next commit's manifest.
+        let tmp_target = unique_temp_path(target);
+        // Clean up our own stale temp file from a previous crashed call
+        // with the same id — extremely unlikely, but cheap.
+        let _ = std::fs::remove_file(&tmp_target);
+
+        // Copy blob bytes into the temp file, then fsync so that the
+        // rename (the commit point) is backed by durable bytes.
+        std::fs::copy(&src, &tmp_target).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                    "cannot copy blob {hash} to {}: {e}",
+                    tmp_target.display()
+                )))
+            } else {
+                anyhow::Error::from(e)
+            }
+        })?;
+        if let Ok(file) = std::fs::File::open(&tmp_target) {
+            // Best-effort fsync. On Windows this calls
+            // FlushFileBuffers; errors are non-fatal (the rename is
+            // still atomic, just not power-loss-durable).
+            let _ = file.sync_all();
+        }
+        // Atomic rename: target is either fully replaced or unchanged.
+        // On Windows, std::fs::rename uses MoveFileExW with
+        // MOVEFILE_REPLACE_EXISTING, which is atomic on the same
+        // filesystem.
+        std::fs::rename(&tmp_target, target).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                anyhow::Error::new(crate::RouteError::PermissionDenied(format!(
+                    "cannot rename temp file to {}: {e}",
+                    target.display()
+                )))
+            } else {
+                anyhow::Error::from(e)
+            }
+        })?;
         Ok(())
     }
 
@@ -253,6 +398,24 @@ impl ProjectScanner {
                         Err(_) => continue,
                     };
                     let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    // Skip Route atomic-write temp files left by a
+                    // crashed `copy_to_atomic`. Without this, a stale
+                    // `<name>.route-tmp-...` would be scanned as a real
+                    // file and pollute the next commit's manifest.
+                    if let Some(fname) = path.file_name().and_then(|s| s.to_str()) {
+                        if is_route_temp_file(fname) {
+                            continue;
+                        }
+                    }
+                    // Skip symlinks — Route tracks plain files only.
+                    // Following a symlink during scan would store the
+                    // target's content, and a later rollback could write
+                    // through the symlink to outside the project.
+                    if let Ok(md) = std::fs::symlink_metadata(&path) {
+                        if md.file_type().is_symlink() {
+                            continue;
+                        }
+                    }
                     // Apply the user's track filter (suffix / prefix).
                     if let Some(f) = &self.track_filter {
                         if !f.allows(&rel_str) {
@@ -297,12 +460,27 @@ impl ProjectScanner {
 
         for entry in builder.build() {
             let entry = entry?;
-            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            // Skip symlinks — Route tracks plain files only. The `ignore`
+            // crate follows symlinks by default; we must explicitly drop
+            // them here so a later rollback can't write through a
+            // symlink to outside the project.
+            let ftype = match entry.file_type() {
+                Some(t) => t,
+                None => continue,
+            };
+            if !ftype.is_file() {
                 continue;
             }
             let abs = entry.path();
             let rel = abs.strip_prefix(&self.project_path)?;
             let rel_str = rel.to_string_lossy().replace('\\', "/");
+            // Skip Route atomic-write temp files left by a crashed
+            // `copy_to_atomic`.
+            if let Some(fname) = abs.file_name().and_then(|s| s.to_str()) {
+                if is_route_temp_file(fname) {
+                    continue;
+                }
+            }
             // Apply the user's track filter (suffix / prefix).
             if let Some(f) = &self.track_filter {
                 if !f.allows(&rel_str) {
@@ -327,10 +505,7 @@ pub struct ManifestDiff {
 }
 
 impl ManifestDiff {
-    pub fn compute(
-        previous: &HashMap<String, String>,
-        current: &HashMap<String, String>,
-    ) -> Self {
+    pub fn compute(previous: &HashMap<String, String>, current: &HashMap<String, String>) -> Self {
         let mut added = Vec::new();
         let mut modified = Vec::new();
         let mut removed = Vec::new();

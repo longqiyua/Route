@@ -16,7 +16,7 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use reqwest::blocking::{Client, Response};
-use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, HeaderName};
+use reqwest::header::{HeaderName, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
 use reqwest::Method;
 
 use super::{FileEntry, Transport, TransportType};
@@ -100,7 +100,10 @@ impl WebdavTransport {
         Ok(url)
     }
 
-    fn add_auth(&self, mut req: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+    fn add_auth(
+        &self,
+        mut req: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
         if let Some(auth) = self.auth_header() {
             req = req.header(AUTHORIZATION, auth);
         }
@@ -140,7 +143,10 @@ impl WebdavTransport {
         let needle = "<d:href>";
         let alt_needle = "<d:href ";
         let mut idx = 0;
-        while let Some(pos) = lower[idx..].find(needle).or_else(|| lower[idx..].find(alt_needle)) {
+        while let Some(pos) = lower[idx..]
+            .find(needle)
+            .or_else(|| lower[idx..].find(alt_needle))
+        {
             let abs = idx + pos;
             // Find end of opening tag
             let after_open = if let Some(gt) = lower[abs..].find('>') {
@@ -253,7 +259,10 @@ fn check_status(resp: Response, ok: &[u16], op: &str) -> Result<()> {
         return Ok(());
     }
     let text = resp.text().unwrap_or_default();
-    Err(anyhow!("WebDAV {op} failed: status={status} body={}", truncate_text(&text, 200)))
+    Err(anyhow!(
+        "WebDAV {op} failed: status={status} body={}",
+        truncate_text(&text, 200)
+    ))
 }
 
 fn truncate_text(s: &str, n: usize) -> String {
@@ -286,7 +295,9 @@ mod tests {
     #[test]
     fn url_for_combines_base_prefix_and_rel() {
         let t = make_transport();
-        let url = t.url_for(Path::new("/backups/proj1/"), "src/a.txt").unwrap();
+        let url = t
+            .url_for(Path::new("/backups/proj1/"), "src/a.txt")
+            .unwrap();
         assert_eq!(url, "https://dav.example.com/base/backups/proj1/src/a.txt");
     }
 

@@ -19,9 +19,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(project_path: PathBuf) -> Self {
-        let conversation_path = project_path
-            .join(".route")
-            .join("conversations.json");
+        let conversation_path = project_path.join(".route").join("conversations.json");
         Self {
             project_path,
             repo: Mutex::new(None),

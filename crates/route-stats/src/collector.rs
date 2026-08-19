@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use route_basic::BasicRepository;
 
 use crate::models::{
-    BranchStats, FileStat, RepoStats, StorageStats, SummaryStats, TimelineBucket, TimelineKind,
-    TimeRange,
+    BranchStats, FileStat, RepoStats, StorageStats, SummaryStats, TimeRange, TimelineBucket,
+    TimelineKind,
 };
 
 /// Entry point for collecting stats.
@@ -69,8 +69,18 @@ impl StatsCollector {
         let summary = collect_summary(repo, opts.range.as_ref())?;
         let branches = collect_branch_stats(repo, opts.range.as_ref())?;
         let commits_by_kind = collect_commits_by_kind(repo, opts.range.as_ref())?;
-        let commits_by_hour = collect_timeline(repo, TimelineKind::Hourly, opts.hourly_buckets, opts.range.as_ref())?;
-        let commits_by_day = collect_timeline(repo, TimelineKind::Daily, opts.daily_buckets, opts.range.as_ref())?;
+        let commits_by_hour = collect_timeline(
+            repo,
+            TimelineKind::Hourly,
+            opts.hourly_buckets,
+            opts.range.as_ref(),
+        )?;
+        let commits_by_day = collect_timeline(
+            repo,
+            TimelineKind::Daily,
+            opts.daily_buckets,
+            opts.range.as_ref(),
+        )?;
         let top_files = collect_top_files(repo, opts.top_files_limit, opts.range.as_ref())?;
         let storage = collect_storage_stats(repo)?;
 
@@ -97,11 +107,10 @@ fn collect_summary(repo: &BasicRepository, range: Option<&TimeRange>) -> Result<
     let conn = repo.db.lock();
     let branch_count: i64 = conn.query_row("SELECT COUNT(*) FROM branches", [], |r| r.get(0))?;
     let snapshot_count: i64 = conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?;
-    let annotation_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM commit_path_annotations",
-        [],
-        |r| r.get(0),
-    )?;
+    let annotation_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM commit_path_annotations", [], |r| {
+            r.get(0)
+        })?;
 
     let (commit_count, first_commit_at, latest_commit_at): (i64, Option<i64>, Option<i64>) =
         if let Some(r) = range {
@@ -138,7 +147,10 @@ fn collect_summary(repo: &BasicRepository, range: Option<&TimeRange>) -> Result<
     })
 }
 
-fn collect_branch_stats(repo: &BasicRepository, range: Option<&TimeRange>) -> Result<Vec<BranchStats>> {
+fn collect_branch_stats(
+    repo: &BasicRepository,
+    range: Option<&TimeRange>,
+) -> Result<Vec<BranchStats>> {
     // IMPORTANT: list_branches() also locks the db mutex — call it BEFORE locking here
     // to avoid deadlock (std::sync::Mutex is NOT reentrant).
     let branches = repo.list_branches()?;
@@ -172,7 +184,10 @@ fn collect_branch_stats(repo: &BasicRepository, range: Option<&TimeRange>) -> Re
     Ok(out)
 }
 
-fn collect_commits_by_kind(repo: &BasicRepository, range: Option<&TimeRange>) -> Result<HashMap<String, usize>> {
+fn collect_commits_by_kind(
+    repo: &BasicRepository,
+    range: Option<&TimeRange>,
+) -> Result<HashMap<String, usize>> {
     let conn = repo.db.lock();
     let sql = if range.is_some() {
         "SELECT kind, COUNT(*) FROM commits WHERE created_at >= ?1 AND created_at <= ?2 GROUP BY kind"
@@ -288,7 +303,11 @@ fn collect_timeline(
         .collect())
 }
 
-fn collect_top_files(repo: &BasicRepository, limit: usize, range: Option<&TimeRange>) -> Result<Vec<FileStat>> {
+fn collect_top_files(
+    repo: &BasicRepository,
+    limit: usize,
+    range: Option<&TimeRange>,
+) -> Result<Vec<FileStat>> {
     if limit == 0 {
         return Ok(vec![]);
     }
@@ -307,7 +326,12 @@ fn collect_top_files(repo: &BasicRepository, limit: usize, range: Option<&TimeRa
     for c in commits_iter {
         if let Some(diff_json) = &c.diff_summary {
             if let Ok(d) = serde_json::from_str::<DiffSummaryJson>(diff_json) {
-                for path in d.added.iter().chain(d.modified.iter()).chain(d.removed.iter()) {
+                for path in d
+                    .added
+                    .iter()
+                    .chain(d.modified.iter())
+                    .chain(d.removed.iter())
+                {
                     let entry = files.entry(path.clone()).or_insert((0, 0));
                     entry.0 += 1;
                     if c.created_at > entry.1 {
@@ -326,7 +350,11 @@ fn collect_top_files(repo: &BasicRepository, limit: usize, range: Option<&TimeRa
             last_seen_at: t,
         })
         .collect();
-    out.sort_by(|a, b| b.modifications.cmp(&a.modifications).then_with(|| a.path.cmp(&b.path)));
+    out.sort_by(|a, b| {
+        b.modifications
+            .cmp(&a.modifications)
+            .then_with(|| a.path.cmp(&b.path))
+    });
     out.truncate(limit);
     Ok(out)
 }
@@ -335,9 +363,11 @@ fn collect_storage_stats(repo: &BasicRepository) -> Result<StorageStats> {
     let conn = repo.db.lock();
 
     let (blob_count, total_blob_size): (i64, i64) = conn
-        .query_row("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM blobs", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM blobs",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap_or((0, 0));
 
     let manifest_count: i64 = conn
@@ -433,7 +463,8 @@ mod tests {
         repo.commit(CommitOptions {
             message: "add a".into(),
             ..Default::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         // Commit 2: modify a.txt, add b.txt
         std::fs::write(tmp.path().join("a.txt"), b"hello world").unwrap();
@@ -441,14 +472,16 @@ mod tests {
         repo.commit(CommitOptions {
             message: "update a, add b".into(),
             ..Default::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         // Commit 3: remove b.txt
         std::fs::remove_file(tmp.path().join("b.txt")).unwrap();
         repo.commit(CommitOptions {
             message: "remove b".into(),
             ..Default::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         (tmp, repo)
     }
@@ -483,7 +516,11 @@ mod tests {
         // Actually a.txt is added in commit 1, modified in commit 2, NOT in commit 3 diff (only b removed)
         // So a.txt has 2 modifications
         let a = stats.top_files.iter().find(|f| f.path.ends_with("a.txt"));
-        assert!(a.is_some(), "a.txt should be in top files: {:?}", stats.top_files);
+        assert!(
+            a.is_some(),
+            "a.txt should be in top files: {:?}",
+            stats.top_files
+        );
         assert_eq!(a.unwrap().modifications, 2);
     }
 
@@ -491,7 +528,10 @@ mod tests {
     fn storage_stats_reflects_blobs() {
         let (_tmp, repo) = setup_repo_with_commits();
         let stats = StatsCollector::collect(&repo).unwrap();
-        assert!(stats.storage.blob_count > 0, "should have at least one blob");
+        assert!(
+            stats.storage.blob_count > 0,
+            "should have at least one blob"
+        );
         assert!(stats.storage.total_blob_size > 0);
         assert!(stats.storage.manifest_count >= 1);
         assert!(stats.storage.logical_size >= stats.storage.total_blob_size);
@@ -535,7 +575,10 @@ mod tests {
         // Use a future range — should yield zero commits
         let now = chrono::Utc::now().timestamp_millis();
         let opts = CollectOptions {
-            range: Some(TimeRange { from: now + 86400_000, to: now + 2 * 86400_000 }),
+            range: Some(TimeRange {
+                from: now + 86400_000,
+                to: now + 2 * 86400_000,
+            }),
             ..CollectOptions::defaults()
         };
         let stats = StatsCollector::collect_with(&repo, opts).unwrap();

@@ -14,11 +14,14 @@ members = [
     "crates/route-memory",
     "crates/route-pyo3",
 ]
+exclude = [
+    "crates/route-ppam",
+]
 
 [workspace.package]
-version = "0.4.0-beta"
+version = "1.0.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "AGPL-3.0"
 authors = ["Route Contributors"]
 repository = "https://github.com/longqiyua/route"
 description = "One Markdown, give it to your AI, and start using Route. 一个 Markdown，交给你的 AI，然后开始使用 Route。"
@@ -80,7 +83,7 @@ owo-colors = "4"
 comfy-table = "7"
 
 # Python bindings (route-pyo3)
-pyo3 = { version = "0.23", features = ["abi3-py311", "extension-module", "serde"] }
+pyo3 = { version = "0.23", features = ["abi3-py310", "extension-module", "serde"] }
 once_cell = "1.20"
 
 # 测试

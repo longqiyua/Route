@@ -138,10 +138,7 @@ impl S3Transport {
         }
         headers.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let canonical_headers: String = headers
-            .iter()
-            .map(|(k, v)| format!("{k}:{v}\n"))
-            .collect();
+        let canonical_headers: String = headers.iter().map(|(k, v)| format!("{k}:{v}\n")).collect();
         let signed_headers: String = headers
             .iter()
             .map(|(k, _)| k.clone())
@@ -341,8 +338,7 @@ fn sha256_hash(bytes: &[u8]) -> [u8; 32] {
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<[u8; 32]> {
-    let mut mac =
-        HmacSha256::new_from_slice(key).map_err(|e| anyhow!("HMAC key error: {e}"))?;
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|e| anyhow!("HMAC key error: {e}"))?;
     mac.update(data);
     let out = mac.finalize().into_bytes();
     let mut arr = [0u8; 32];

@@ -27,6 +27,12 @@ pub struct TokenBudget {
     pub reserved: usize,
 }
 
+impl Default for TokenBudget {
+    fn default() -> Self {
+        Self::new(Self::DEFAULT_MAX)
+    }
+}
+
 impl TokenBudget {
     /// Default token budget: 4000 tokens (conservative for most models).
     pub const DEFAULT_MAX: usize = 4000;
@@ -39,11 +45,6 @@ impl TokenBudget {
             max_tokens,
             reserved: Self::DEFAULT_RESERVED,
         }
-    }
-
-    /// Create a budget with default settings.
-    pub fn default() -> Self {
-        Self::new(Self::DEFAULT_MAX)
     }
 
     /// Available tokens for user content (max - reserved).
@@ -60,7 +61,7 @@ impl TokenBudget {
             return 0;
         }
         // Rough estimate: 1 token ≈ 4 chars
-        (text.len() + 3) / 4
+        text.len().div_ceil(4)
     }
 
     /// Check if text would exceed the available token budget.

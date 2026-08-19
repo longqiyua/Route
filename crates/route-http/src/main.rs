@@ -23,11 +23,7 @@ use tracing_subscriber::EnvFilter;
 use route_http::{build_router, AppState};
 
 #[derive(Parser)]
-#[command(
-    name = "route-http",
-    version,
-    about = "Route HTTP REST API server"
-)]
+#[command(name = "route-http", version, about = "Route HTTP REST API server")]
 struct Cli {
     /// Port to listen on (default: 8080)
     #[arg(short, long, default_value = "8080")]
@@ -47,16 +43,15 @@ async fn main() {
     // Initialize tracing (logging)
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
     let cli = Cli::parse();
 
-    let project_path = cli.path.unwrap_or_else(|| {
-        std::env::current_dir().expect("Failed to get current directory")
-    });
+    let project_path = cli
+        .path
+        .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
     tracing::info!(
         "Starting Route HTTP API server on {}:{} (project: {})",
@@ -77,7 +72,5 @@ async fn main() {
     tracing::info!("Listening on http://{}", addr);
 
     // Start the server
-    axum::serve(listener, app)
-        .await
-        .expect("Server failed");
+    axum::serve(listener, app).await.expect("Server failed");
 }

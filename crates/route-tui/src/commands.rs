@@ -9,9 +9,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use comfy_table::{presets::UTF8_FULL, ContentArrangement, Table};
-use route_basic::{
-    BasicRepository, BranchKind, CommitOptions, CreateBranchOptions, ExportFormat,
-};
+use route_basic::{BasicRepository, BranchKind, CommitOptions, CreateBranchOptions, ExportFormat};
 use route_core::short_id;
 use route_memory::ConversationStore;
 
@@ -174,8 +172,7 @@ pub fn dispatch(repo: Option<&BasicRepository>, project_path: &Path, input: &str
                 Some(i) => (&after_git[..i], after_git[i..].trim()),
                 None => (after_git, ""),
             };
-            let sub_args: Vec<String> =
-                sub_rest.split_whitespace().map(String::from).collect();
+            let sub_args: Vec<String> = sub_rest.split_whitespace().map(String::from).collect();
             let res = cmd_git(project_path, true, sub, &sub_args, sub_rest);
             if let Err(e) = res {
                 eprintln!("{}", err(&format!("✗ {e}")));
@@ -211,7 +208,9 @@ pub fn dispatch(repo: Option<&BasicRepository>, project_path: &Path, input: &str
         other => {
             eprintln!(
                 "{}",
-                err(&format!("✗ Unknown command: {other}. Type `help` for list."))
+                err(&format!(
+                    "✗ Unknown command: {other}. Type `help` for list."
+                ))
             );
             Ok(())
         }
@@ -369,7 +368,8 @@ fn cmd_conversation(
                 None
             };
             let mut store = ConversationStore::with_path(store_path);
-            let result = store.rollback_to_message(session_id, message_id, reason.as_deref());
+            // Pass None for project_path — TUI runs in the project directory
+            let result = store.rollback_to_message(session_id, message_id, reason.as_deref(), None);
             if result.success {
                 println!(
                     "{} {} {} {} {}",
@@ -439,7 +439,12 @@ fn cmd_tag(
             table
                 .load_preset(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic)
-                .set_header(vec![head("Name"), head("Snapshot"), head("Created"), head("Message")]);
+                .set_header(vec![
+                    head("Name"),
+                    head("Snapshot"),
+                    head("Created"),
+                    head("Message"),
+                ]);
             for t in tags {
                 table.add_row(vec![
                     accent(&t.name),
@@ -485,7 +490,9 @@ fn cmd_tag(
             println!("{} {}", ok("✓ Deleted tag"), accent(name));
             Ok(())
         }
-        other => Err(anyhow!("unknown tag subcommand: {other} (list|create|delete)")),
+        other => Err(anyhow!(
+            "unknown tag subcommand: {other} (list|create|delete)"
+        )),
     }
 }
 
@@ -496,7 +503,10 @@ fn cmd_stats(repo: &BasicRepository) -> Result<()> {
     let snapshots = repo.all_snapshots()?;
     let commits = repo.list_commits(None, 10000)?;
 
-    let main_count = branches.iter().filter(|b| b.kind == BranchKind::Main).count();
+    let main_count = branches
+        .iter()
+        .filter(|b| b.kind == BranchKind::Main)
+        .count();
     let inherited_count = branches
         .iter()
         .filter(|b| b.kind == BranchKind::Inherited)
@@ -524,7 +534,11 @@ fn cmd_stats(repo: &BasicRepository) -> Result<()> {
         .count();
 
     println!("{}", head("Route — Statistics"));
-    println!("  {}  {}", dim("Branches:"), id(&branches.len().to_string()));
+    println!(
+        "  {}  {}",
+        dim("Branches:"),
+        id(&branches.len().to_string())
+    );
     println!(
         "    {} {}  {} {}  {} {}",
         dim("main:"),
@@ -534,7 +548,11 @@ fn cmd_stats(repo: &BasicRepository) -> Result<()> {
         dim("sandbox:"),
         sandbox_count
     );
-    println!("  {}  {}", dim("Snapshots:"), id(&snapshots.len().to_string()));
+    println!(
+        "  {}  {}",
+        dim("Snapshots:"),
+        id(&snapshots.len().to_string())
+    );
     println!("  {}  {}", dim("Commits:"), id(&commits.len().to_string()));
     println!(
         "    {} {}  {} {}  {} {}  {} {}",
@@ -557,11 +575,7 @@ fn cmd_backup(repo: &BasicRepository, args: &[String]) -> Result<()> {
         .first()
         .ok_or_else(|| anyhow!("usage: backup <target_directory>"))?;
     let result = repo.full_backup_to_dir(Path::new(target))?;
-    println!(
-        "{} {}",
-        ok("✓ Full backup completed to"),
-        result.display()
-    );
+    println!("{} {}", ok("✓ Full backup completed to"), result.display());
     Ok(())
 }
 
@@ -622,7 +636,11 @@ fn print_help() {
         ("log, lg", "[limit]", "Commit history (table)"),
         ("commit, ci", "<message>", "Commit working directory"),
         ("changes", "", "Pending changes"),
-        ("branch, br", "[list|create|switch|merge]", "Branch operations"),
+        (
+            "branch, br",
+            "[list|create|switch|merge]",
+            "Branch operations",
+        ),
         ("rollback, rb", "<snapshot>", "Roll back to a snapshot"),
         ("undo", "", "Undo last commit"),
         ("redo", "", "Redo last undone commit"),
@@ -630,15 +648,27 @@ fn print_help() {
         ("diff", "<from> <to>", "Diff two snapshots"),
         ("export", "<json|markdown|mermaid>", "Export repository"),
         ("git", "<sub>", "Git-mode commands (type `git help`)"),
-        ("root", "git <net-sub>", "High-privilege git (push/pull/fetch/remote)"),
+        (
+            "root",
+            "git <net-sub>",
+            "High-privilege git (push/pull/fetch/remote)",
+        ),
         ("clear, cls", "", "Clear screen"),
         ("exit, quit, q", "", "Quit route-tui"),
         ("", "", ""),
-        ("conversation, conv", "<sub>", "Conversation tracking (new|list|show|record|rollback|archive|delete)"),
+        (
+            "conversation, conv",
+            "<sub>",
+            "Conversation tracking (new|list|show|record|rollback|archive|delete)",
+        ),
         ("tag", "<sub>", "Route tags (list|create|delete)"),
         ("stats", "", "Repository statistics"),
         ("backup", "<dir>", "Full backup to a directory"),
-        ("annotate", "<commit> <text>", "Add a text annotation to a commit"),
+        (
+            "annotate",
+            "<commit> <text>",
+            "Add a text annotation to a commit",
+        ),
         ("annotations", "<commit>", "List annotations on a commit"),
     ];
     for (cmd, args, desc) in rows {
@@ -668,17 +698,33 @@ fn print_git_help() {
         ("git add", "[path...]", "Stage paths (or all if none given)"),
         ("git status, st", "", "Working-tree status + branch"),
         ("git changes", "", "Pending changes (porcelain)"),
-        ("git diff, df", "[staged|<a> <b>]", "Diff (unstaged / staged / two refs)"),
+        (
+            "git diff, df",
+            "[staged|<a> <b>]",
+            "Diff (unstaged / staged / two refs)",
+        ),
         ("git log, lg", "[limit] [branch]", "Commit history"),
-        ("git commit, ci", "<message>", "Stage all + commit (checkpoint)"),
-        ("git branch, br", "[list|create|switch]", "Branch operations"),
+        (
+            "git commit, ci",
+            "<message>",
+            "Stage all + commit (checkpoint)",
+        ),
+        (
+            "git branch, br",
+            "[list|create|switch]",
+            "Branch operations",
+        ),
         ("git merge", "<source>", "Merge a branch into HEAD"),
         ("git stash", "[push|pop|list|drop]", "Stash operations"),
         ("git tag", "[list|create|delete]", "Tag operations"),
         ("git reset", "[--soft|--mixed|--hard] <ref>", "Reset HEAD"),
         ("git revert", "<commit>", "Revert a commit"),
         ("git restore", "<path>...", "Restore working-tree files"),
-        ("git config", "[get|set] <key> [val]", "Read/write local config"),
+        (
+            "git config",
+            "[get|set] <key> [val]",
+            "Read/write local config",
+        ),
     ];
     for (cmd, args, desc) in rows {
         println!("  {} {}  {}", accent(cmd), faint(args), dim(desc));
@@ -702,10 +748,7 @@ fn print_root_help() {
     println!();
     println!("{}", head("Route — root (high-privilege) mode"));
     println!();
-    println!(
-        "  {}",
-        dim("Two-tier permission model:")
-    );
+    println!("  {}", dim("Two-tier permission model:"));
     println!(
         "  {} {}",
         accent("default"),
@@ -729,10 +772,22 @@ fn print_root_help() {
     println!();
     println!("  {}", dim("Unlocked by `root`:"));
     let rows: &[(&str, &str, &str)] = &[
-        ("root git fetch", "[remote]", "Fetch from a remote (default origin)"),
+        (
+            "root git fetch",
+            "[remote]",
+            "Fetch from a remote (default origin)",
+        ),
         ("root git pull", "[remote] [branch]", "Pull from a remote"),
-        ("root git push", "[remote] [branch] [--force]", "Push to a remote"),
-        ("root git remote", "[list|add|remove|set-url]", "Manage remotes"),
+        (
+            "root git push",
+            "[remote] [branch] [--force]",
+            "Push to a remote",
+        ),
+        (
+            "root git remote",
+            "[list|add|remove|set-url]",
+            "Manage remotes",
+        ),
     ];
     for (cmd, args, desc) in rows {
         println!("  {} {}  {}", accent(cmd), faint(args), dim(desc));
@@ -805,7 +860,11 @@ fn cmd_status(repo: &BasicRepository, _args: &[String], _rest: &str) -> Result<(
     println!();
     println!("{}", head("  Branches"));
     for b in &branches {
-        let marker = if b.name == current { accent("*") } else { dim(" ") };
+        let marker = if b.name == current {
+            accent("*")
+        } else {
+            dim(" ")
+        };
         let h = b
             .head_snapshot
             .as_deref()
@@ -932,7 +991,11 @@ fn cmd_branch(repo: &BasicRepository, args: &[String], _rest: &str) -> Result<()
             let branches = repo.list_branches()?;
             let current = repo.get_current_branch_name()?;
             for b in &branches {
-                let marker = if b.name == current { accent("*") } else { dim(" ") };
+                let marker = if b.name == current {
+                    accent("*")
+                } else {
+                    dim(" ")
+                };
                 let h = b
                     .head_snapshot
                     .as_deref()
@@ -1216,7 +1279,10 @@ fn cmd_git_detect() -> Result<()> {
     let d = git::detect();
     if d.available {
         println!("{} {}", ok("✓"), d.version);
-        println!("  {}", dim("git mode available — checkpoints become real commits"));
+        println!(
+            "  {}",
+            dim("git mode available — checkpoints become real commits")
+        );
     } else {
         println!("{} {}", err("✗ git not available"), dim(&d.error));
         println!(
@@ -1248,11 +1314,7 @@ fn cmd_git_status(project_path: &Path) -> Result<()> {
         return Ok(());
     }
     let total = st.added.len() + st.modified.len() + st.removed.len() + st.untracked.len();
-    println!(
-        "  {} {}",
-        dim("Changes:"),
-        id(&total.to_string())
-    );
+    println!("  {} {}", dim("Changes:"), id(&total.to_string()));
     if !st.added.is_empty() {
         println!("  {} (+{})", ok("added"), st.added.len());
         for p in &st.added {
@@ -1394,7 +1456,10 @@ fn cmd_git_branch(project_path: &Path, args: &[String]) -> Result<()> {
         "list" | "ls" => {
             let branches = git::branch_list(project_path)?;
             if branches.is_empty() {
-                println!("{}", dim("(no branches — run `git init` then `git commit`)"));
+                println!(
+                    "{}",
+                    dim("(no branches — run `git init` then `git commit`)")
+                );
                 return Ok(());
             }
             for b in &branches {
@@ -1419,10 +1484,7 @@ fn cmd_git_branch(project_path: &Path, args: &[String]) -> Result<()> {
                 accent(&b.name),
                 dim(&format!("head={}", b.head))
             );
-            println!(
-                "  {}",
-                faint("switch with: git branch switch <name>")
-            );
+            println!("  {}", faint("switch with: git branch switch <name>"));
             Ok(())
         }
         "switch" | "sw" | "checkout" => {
@@ -1530,7 +1592,9 @@ fn cmd_git_stash(project_path: &Path, args: &[String]) -> Result<()> {
             println!("{}", out.trim());
             Ok(())
         }
-        other => Err(anyhow!("unknown stash action: {other} (push/pop/list/drop)")),
+        other => Err(anyhow!(
+            "unknown stash action: {other} (push/pop/list/drop)"
+        )),
     }
 }
 
@@ -1569,7 +1633,9 @@ fn cmd_git_tag(project_path: &Path, args: &[String]) -> Result<()> {
             println!("{} {}", ok("✓ Deleted tag"), accent(name));
             Ok(())
         }
-        other => Err(anyhow!("unknown tag subcommand: {other} (list/create/delete)")),
+        other => Err(anyhow!(
+            "unknown tag subcommand: {other} (list/create/delete)"
+        )),
     }
 }
 
@@ -1592,7 +1658,8 @@ fn cmd_git_reset(project_path: &Path, args: &[String]) -> Result<()> {
         }
         i += 1;
     }
-    let commit = commit.ok_or_else(|| anyhow!("usage: git reset [--soft|--mixed|--hard] <commit>"))?;
+    let commit =
+        commit.ok_or_else(|| anyhow!("usage: git reset [--soft|--mixed|--hard] <commit>"))?;
     git::reset(project_path, mode, commit)?;
     let mode_str = match mode {
         git::ResetMode::Soft => "soft",
@@ -1726,7 +1793,10 @@ fn cmd_git_remote(project_path: &Path, args: &[String]) -> Result<()> {
         "list" | "ls" | "-v" => {
             let remotes = git::remote_list(project_path)?;
             if remotes.is_empty() {
-                println!("{}", dim("(no remotes — add one: root git remote add <name> <url>)"));
+                println!(
+                    "{}",
+                    dim("(no remotes — add one: root git remote add <name> <url>)")
+                );
             } else {
                 for r in &remotes {
                     println!("  {} {}", accent(&r.name), dim(&r.url));
@@ -1764,6 +1834,8 @@ fn cmd_git_remote(project_path: &Path, args: &[String]) -> Result<()> {
             println!("{} {} {}", ok("✓ Set URL"), accent(name), dim(url));
             Ok(())
         }
-        other => Err(anyhow!("unknown remote subcommand: {other} (list/add/remove/set-url)")),
+        other => Err(anyhow!(
+            "unknown remote subcommand: {other} (list/add/remove/set-url)"
+        )),
     }
 }

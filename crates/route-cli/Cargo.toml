@@ -15,18 +15,19 @@ name = "route"
 path = "src/main.rs"
 
 [dependencies]
-route-core = { path = "../route-core", version = "0.4.0-beta" }
-route-basic = { path = "../route-basic", version = "0.4.0-beta" }
-route-sync = { path = "../route-sync", version = "0.4.0-beta" }
-route-stats = { path = "../route-stats", version = "0.4.0-beta" }
-route-plugins = { path = "../route-plugins", version = "0.4.0-beta" }
-route-engine = { path = "../route-engine", version = "0.4.0-beta" }
-route-memory = { path = "../route-memory", version = "0.4.0-beta" }
+route-core = { path = "../route-core", version = "1.0.0" }
+route-basic = { path = "../route-basic", version = "1.0.0" }
+route-sync = { path = "../route-sync", version = "1.0.0" }
+route-stats = { path = "../route-stats", version = "1.0.0" }
+route-plugins = { path = "../route-plugins", version = "1.0.0" }
+route-engine = { path = "../route-engine", version = "1.0.0" }
+route-memory = { path = "../route-memory", version = "1.0.0" }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+ulid.workspace = true
 reqwest = { workspace = true, features = ["json", "blocking"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -26,15 +26,12 @@ pub struct SyncTrackingRequest {
 
 /// `GET /api/tracking`
 pub async fn list_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::tracking_list()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::tracking_list().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/tracking`
-pub async fn add_handler(
-    Json(req): Json<AddTrackingRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn add_handler(Json(req): Json<AddTrackingRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::tracking_add(
         req.local,
         req.remote,
@@ -55,17 +52,13 @@ pub async fn remove_handler(
 }
 
 /// `POST /api/tracking/sync`
-pub async fn sync_handler(
-    Json(req): Json<SyncTrackingRequest>,
-) -> Result<Json<Value>, ApiError> {
-    route_cli::commands::tracking_sync(req.local)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+pub async fn sync_handler(Json(req): Json<SyncTrackingRequest>) -> Result<Json<Value>, ApiError> {
+    route_cli::commands::tracking_sync(req.local).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/tracking/history`
 pub async fn history_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::tracking_history()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::tracking_history().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }

@@ -11,9 +11,9 @@ name = "route-mcp"
 path = "src/main.rs"
 
 [dependencies]
-route-core = { path = "../route-core", version = "0.4.0-beta" }
-route-basic = { path = "../route-basic", version = "0.4.0-beta" }
-route-memory = { path = "../route-memory", version = "0.4.0-beta" }
+route-core = { path = "../route-core", version = "1.0.0" }
+route-basic = { path = "../route-basic", version = "1.0.0" }
+route-memory = { path = "../route-memory", version = "1.0.0" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,3 +21,6 @@ chrono.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

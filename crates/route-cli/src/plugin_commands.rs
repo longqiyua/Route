@@ -46,7 +46,10 @@ pub fn plugin_list() -> Result<()> {
     if cfg.plugins.is_empty() {
         println!("No plugins configured. Use `route plugin install <name>` to add one.");
         println!();
-        println!("Built-in plugins: {}", route_plugins::BUILTIN_PLUGINS.join(", "));
+        println!(
+            "Built-in plugins: {}",
+            route_plugins::BUILTIN_PLUGINS.join(", ")
+        );
         return Ok(());
     }
     println!("{:<12} {:<8} {}", "NAME", "ENABLED", "CONFIG");

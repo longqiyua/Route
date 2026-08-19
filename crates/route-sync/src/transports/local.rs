@@ -54,7 +54,8 @@ fn walk_dir(root: &Path, current: &Path, files: &mut Vec<String>) -> Result<()> 
         if path.is_dir() {
             walk_dir(root, &path, files)?;
         } else {
-            let rel = path.strip_prefix(root)?
+            let rel = path
+                .strip_prefix(root)?
                 .to_string_lossy()
                 .replace('\\', "/");
             files.push(rel);

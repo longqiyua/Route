@@ -144,7 +144,12 @@ impl Exporter for MarkdownExporter {
                 }
                 writeln!(out, "### Commit `{}`", &commit_id[..8.min(commit_id.len())])?;
                 for a in anns {
-                    writeln!(out, "- {} — {}", format_ts(a.created_at), escape_md(&a.text))?;
+                    writeln!(
+                        out,
+                        "- {} — {}",
+                        format_ts(a.created_at),
+                        escape_md(&a.text)
+                    )?;
                 }
                 writeln!(out)?;
             }
@@ -268,7 +273,11 @@ impl Exporter for EmacsOrgExporter {
         writeln!(out, ":PROPERTIES:")?;
         writeln!(out, ":ROUTE_MODE: basic")?;
         writeln!(out, ":ROUTE_PROJECT_PATH: {}", ctx.project_path)?;
-        writeln!(out, ":ROUTE_CREATED: {}", format_ts(ctx.snapshots.first().map(|s| s.created_at).unwrap_or(0)))?;
+        writeln!(
+            out,
+            ":ROUTE_CREATED: {}",
+            format_ts(ctx.snapshots.first().map(|s| s.created_at).unwrap_or(0))
+        )?;
         writeln!(out, ":END:")?;
         writeln!(out)?;
 

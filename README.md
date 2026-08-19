@@ -1,260 +1,163 @@
 # Route
 
-> **One Markdown, give it to your AI, and start using Route.**
-> **一个 Markdown，交给你的 AI，然后开始使用 Route。**
+> **Git remembers the code. Route remembers the work.**
 >
-> *From Route to Routine.*
+> **当前版本：v1.0 beta**（machine `1.0.0-beta`）— Experimental Beta
 
-**Route** — 面向 Web Coding / Vibe Coding 的轻量版本管理软件，集成智能权责审计与 AI 协同管理。
+**Route** 是一个 **local-first、基于会话（session）的 AI 辅助开发管理系统**。
+它不是 Git 的替代品，而是记录"**工作**"那一层：项目意图、连续性、任务历史、KnownGood、
+checkpoint、证据、修复、重构、迁移、恢复，以及 AI/人类交接时的开发执行上下文。
 
-以「用户与 AI 的一轮对话」为最小版本单元，支持按对话回退、分支管理、混合备份策略，并提供桌面 GUI、CLI 与 MCP 三种接入方式。
-
-> **版本 0.4.0 — BETA**
->
-> 当前处于 Beta 阶段：核心功能（文件追踪 / 回退 / 分支 / 桌面 GUI / CLI / MCP / 权责审计 / 智能提交 / 主动跟踪 / LLM 注入 / 权限系统 / 多端对齐）已可用，AI 协同模式仍在打磨。欢迎使用并[反馈问题](https://github.com/longqiyua/route/issues)。
-
----
-
-## 为什么选择 Route？
-
-Route 不是 Git 的替代品，而是 Git 的**增强层**。Git 解决了"谁在什么时候改了什么东西"，但 Route 进一步回答了 B 端和 AI 协作时代的关键问题：
-
-### Route vs Git
-
-| 维度 | Git | Route |
-|------|-----|-------|
-| **权责溯源** | 仅记录作者（git config user.name），可被任意伪造 | 设备指纹哈希注入，每次 commit 附带设备级权责凭证，不可伪造 |
-| **AI 归因** | 无 AI 参与度标记 | 自动识别 AI 辅助代码，记录 Prompt 哈希，细分为"提交者"与"提示词提供者" |
-| **安全级别** | 依赖开发者自觉 | 多层安全：项目盐值、设备指纹、环境一致性校验、设备白名单 |
-| **隐私保护** | N/A | 本地 SHA-256 哈希链，绝不上传明文机器码 |
-| **管理粒度** | 文件级追踪 | 对话级追踪（AI 一轮对话 = 一个版本单元） |
-| **操作门槛** | 需要手动输入命令 | 桌面 GUI 切换模式、自动提交、一键操作 |
-| **备份策略** | 依赖远程仓库 | 混合备份：本地增量 + 云端自动同步 + 定时主动跟踪 |
-
-### 用户场景
-
-- **AI 辅助开发团队**：谁写的代码？谁提供的 Prompt？AI 参与了百分之多少？Route 一键给出答案。
-- **多设备协作**：有人用非授权设备提交了代码——Route 立刻检测并发出警告。
-- **代码审计需求**：合规部门要求追溯每行代码的"物理设备 + 操作者 + AI 参与度"——Route 的责任索引库提供完整审计链。
-- **自动备份焦虑**：担心忘记 push 导致代码丢失——Route 的主动跟踪模式定时自动同步云端。
+```
+UNDERSTAND BEFORE REWRITE.
+PATCH WHEN PATCH ENOUGH.
+RESTRUCTURE WHEN STRUCTURE IS THE PROBLEM.
+UGLY != WRONG.  OLD != BAD.  NEW != BETTER.
+PRESERVE WORKING VALUE.  VERIFY BEFORE PROMOTION.
+```
 
 ---
 
-## 核心理念
+## 为什么不是用 Git 就够了？
 
-- **一个指令干一个活儿** — 每条指令声明四个点：开始点、结束点、验收点、紧急回退点。
-- **追踪而非替换** — Route 不替代 Git，而是在文件系统层面做增量快照，对任何文件类型都有效。
-- **AI 优先** — CLI 与 MCP 接口让 AI 代理可以直接驱动版本管理，桌面 GUI 提供可视化操作。
-- **权责透明** — 每一行代码都可追溯至"物理设备 + 操作者 + AI 参与度"，满足 B 端合规要求。
+Git 记住**代码**——谁、何时、改了什么。Route 记住**工作**：
+
+- 一个开发任务从哪来、到哪去、验收是什么；
+- 哪些状态是 **KnownGood**，哪些 checkpoint 可以恢复；
+- 记录了哪些**证据**，验证是否真的通过（而不是 AI 嘴上说"通过了"）；
+- 什么时候该 **PATCH**、什么时候才该 **RESTRUCTURE**；
+- AI Worker 与人类之间如何**交接**而不丢上下文。
+
+Route 直接使用用户项目的状态，把"一次开发"作为一等公民记录下来，而不是把一堆文件变更扔进历史里。
 
 ---
 
-## 功能
+## 问题 / 它解决什么
 
-### 双模式系统
+- **AI 开发缺连续性**：每次新会话都像失忆——Route 用会话 + 上下文 + 记忆把工作衔接起来。
+- **AI 声称 ≠ 证据**：Route 区分"人/系统的真实证据"与"AI 的自述"，验证才有说服力。
+- **回退与恢复不可靠**：KnownGood / checkpoint / 保存点 / 恢复策略让项目能被修复而不是只能重改。
+- **改之前不懂**：`UNDERSTAND BEFORE REWRITE`——先理解现状，再决定 patch 还是重构。
+- **人机交接断裂**：handoff / brief 生成可移交的开发上下文。
 
-Route 提供两种操作模式，可在桌面 GUI 中切换：
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| **标准模式** | Route 原生快照引擎（增量/全量），不依赖 Git | 纯文件追踪、快速原型、非代码项目 |
-| **Git 模式** | 驱动本地 Git 二进制，所有操作映射为真实 Git 命令 | 需要完整 Git 工作流、与团队协作 |
-
-**标准模式**覆盖基本操作：init / commit / rollback / branch / log / checkpoint / undo / redo / tag / export / diff / annotate。
-
-**Git 模式**覆盖所有 Git 操作（见下方 CLI 表），包括远程仓库管理。
-
-### 标准模式（默认）
-
-| 功能 | CLI | 桌面 GUI |
-|------|-----|----------|
-| 选择文件夹并初始化 | `route init` | 文件夹选择器 |
-| 自动追踪文件变更 | — | Watch 开关 |
-| 提交（标记一次变更） | `route commit` | 提交输入框 |
-| 标记点（Checkpoint） | `route checkpoint` | 标记点对话框 |
-| 撤销 / 重做 | `route undo` / `route redo` | 历史导航 |
-| 回退到快照 | `route rollback` | 时间线 |
-| 历史追踪 | `route log` | 时间线页 |
-| 创建/删除分支 | `route branch create/delete` | 分支管理 |
-| 分支切换 | `route branch switch` | 分支选择 |
-| 导出 | `route export` | Markdown 导出 |
-
-### Git 模式（完整操作）
-
-| 操作 | CLI | 桌面 GUI | 权限限制 |
-|------|-----|----------|----------|
-| 初始化仓库 | `route git init` | ✓ | 无 |
-| 暂存/取消暂存 | `route git add` / `reset` | ✓ | 无 |
-| 提交 | `route git commit -m "msg"` | ✓ | 无 |
-| 分支管理 | `route git branch create/switch/delete` | ✓ | 无 |
-| 合并 | `route git merge` | ✓ | 无 |
-| 变基 | `route git rebase` | ✓ | 无 |
-| 标签 | `route git tag create/list/delete` | ✓ | 无 |
-| 暂存 | `route git stash push/pop/list` | ✓ | 无 |
-| 日志/图表 | `route git log` / `log --graph` | ✓ | 无 |
-| 差异对比 | `route git diff` | ✓ | 无 |
-| 撤销提交 | `route git revert` | ✓ | 无 |
-| Cherry-pick | `route git cherry-pick` | ✓ | 无 |
-| 清理 | `route git clean` | ✓ | 无 |
-| 归档 | `route git archive` | ✓ | 无 |
-| 配置 | `route git config get/set` | ✓ | 无 |
-| 远程管理 | `route git remote add/list/remove` | ✓ | **Normal 模式受限** |
-| 拉取/推送 | `route git fetch/pull/push` | ✓ | **Normal 模式受限** |
-| 克隆 | `route git clone` | ✓ | **Normal 模式受限** |
-| 安全备份 | `route git backup` | ✓ | 无 |
-
-### 权责审计官（Responsibility Auditor）
-
-Route 的核心差异化功能，在每次 commit 操作中强制注入设备指纹与环境元数据，确保代码资产可精准溯源。
-
-| 功能 | 说明 |
-|------|------|
-| **项目盐值管理** | 每个项目独立盐值，结合设备标识生成唯一设备指纹（SHA-256），防止哈希泄露后反推原始设备码 |
-| **Pre-Commit Hook** | 拦截提交请求，自动采集设备指纹，检测 AI 参与度，执行环境一致性校验 |
-| **元数据注入** | 每次 commit 自动附加 `[AUDIT: <device_hash>]` 标签和 Git Note，不可伪造 |
-| **AI 参与度归因** | 自动识别 AI 辅助代码，记录 Prompt 哈希（`[AI: <prompt_hash>]`），实现二级权责细分 |
-| **环境一致性校验** | 检测多设备交叉提交，异常行为触发 [WARNING] 级别警报 |
-| **设备白名单** | 仅允许授权设备提交，非白名单设备自动拦截 |
-| **责任索引库** | 本地持久化 `{Commit_ID, Device_Hash, AI_Prompt_Hash, Timestamp, Author}` 记录 |
-| **资产溯源图谱** | 可视化展示设备与代码的映射关系、AI 参与度比例、风险等级 |
-
-### 智能 Commit 管理（Commit 省略模式）
-
-| 功能 | 说明 |
-|------|------|
-| **开关控制** | 桌面 GUI 设置页一键启用/禁用 |
-| **自动提交** | 文件变更时自动生成规范 Commit 信息（如 `auto: 3 files changed — src/main.rs, …`） |
-| **变更追溯** | 所有自动提交携带 `[ROUTE-AUTO]` 标记，独立日志存储在 `.route/auto-commit-log.json` |
-| **速率限制** | 可配置每小时最大自动提交数，防止过量 |
-| **审计集成** | 自动提交同样触发权责审计流程 |
-
-### 主动跟踪模式（云端自动备份）
-
-| 功能 | 说明 |
-|------|------|
-| **文件夹跟踪** | 指定本地文件夹与 GitHub 远程仓库绑定 |
-| **自动同步** | 定期 fetch + pull（rebase + autostash），保持本地与远程一致 |
-| **冲突检测** | 本地有修改且远程有更新时，明确提示冲突，需手动解决 |
-| **同步历史** | 记录每次同步的时间、状态、变更数量 |
-| **可配置频率** | 自定义同步间隔（默认 10 分钟） |
-
-### AI 协同模式（BETA）
-
-- AI 抢占 / 释放控制权
-- AI 操作冲突检测与解决
-- AI 索引文件（供 AI 读取项目结构）
-- CLI / MCP 接口供外部 AI 代理调用
-
-### 权限系统
-
-Route 的 CLI 和 MCP 接口设有**权限等级**，防止 AI 代理意外执行远程操作：
-
-| 等级 | 说明 | 本地操作 | 远程操作 |
-|------|------|----------|----------|
-| **Normal**（默认） | 本地 Git 操作全部允许，远程操作（push/pull/fetch/remote/clone）被阻止 | ✓ | ✗ |
-| **High** | 所有操作完全放开 | ✓ | ✓ |
-
-- 桌面 GUI **始终以 High 权限运行**（人类直接操作，无需限制）
-- 在设置页可切换 CLI/MCP 的权限等级
-- 三方 LLM 接入时，建议在 Normal 模式下测试，确认无误后再开启 High 模式
-
-> **注意**：CLI 和 MCP 的权限等级独立控制。桌面 GUI 始终以 High 权限运行。
-> 设置页面提供统一的 CLI/MCP 权限开关，也可以通过 `route permission set` 命令单独设置。
-
-### 三方 LLM 接入
-
-Route 提供 LLM 注入系统，将项目上下文自动注入到 LLM 调用中：
-
-1. **预设提示词注入** — 系统级指令，定义 LLM 行为方式（可自定义）
-2. **预留注入位** — 用户自定义文本，每次 LLM 调用时自动附加
-3. **文件内容注入** — 按 glob 模式匹配文件，将文件内容注入到提示词中
-
-> ⚠️ **Token 消耗警告**：过长预设文件或大量文件注入可能导致显著 token 消耗。Route 会在注入内容超过阈值（默认 50k 字符 ≈ 12.5k tokens）时显示警告。建议将 `max_files` 和 `max_chars` 控制在合理范围。
-
-配置存储在项目目录下的 `.route/llm-injection.json`，可通过桌面 GUI 设置页或 `llm_injection_*` 命令管理。
-
-### 备份
-
-- **本地备份** — 增量镜像到本机另一目录
-- **云端备份** — S3 / WebDAV / SSH 服务器 URI
-- 默认增量更新，可手动全量快照
-
-### 系统集成
-
-- 开机自启动、静默启动、启动优先级调节
-- 深色 / 浅色主题，实时切换
-- 中 / 英双语，实时切换
+> Route **不假定项目是空白**——`existing project first-class`。进入任意既有项目：
+> 理解当前状态、保留既有文件、识别结构、建立项目状态与 KnownGood，然后执行有边界的开发任务。
 
 ---
 
 ## 快速开始
 
-### 桌面应用（推荐）
+### 构建（Rust workspace）
 
 ```bash
-# 安装依赖
-cd crates/route-tauri/web
-npm install
-
-# 开发模式（启动 Vite + Tauri 桌面窗口）
-cd ..
-cargo tauri dev
-
-# 生产构建
-cargo tauri build
+cargo build -p route-cli          # CLI 二进制
+cargo build --workspace           # 全部 crate
+cargo test  --workspace           # 全量回归
 ```
 
-### CLI
+### 初始化一个既有项目并开发
 
 ```bash
-# 在项目目录初始化
-route init
-
-# 记录一次变更
-route commit -m "添加 Hero 区域"
-
-# 查看历史
-route log
-
-# 回退到某个快照
-route rollback abc12345
-
-# 创建分支
-route branch create feature-x
+cd /path/to/your/project
+route init                         # 进入项目，保留既有文件，建立状态
+route status                       # 项目概览（integrity / profile / sessions）
+route task start "..."             # 启动一个有边界的开发会话
+route task exec   "-- task ..."    # 有边界地执行（BranchGate/PathGate/CommandGate）
+route task verify                  # 验证（真实测试证据，而非 AI 声称）
+route task end    success          # 收尾，生成 Outcome
+route commit -m "..."              # 把当前状态存为快照
+route log                          # 查看历史
+route rollback <snapshot>          # 回退到快照
+route check                        # 校验仓库完整性
+route repair-plan                  # 基于 check 生成修复计划
 ```
 
-### 新增 CLI 命令
+### Python 绑定（route-py）
 
-| 命令 | 说明 |
+```bash
+cd packages/route-py
+maturin build --release
+# 生成的 wheel：route_vc-1.0.0b0-cp310-abi3-*.whl
+python -c "import route; print(route.__version__)"   # 1.0.0-beta
+```
+
+---
+
+## 核心安全思想
+
+| 思想 | 含义 |
 |------|------|
-| `route ai chat <message>` | 发送消息到 AI 提供商（通过环境变量 ROUTE_AI_KEY 配置） |
-| `route ai config` | 查看 AI 配置（脱敏显示 API Key） |
-| `route project-context` | 显示项目上下文（git 分支、最近提交、skills/references 文件） |
-| `route mcp --config` | 显示 MCP 配置片段（JSON 格式） |
-| `route permission status` | 查看当前权限级别 |
-| `route permission set high\|normal` | 设置权限级别 |
+| **Evidence > 声称** | AI 说"测试通过"不算，Route **实际执行**测试才算。`CLAIM_EQUALS_EVIDENCE = NO` |
+| **有边界的 AI Worker** | TaskSpec：目标 / 允许路径 / 禁止路径 / 测试 / 不变项 / 作用域 / 分支 |
+| **多道门** | BranchGate、PathGate、CommandGate、DiffGate、TestGate、ClaimEvidenceGate |
+| **禁止伪造证据** | AI 不能把自述伪装成系统证据（TestPass/Commit 由系统产生） |
+| **已知好状态** | KnownGood / checkpoint / 保存点 / 恢复策略，破坏可回滚而非只能重写 |
+| **UNDERSTAND BEFORE REWRITE** | 重构是大手术，先理解，能 patch 就 patch |
+| **验证后才提升** | Candidate → Benchmark → Compare → 显式 Promote；AI 不能自我 promote |
 
-### MCP 集成
+---
 
-Route 提供 MCP 服务器（`route-mcp` crate），任何 MCP 兼容的 AI 客户端均可通过版本管理工具驱动 Route。
+## 让 AI / Agent 使用 Route
 
-详见 [docs/ai-api.md](./docs/ai-api.md)。
+Route 提供 **host 中立** 的合作面，可被 Yuich、Claude/Codex 风格 Agent host、自定义 harness、
+人类控制器、乃至未来系统调用。它**不要求任何特定宿主的私有 schema**。
 
-### 新增 MCP 工具
+接口包括：
 
-| 工具 | 说明 |
+- **CLI** — `route` 二进制（上表命令即公开入口）。
+- **MCP** — `route-mcp`（Model Context Protocol）。
+- **HTTP** — `route-http` REST API。
+- **TUI** — `route-tui` 交互式 REPL。
+- **Python** — `route-py`（PyO3 绑定）。
+- **协议层** — `task` / `context` / `constitution` / `protocol` / `reference` / `workflow` / `apply`
+  把决策上下文编译给外部 Coding AI（Claude Code、Codex……），`.route/` 才是真值源。
+
+Route 与任意宿主**严格解耦**：**ROUTE MUST BE VALUABLE WITHOUT YUICH.** Yuich 只是其中一个高级 Host / dogfood 参与者。
+
+---
+
+## 当前状态：v1.0 beta
+
+**v1.0 beta** 表示第一代 Route product semantics 已收敛、核心 development lifecycle 可运行，
+并且：
+
+- existing project first-class 已实证；
+- KnownGood / checkpoint / recovery 存在；
+- Evidence / verification 存在；
+- AI / Agent / Harness 集成存在；
+- Route 可完全独立运行；
+- 可被 Yuich 或其他 Host 调用。
+
+但 **不承诺 production-perfect**，也不会把未验证能力写成 `completed`。API / CLI / Protocol
+仍可能在 beta dogfood 之后调整。
+
+### 已实证的验证（本轮 release closure）
+
+| 项目 | 结果 |
 |------|------|
-| `route_tracking_list` | 列出所有跟踪目标 |
-| `route_tracking_add` | 添加跟踪目标（folder + remote + branch + interval） |
-| `route_tracking_remove` | 移除跟踪目标 |
-| `route_tracking_sync` | 手动同步指定跟踪目标 |
-| `route_tracking_history` | 查看同步历史 |
-| `route_extension_skills` | 查看项目 skills 文件 |
-| `route_extension_references` | 查看项目 references 文件 |
-| `route_project_context` | 获取完整项目上下文（结构、分支、提交、引用） |
-| `route_ai_chat` | 发送消息到 AI 提供商 |
-| `route_permission_status` | 查看当前权限级别 |
-| `route_permission_set` | 设置权限级别 |
+| `cargo test --workspace` | PASS（全 crate 零失败） |
+| `route-basic` | PASS（323 项） |
+| CLI sanity（help / version） | PASS |
+| `route --version` | `route 1.0.0` |
+| existing-project 测试 | PASS（init→status→commit→log，保留既有文件） |
+| `route-py` `maturin build --release` | PASS（wheel 生成 + import 冒烟） |
+| Route self-dogfood | PASS（route-cli 无害 unused import 清理，测试通过） |
+
+详细开发过程记录在 **sandbox** 分支。
+
+---
+
+## 版本策略
+
+| 位置 | 值 |
+|------|----|
+| Route 产品 release | `1.0.0-beta`（display: v1.0 beta） |
+| Rust workspace 版本 | `1.0.0` |
+| route-py（`route-vc`） | `1.0.0-beta` |
+| TOOL.json | `1.0.0-beta` |
+| CLI `--version` | `route 1.0.0` |
+
+产品 release、protocol revision、schema revision、Handle revision **不必是同一个数字**。
 
 ---
 
@@ -262,144 +165,45 @@ Route 提供 MCP 服务器（`route-mcp` crate），任何 MCP 兼容的 AI 客�
 
 ```
 route/
+├── Cargo.toml            # Rust workspace（12 个 crate）
 ├── crates/
-│   ├── route-core/       # 核心引擎：快照、回退、分支、内容寻址存储
-│   ├── route-basic/      # 基础仓库实现（BasicRepository）
-│   ├── route-sync/       # 同步与备份（local / S3 / WebDAV / SSH）
-│   ├── route-stats/      # 统计与时间线聚合
+│   ├── route-core/       # 核心原语（paths / hash / guard / schema / storage）
+│   ├── route-basic/      # 核心仓库实现（会话、任务、证据、发展生命周期）
+│   ├── route-cli/        # CLI 二进制
+│   ├── route-mcp/        # MCP 服务器
+│   ├── route-tui/        # 交互式 REPL
+│   ├── route-http/       # HTTP REST API
+│   ├── route-engine/     # 搜索 / 模糊匹配 / token
+│   ├── route-memory/     # 记忆 / 因果链 / 会话跟踪
+│   ├── route-sync/       # 同步与备份（WebDAV / S3 / SSH……）
 │   ├── route-plugins/    # 插件系统
-│   ├── route-cli/        # 命令行工具
-│   ├── route-mcp/        # MCP 服务器（Model Context Protocol）
-│   └── route-tauri/      # Tauri + React 桌面 GUI
-│       ├── src/          # Rust 后端
-│       │   ├── audit.rs         # 权责审计官（盐值/设备指纹/Pre-Commit Hook）
-│       │   ├── auto_commit.rs   # 智能 Commit 管理
-│       │   ├── tracking.rs      # 主动跟踪模式
-│       │   ├── permissions.rs   # 权限系统
-│       │   ├── llm_integration.rs # LLM 注入系统
-│       │   ├── ai_commands.rs   # AI 对话命令
-│       │   ├── git_commands.rs  # 完整 Git 操作（25+ 命令）
-│       │   ├── sync_commands.rs # 同步管理命令
-│       │   ├── plugin_commands.rs # 插件管理命令
-│       │   ├── project_context.rs # 项目上下文命令
-│       │   ├── extensions.rs    # 扩展系统（skills/references）
-│       │   ├── mcp_commands.rs  # MCP 管理命令
-│       │   ├── stats_commands.rs # 统计命令
-│       │   └── process_commands.rs # 进程管理命令
-│       └── web/          # React 前端（TypeScript + Vite）
-├── docs/                 # 架构、AI API、适配器文档
-├── scripts/              # 构建/发布脚本
-├── packages/             # TypeScript SDK 包（core / cli / desktop-bridge / desktop）
-├── Cargo.toml            # Workspace 根配置
-└── package.json          # 前端依赖与脚本
+│   ├── route-stats/      # 统计
+│   └── route-pyo3/       # Python 原生绑定
+├── packages/route-py/    # Python 包（pip install route-vc）
+├── README.md             # 本文件
+├── ROUTE.md              # 给任何 AI 的规范与操作手册
+├── LICENSE               # AGPL-3.0
+└── THIRD_PARTY_NOTICES.md
 ```
 
 ---
 
-## 存储格式
+## 分支
 
-Route 在项目目录下创建 `.route/`（类似 `.git/`）：
+| 分支 | 角色 |
+|------|------|
+| **main** | 稳定 Route 产品源 / beta release 线（**默认推荐**） |
+| **fruit** | Route 实验改进与 dogfood 结果（可能领先，但 ≠ stable ≠ release） |
+| **sandbox** | Route 开发记录 / 实验 / 验证历史（开发史，不是产品状态） |
 
 ```
-.route/
-├── config.json              # 仓库配置
-├── salt                     # 项目盐值（256-bit 随机数）
-├── device-whitelist.json    # 设备白名单
-├── responsibility-index.json # 权责索引库（Commit → 设备 → AI 归因）
-├── auto-commit.json         # 智能提交配置
-├── auto-commit-log.json     # 自动提交日志
-├── tracking.json            # 主动跟踪配置
-├── tracking-history.json    # 同步历史记录
-├── llm-injection.json       # LLM 注入配置
-├── HEAD                     # 当前分支
-├── refs/branches/           # 分支指针
-├── objects/
-│   ├── manifests/           # 文件清单（增量/全量）
-│   └── blobs/               # 内容寻址文件块（SHA-256 去重）
-└── index.json               # AI 索引（项目结构、追踪状态）
+MAIN  = WHAT ROUTE IS.
+FRUIT = WHAT ROUTE MAY BECOME.
+SANDBOX = HOW ROUTE WAS DEVELOPED.
 ```
-
-**混合备份策略**：默认增量更新（仅存储变更文件），可手动触发全量快照。
-
----
-
-## 开发
-
-### 环境要求
-
-- Rust 1.75+（`cargo`）
-- Node.js 18+（`npm`）
-- Tauri CLI 2.x（`cargo install tauri-cli --version "^2.0"`）
-
-### 构建
-
-```bash
-# 前端
-cd crates/route-tauri/web
-npm install
-npm run build
-
-# 桌面应用
-cd ..
-cargo tauri build
-
-# CLI
-cd crates/route-cli
-cargo build --release
-```
-
-### 开发提示
-
-- Vite dev server 默认端口 1420，被占用时自动寻找空闲端口
-- `windows_subsystem = "windows"` 已设置，不显示控制台黑框
-- 深色模式为默认主题
-- 所有 UI 文案支持中英双语
-
----
-
-## AI 集成
-
-AI 可通过三种方式驱动 Route：
-
-1. **MCP** — `route-mcp` crate，stdio 传输
-2. **CLI** — `route-cli` crate，命令行调用
-3. **HTTP** — 桌面应用内置 HTTP 端点
-
-三种方式委托同一后端原语，详见 [docs/ai-api.md](./docs/ai-api.md)。
-
-### 环境变量配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `ROUTE_AI_KEY` | API Key（必需） | — |
-| `ROUTE_AI_ENDPOINT` | API 端点 | `https://api.openai.com/v1` |
-| `ROUTE_AI_MODEL` | 模型名称 | `gpt-4o` |
-| `ROUTE_AI_PROVIDER` | 提供商 | `openai` |
-
-AI 功能通过环境变量配置，未设置 `ROUTE_AI_KEY` 时 AI 功能禁用。
-
----
-
-## 开源引用声明
-
-Route 使用了以下开源组件：
-
-| 组件 | 许可证 | 用途 |
-|------|--------|------|
-| [Tauri](https://tauri.app/) | Apache 2.0 / MIT | 桌面应用框架 |
-| [React](https://react.dev/) | MIT | 前端 UI 框架 |
-| [Rusqlite](https://github.com/rusqlite/rusqlite) | MIT | SQLite 数据库绑定 |
-| [Serde](https://serde.rs/) | Apache 2.0 / MIT | 序列化/反序列化 |
-| [Reqwest](https://github.com/seanmonstar/reqwest) | Apache 2.0 / MIT | HTTP 客户端 |
-| [sha2](https://github.com/RustCrypto/hashes) | Apache 2.0 / MIT | SHA-256 哈希 |
-| [hex](https://github.com/KokaKiwi/rust-hex) | MIT | 十六进制编解码 |
-| [chrono](https://github.com/chronotope/chrono) | Apache 2.0 / MIT | 日期/时间处理 |
-| [getrandom](https://github.com/rust-random/getrandom) | Apache 2.0 / MIT | 安全随机数生成 |
-| [Vite](https://vitejs.dev/) | MIT | 前端构建工具 |
-| [TypeScript](https://www.typescriptlang.org/) | Apache 2.0 | 类型化 JavaScript |
 
 ---
 
 ## License
 
-Route 使用 Apache 2.0 许可证 — 见 [LICENSE](./LICENSE)。第三方组件见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+**AGPL-3.0** — 见 [LICENSE](./LICENSE)。第三方组件见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

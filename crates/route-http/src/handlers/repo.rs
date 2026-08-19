@@ -63,11 +63,9 @@ pub struct AnnotateRequest {
 // ---------------------------------------------------------------------------
 
 /// `POST /api/init`
-pub async fn init_handler(
-    Json(req): Json<InitRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn init_handler(Json(req): Json<InitRequest>) -> Result<Json<Value>, ApiError> {
     let path = req.path.as_deref().unwrap_or(".");
-    route_cli::commands::init(Some(path.to_string()))
+    route_cli::commands::init(Some(path.to_string()), true)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "path": path })))
 }
@@ -87,9 +85,7 @@ pub async fn status_handler() -> Result<Json<Value>, ApiError> {
 }
 
 /// `POST /api/commit`
-pub async fn commit_handler(
-    Json(req): Json<CommitRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn commit_handler(Json(req): Json<CommitRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::commit(
         req.message,
         req.author,
@@ -101,55 +97,44 @@ pub async fn commit_handler(
 }
 
 /// `GET /api/log`
-pub async fn log_handler(
-    Query(query): Query<LogQuery>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn log_handler(Query(query): Query<LogQuery>) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(20);
     let branch = query.branch;
 
     // We delegate to the CLI function which prints to stdout.
     // For a proper API, we'd call repo.list_commits() directly.
-    route_cli::commands::log(limit, branch)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::log(limit, branch).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/rollback`
-pub async fn rollback_handler(
-    Json(req): Json<RollbackRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn rollback_handler(Json(req): Json<RollbackRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::rollback(req.snapshot_id, req.reason)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/backup`
-pub async fn backup_handler(
-    Json(req): Json<BackupRequest>,
-) -> Result<Json<Value>, ApiError> {
-    route_cli::commands::backup(req.target)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+pub async fn backup_handler(Json(req): Json<BackupRequest>) -> Result<Json<Value>, ApiError> {
+    route_cli::commands::backup(req.target).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/changes`
 pub async fn changes_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::changes()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::changes().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/undo`
 pub async fn undo_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::undo()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::undo().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/redo`
 pub async fn redo_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::redo()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::redo().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -157,15 +142,13 @@ pub async fn redo_handler() -> Result<Json<Value>, ApiError> {
 pub async fn checkpoint_handler(
     Json(req): Json<CheckpointRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    route_cli::commands::checkpoint(req.title, req.body)
+    route_cli::commands::checkpoint(req.title, req.body, false)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/diff`
-pub async fn diff_handler(
-    Query(query): Query<DiffQuery>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn diff_handler(Query(query): Query<DiffQuery>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::diff_snapshots(query.from, query.to)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
@@ -175,8 +158,7 @@ pub async fn diff_handler(
 pub async fn annotations_list_handler(
     Path(commit_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    route_cli::commands::annotations(commit_id)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::annotations(commit_id).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 

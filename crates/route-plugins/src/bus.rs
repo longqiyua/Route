@@ -94,7 +94,9 @@ impl EventBus {
                 Ok(()) => result.succeeded += 1,
                 Err(e) => {
                     result.failed += 1;
-                    result.errors.push((plugin.name().to_string(), e.to_string()));
+                    result
+                        .errors
+                        .push((plugin.name().to_string(), e.to_string()));
                 }
             }
         }

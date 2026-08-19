@@ -13,7 +13,10 @@ pub fn render_markdown(stats: &RepoStats) -> anyhow::Result<String> {
     let mut s = String::new();
     s.push_str("# Route 统计报告\n\n");
     s.push_str(&format!("- **项目路径**: `{}`\n", stats.project_path));
-    s.push_str(&format!("- **采集时间**: {}\n", format_ts(stats.collected_at)));
+    s.push_str(&format!(
+        "- **采集时间**: {}\n",
+        format_ts(stats.collected_at)
+    ));
     if let Some(r) = &stats.range {
         s.push_str(&format!(
             "- **范围过滤**: {} → {}\n",
@@ -27,15 +30,29 @@ pub fn render_markdown(stats: &RepoStats) -> anyhow::Result<String> {
     s.push_str("## 概览\n\n");
     s.push_str(&format!("- 分支数: **{}**\n", stats.summary.branch_count));
     s.push_str(&format!("- 快照数: **{}**\n", stats.summary.snapshot_count));
-    s.push_str(&format!("- Commit 数: **{}**\n", stats.summary.commit_count));
-    s.push_str(&format!("- 注释数: **{}**\n", stats.summary.annotation_count));
+    s.push_str(&format!(
+        "- Commit 数: **{}**\n",
+        stats.summary.commit_count
+    ));
+    s.push_str(&format!(
+        "- 注释数: **{}**\n",
+        stats.summary.annotation_count
+    ));
     s.push_str(&format!(
         "- 首次 commit: {}\n",
-        stats.summary.first_commit_at.map(format_ts).unwrap_or_else(|| "—".into())
+        stats
+            .summary
+            .first_commit_at
+            .map(format_ts)
+            .unwrap_or_else(|| "—".into())
     ));
     s.push_str(&format!(
         "- 最近 commit: {}\n",
-        stats.summary.latest_commit_at.map(format_ts).unwrap_or_else(|| "—".into())
+        stats
+            .summary
+            .latest_commit_at
+            .map(format_ts)
+            .unwrap_or_else(|| "—".into())
     ));
     s.push_str(&format!("- 活跃天数: **{}**\n", stats.summary.active_days));
     s.push('\n');
@@ -59,15 +76,22 @@ pub fn render_markdown(stats: &RepoStats) -> anyhow::Result<String> {
     if stats.branches.is_empty() {
         s.push_str("_(无分支)_\n");
     } else {
-        s.push_str("| 分支 | 类型 | Commit 数 | 最近 commit | HEAD |\n| --- | --- | ---: | --- | --- |\n");
+        s.push_str(
+            "| 分支 | 类型 | Commit 数 | 最近 commit | HEAD |\n| --- | --- | ---: | --- | --- |\n",
+        );
         for b in &stats.branches {
             s.push_str(&format!(
                 "| {} | {} | {} | {} | {} |\n",
                 b.name,
                 b.kind,
                 b.commit_count,
-                b.latest_commit_at.map(format_ts).unwrap_or_else(|| "—".into()),
-                b.head_snapshot.as_deref().map(short).unwrap_or_else(|| "—".into()),
+                b.latest_commit_at
+                    .map(format_ts)
+                    .unwrap_or_else(|| "—".into()),
+                b.head_snapshot
+                    .as_deref()
+                    .map(short)
+                    .unwrap_or_else(|| "—".into()),
             ));
         }
     }
@@ -103,9 +127,18 @@ pub fn render_markdown(stats: &RepoStats) -> anyhow::Result<String> {
     // Storage
     s.push_str("## 存储统计\n\n");
     s.push_str(&format!("- Blob 数: **{}**\n", stats.storage.blob_count));
-    s.push_str(&format!("- 物理大小: **{}**\n", format_bytes(stats.storage.total_blob_size)));
-    s.push_str(&format!("- 逻辑大小（含跨快照重复）: **{}**\n", format_bytes(stats.storage.logical_size)));
-    s.push_str(&format!("- Manifest 数: **{}**\n", stats.storage.manifest_count));
+    s.push_str(&format!(
+        "- 物理大小: **{}**\n",
+        format_bytes(stats.storage.total_blob_size)
+    ));
+    s.push_str(&format!(
+        "- 逻辑大小（含跨快照重复）: **{}**\n",
+        format_bytes(stats.storage.logical_size)
+    ));
+    s.push_str(&format!(
+        "- Manifest 数: **{}**\n",
+        stats.storage.manifest_count
+    ));
     s.push_str(&format!(
         "- 去重率: **{:.2}%**\n",
         stats.storage.dedup_ratio * 100.0

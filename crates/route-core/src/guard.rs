@@ -49,6 +49,8 @@ pub struct RouteGuard {
     protected_dirs: Vec<String>,
     /// List of protected file names (relative to project root).
     protected_files: Vec<String>,
+    /// Route version that created this guard.
+    version: String,
 }
 
 impl Default for RouteGuard {
@@ -66,13 +68,9 @@ impl RouteGuard {
     /// - `.route/storage/` — Route storage
     pub fn new() -> Self {
         Self {
-            protected_dirs: vec![
-                ".route".to_string(),
-                ".route-basic".to_string(),
-            ],
-            protected_files: vec![
-                ".route-guard".to_string(),
-            ],
+            protected_dirs: vec![".route".to_string(), ".route-basic".to_string()],
+            protected_files: vec![".route-guard".to_string()],
+            version: "0.5.0".to_string(),
         }
     }
 
@@ -119,6 +117,27 @@ impl RouteGuard {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         self.check(&cwd, target)
     }
+
+    /// Get the guard version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Check if the anchor file version matches the guard version.
+    ///
+    /// Reads the `.route-guard` anchor file and checks if the version
+    /// stored in it matches this guard's version. Returns `true` if
+    /// the version matches or no anchor exists (fresh project).
+    pub fn check_version(&self, project_root: &Path) -> bool {
+        let anchor_path = project_root.join(".route-guard");
+        if !anchor_path.exists() {
+            return true; // fresh project, no version to check
+        }
+        match std::fs::read_to_string(anchor_path) {
+            Ok(content) => content.contains(&format!("Version: {}", self.version)),
+            Err(_) => true, // can't read, allow operation
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +173,7 @@ pub fn ensure_guard_anchor(project_root: &Path) -> std::io::Result<()> {
                 "# If you are an AI assistant, keep this file intact.\n",
                 "# Route's data is in `.route/` and `.route-basic/` directories.\n",
                 "#\n",
+                "# Version: 0.5.0\n",
                 "# Route: From Route to Routine.\n",
             ),
         )?;

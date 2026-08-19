@@ -42,7 +42,10 @@ impl KeywordIndex {
             *freq.entry(word).or_insert(0) += 1;
         }
         for (word, count) in freq {
-            self.index.entry(word).or_default().push((doc_id.to_string(), count));
+            self.index
+                .entry(word)
+                .or_default()
+                .push((doc_id.to_string(), count));
         }
     }
 
@@ -65,7 +68,7 @@ impl KeywordIndex {
         }
 
         let mut results: Vec<(String, usize)> = scores.into_iter().collect();
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|b| std::cmp::Reverse(b.1));
         results.into_iter().map(|(id, _)| id).collect()
     }
 
@@ -84,16 +87,14 @@ impl KeywordIndex {
 fn tokenize(text: &str) -> Vec<String> {
     // Common English stop words to exclude
     let stop_words: &[&str] = &[
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "shall", "can", "need", "to", "of", "in",
-        "for", "on", "with", "at", "by", "from", "as", "into", "through",
-        "during", "before", "after", "above", "below", "between", "out",
-        "off", "over", "under", "again", "further", "then", "once", "here",
-        "there", "when", "where", "why", "how", "all", "each", "every",
-        "both", "few", "more", "most", "other", "some", "such", "no", "nor",
-        "not", "only", "own", "same", "so", "than", "too", "very", "just",
-        "because", "but", "and", "or", "if", "while", "about", "up",
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "could", "should", "may", "might", "shall", "can",
+        "need", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+        "during", "before", "after", "above", "below", "between", "out", "off", "over", "under",
+        "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all",
+        "each", "every", "both", "few", "more", "most", "other", "some", "such", "no", "nor",
+        "not", "only", "own", "same", "so", "than", "too", "very", "just", "because", "but", "and",
+        "or", "if", "while", "about", "up",
     ];
 
     text.split(|c: char| !c.is_alphanumeric() && c != '_')

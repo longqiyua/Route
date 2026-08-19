@@ -84,8 +84,8 @@ pub fn validate_config(name: &str, config: &serde_json::Value) -> Result<()> {
         if config.is_null() {
             bail!("webhook plugin requires config: {{\"url\": \"...\"}}");
         }
-        let wh: WebhookConfig = serde_json::from_value(config.clone())
-            .context("Invalid webhook config")?;
+        let wh: WebhookConfig =
+            serde_json::from_value(config.clone()).context("Invalid webhook config")?;
         if wh.url.is_empty() {
             bail!("webhook plugin requires a non-empty 'url'");
         }

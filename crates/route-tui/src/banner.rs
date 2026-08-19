@@ -57,7 +57,9 @@ pub fn print_banner(repo: Option<&BasicRepository>) -> Result<()> {
     match repo {
         Some(r) => {
             let path = r.project_path().display().to_string();
-            let branch = r.get_current_branch_name().unwrap_or_else(|_| "?".to_string());
+            let branch = r
+                .get_current_branch_name()
+                .unwrap_or_else(|_| "?".to_string());
             let count = r.list_commits(None, 100_000).map(|c| c.len()).unwrap_or(0);
 
             println!("  {} {}", dim("Project:"), path);

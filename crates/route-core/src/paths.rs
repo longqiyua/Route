@@ -60,6 +60,9 @@ mod tests {
     fn blob_path_uses_2_char_prefix() {
         let p = RoutePaths::new("/tmp/proj");
         let blob = p.blob_path("abcdef1234");
-        assert_eq!(blob, PathBuf::from("/tmp/proj/.route-basic/objects/ab/abcdef1234"));
+        assert_eq!(
+            blob,
+            PathBuf::from("/tmp/proj/.route-basic/objects/ab/abcdef1234")
+        );
     }
 }

@@ -24,7 +24,9 @@ fn run_git(args: &[&str]) -> Result<String> {
     cmd.env("LC_ALL", "C");
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("GIT_ASKPASS", "");
-    let output = cmd.output().map_err(|e| anyhow!("failed to spawn git: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("failed to spawn git: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -81,17 +83,23 @@ pub fn log(limit: usize, graph: bool, all: bool) -> Result<()> {
 pub fn commit(message: String) -> Result<()> {
     run_git(&["add", "-A"])?;
     run_git(&["commit", "--quiet", "-m", &message])?;
-    let sha = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let sha = run_git(&["rev-parse", "--short", "HEAD"])?
+        .trim()
+        .to_string();
     println!("✓ [{sha}] {message}");
     Ok(())
 }
 
 pub fn branch_list() -> Result<()> {
     let out = run_git(&["branch", "--list", "--format=%(refname:short)"])?;
-    let current = run_git(&["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
+    let current = run_git(&["rev-parse", "--abbrev-ref", "HEAD"])?
+        .trim()
+        .to_string();
     for line in out.lines() {
         let name = line.trim();
-        if name.is_empty() { continue; }
+        if name.is_empty() {
+            continue;
+        }
         let marker = if name == current { "* " } else { "  " };
         println!("{marker}{name}");
     }
@@ -107,7 +115,9 @@ pub fn branch_create(name: String) -> Result<()> {
 pub fn branch_switch(name: String) -> Result<()> {
     match run_git(&["switch", &name]) {
         Ok(_) => {}
-        Err(e) if e.to_string().contains("unknown switch") || e.to_string().contains("usage: git") => {
+        Err(e)
+            if e.to_string().contains("unknown switch") || e.to_string().contains("usage: git") =>
+        {
             run_git(&["checkout", &name])?;
         }
         Err(e) => return Err(e),
@@ -204,7 +214,9 @@ pub fn add(paths: Vec<String>) -> Result<()> {
         println!("✓ All files staged");
     } else {
         let mut args = vec!["add"];
-        for p in &paths { args.push(p.as_str()); }
+        for p in &paths {
+            args.push(p.as_str());
+        }
         run_git(&args)?;
         println!("✓ Staged: {}", paths.join(", "));
     }
@@ -217,7 +229,9 @@ pub fn reset(paths: Vec<String>) -> Result<()> {
         println!("✓ All files unstaged");
     } else {
         let mut args = vec!["reset", "HEAD", "--"];
-        for p in &paths { args.push(p.as_str()); }
+        for p in &paths {
+            args.push(p.as_str());
+        }
         run_git(&args)?;
         println!("✓ Unstaged: {}", paths.join(", "));
     }
@@ -287,13 +301,18 @@ pub fn config_set(key: String, value: String, scope: Option<String>) -> Result<(
         _ => "--local",
     };
     run_git(&[scope_flag, &key, &value])?;
-    println!("✓ {key} = {value} ({})", scope_flag.trim_start_matches("--"));
+    println!(
+        "✓ {key} = {value} ({})",
+        scope_flag.trim_start_matches("--")
+    );
     Ok(())
 }
 
 pub fn revert(sha: String) -> Result<()> {
     run_git(&["revert", "--no-edit", "--no-ff", &sha])?;
-    let head = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let head = run_git(&["rev-parse", "--short", "HEAD"])?
+        .trim()
+        .to_string();
     println!("✓ Reverted {sha} → new commit [{head}]");
     Ok(())
 }
@@ -306,12 +325,16 @@ pub fn cherry_pick(shas: Vec<String>, message: Option<String>) -> Result<()> {
     }
     // Use --no-commit to stage all changes, then commit.
     let mut args = vec!["cherry-pick", "--no-commit"];
-    for sha in &shas { args.push(sha.as_str()); }
+    for sha in &shas {
+        args.push(sha.as_str());
+    }
     match run_git(&args) {
         Ok(_) => {
             let msg = message.unwrap_or_else(|| format!("cherry-pick: {}", shas.join(", ")));
             run_git(&["commit", "--quiet", "-m", &msg])?;
-            let head = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+            let head = run_git(&["rev-parse", "--short", "HEAD"])?
+                .trim()
+                .to_string();
             println!("✓ Cherry-pick → [{head}] {msg}");
             Ok(())
         }
@@ -325,7 +348,9 @@ pub fn cherry_pick(shas: Vec<String>, message: Option<String>) -> Result<()> {
 pub fn rebase(target: String) -> Result<()> {
     match run_git(&["rebase", "--autostash", &target]) {
         Ok(_) => {
-            let head = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+            let head = run_git(&["rev-parse", "--short", "HEAD"])?
+                .trim()
+                .to_string();
             println!("✓ Rebased onto '{target}' → [{head}]");
             Ok(())
         }
@@ -344,16 +369,24 @@ pub fn rebase_abort() -> Result<()> {
 
 pub fn rebase_continue() -> Result<()> {
     run_git(&["rebase", "--continue", "--no-edit"])?;
-    let head = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let head = run_git(&["rev-parse", "--short", "HEAD"])?
+        .trim()
+        .to_string();
     println!("✓ Rebase continued → [{head}]");
     Ok(())
 }
 
 pub fn clean(dry_run: bool, directories: bool, force: bool) -> Result<()> {
     let mut args = vec!["clean"];
-    if dry_run { args.push("--dry-run"); }
-    if directories { args.push("-d"); }
-    if force { args.push("-f"); }
+    if dry_run {
+        args.push("--dry-run");
+    }
+    if directories {
+        args.push("-d");
+    }
+    if force {
+        args.push("-f");
+    }
     let out = run_git(&args)?;
     if out.trim().is_empty() {
         println!("(nothing to clean)");
@@ -372,7 +405,12 @@ pub fn show(sha: String) -> Result<()> {
 pub fn archive(output: String, format: Option<String>, treeish: Option<String>) -> Result<()> {
     let fmt = format.as_deref().unwrap_or("zip");
     let ref_name = treeish.as_deref().unwrap_or("HEAD");
-    run_git(&["archive", &format!("--format={fmt}"), &format!("--output={output}"), ref_name])?;
+    run_git(&[
+        "archive",
+        &format!("--format={fmt}"),
+        &format!("--output={output}"),
+        ref_name,
+    ])?;
     println!("✓ Archive created: {output}");
     Ok(())
 }
@@ -391,10 +429,19 @@ pub fn clone(url: String, target: String) -> Result<()> {
     cmd.arg(&target);
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("GIT_ASKPASS", "");
-    let output = cmd.output().map_err(|e| anyhow!("failed to spawn git clone: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("failed to spawn git clone: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(anyhow!("{}", if stderr.is_empty() { "git clone failed".to_string() } else { stderr }));
+        return Err(anyhow!(
+            "{}",
+            if stderr.is_empty() {
+                "git clone failed".to_string()
+            } else {
+                stderr
+            }
+        ));
     }
     println!("✓ Cloned '{url}' → {target}");
     Ok(())
@@ -402,7 +449,9 @@ pub fn clone(url: String, target: String) -> Result<()> {
 
 pub fn merge(source: String) -> Result<()> {
     run_git(&["merge", "--no-edit", "--no-ff", &source])?;
-    let head = run_git(&["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let head = run_git(&["rev-parse", "--short", "HEAD"])?
+        .trim()
+        .to_string();
     println!("✓ Merged '{source}' → [{head}]");
     Ok(())
 }
@@ -416,7 +465,12 @@ pub fn backup() -> Result<()> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let archive_path = backup_dir.join(format!("pre-op-{ts}.tar"));
-    run_git(&["archive", "--format=tar", &format!("--output={}", archive_path.to_string_lossy()), "HEAD"])?;
+    run_git(&[
+        "archive",
+        "--format=tar",
+        &format!("--output={}", archive_path.to_string_lossy()),
+        "HEAD",
+    ])?;
     let head = run_git(&["rev-parse", "HEAD"])?.trim().to_string();
     std::fs::write(backup_dir.join(format!("pre-op-{ts}.head")), &head)?;
     println!("✓ Backup created: {}", archive_path.display());
@@ -428,7 +482,9 @@ pub fn restore(paths: Vec<String>) -> Result<()> {
         return Err(anyhow!("At least one path is required for restore"));
     }
     let mut args = vec!["restore"];
-    for p in &paths { args.push(p.as_str()); }
+    for p in &paths {
+        args.push(p.as_str());
+    }
     run_git(&args)?;
     println!("✓ Restored: {}", paths.join(", "));
     Ok(())

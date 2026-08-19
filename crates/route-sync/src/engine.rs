@@ -146,8 +146,10 @@ impl SyncEngine {
     fn sync_mirror(target: &SyncTarget, transport: &dyn Transport) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
         let source_files = scan_source(&target.source, &target.ignore_patterns)?;
-        let dest_files: std::collections::HashSet<String> =
-            transport.list_dest(&target.destination)?.into_iter().collect();
+        let dest_files: std::collections::HashSet<String> = transport
+            .list_dest(&target.destination)?
+            .into_iter()
+            .collect();
 
         // Copy all source files
         for entry in &source_files {
@@ -184,8 +186,10 @@ impl SyncEngine {
     fn sync_backup(target: &SyncTarget, transport: &dyn Transport) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
         let source_files = scan_source(&target.source, &target.ignore_patterns)?;
-        let dest_files: std::collections::HashSet<String> =
-            transport.list_dest(&target.destination)?.into_iter().collect();
+        let dest_files: std::collections::HashSet<String> = transport
+            .list_dest(&target.destination)?
+            .into_iter()
+            .collect();
 
         for entry in &source_files {
             stats.files_scanned += 1;
@@ -209,7 +213,8 @@ impl SyncEngine {
                     match target.conflict {
                         ConflictResolution::KeepBoth => {
                             // Copy with a suffix
-                            let suffixed = format!("{}.conflict.{}", entry.rel_path, timestamp_short());
+                            let suffixed =
+                                format!("{}.conflict.{}", entry.rel_path, timestamp_short());
                             let suffixed_entry = FileEntry {
                                 rel_path: suffixed,
                                 source_abs: entry.source_abs.clone(),
@@ -308,9 +313,13 @@ impl SyncEngine {
                 // Find the folder name by ts
                 if let Ok(entries) = std::fs::read_dir(dest) {
                     for e in entries.flatten() {
-                        if e.metadata().ok().map(|m| m.modified().ok()).flatten()
+                        if e.metadata()
+                            .ok()
+                            .map(|m| m.modified().ok())
+                            .flatten()
                             .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_millis() as i64) == Some(*ts)
+                            .map(|d| d.as_millis() as i64)
+                            == Some(*ts)
                         {
                             let _ = std::fs::remove_dir_all(e.path());
                         }
@@ -338,10 +347,7 @@ impl SyncEngine {
 // ---------------------------------------------------------------------------
 
 /// Scan a source directory, returning file entries with relative paths.
-fn scan_source(
-    source: &Path,
-    ignore_patterns: &[String],
-) -> Result<Vec<FileEntry>> {
+fn scan_source(source: &Path, ignore_patterns: &[String]) -> Result<Vec<FileEntry>> {
     let mut files = Vec::new();
     if !source.exists() {
         return Ok(files);
@@ -375,7 +381,8 @@ fn scan_dir(
         if path.is_dir() {
             scan_dir(root, &path, ignore_patterns, files)?;
         } else {
-            let rel = path.strip_prefix(root)?
+            let rel = path
+                .strip_prefix(root)?
                 .to_string_lossy()
                 .replace('\\', "/");
             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
@@ -483,7 +490,10 @@ mod tests {
         let result = run_target(&target);
         assert!(result.error.is_none(), "{:?}", result.error);
         assert!(dst.join("a.txt").exists());
-        assert!(dst.join("old.txt").exists(), "backup mode must not delete files");
+        assert!(
+            dst.join("old.txt").exists(),
+            "backup mode must not delete files"
+        );
     }
 
     #[test]
@@ -504,11 +514,18 @@ mod tests {
         assert!(result.error.is_none(), "{:?}", result.error);
         assert_eq!(result.stats.conflicts_resolved, 1);
         // Original file kept
-        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "old content");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("a.txt")).unwrap(),
+            "old content"
+        );
         // Conflict copy created
         let entries: Vec<_> = std::fs::read_dir(&dst).unwrap().collect();
         let has_conflict = entries.iter().any(|e| {
-            e.as_ref().unwrap().file_name().to_string_lossy().starts_with("a.txt.conflict.")
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("a.txt.conflict.")
         });
         assert!(has_conflict, "should have a conflict copy");
     }
@@ -555,6 +572,11 @@ mod tests {
         run_target(&target);
 
         let snapshots: Vec<_> = std::fs::read_dir(&dst).unwrap().collect();
-        assert_eq!(snapshots.len(), 2, "should retain only 2 snapshots, got {}", snapshots.len());
+        assert_eq!(
+            snapshots.len(),
+            2,
+            "should retain only 2 snapshots, got {}",
+            snapshots.len()
+        );
     }
 }

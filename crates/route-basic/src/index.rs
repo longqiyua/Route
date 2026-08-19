@@ -111,17 +111,14 @@ pub fn build_index(repo: &BasicRepository) -> Result<RouteIndex> {
         .unwrap_or_default()
         .into_iter()
         .map(|b| {
-            let last = repo
-                .list_commits(Some(&b.name), 1)
-                .ok()
-                .and_then(|mut v| {
-                    if v.is_empty() {
-                        None
-                    } else {
-                        v.sort_by(|a, c| c.created_at.cmp(&a.created_at));
-                        Some(v[0].created_at)
-                    }
-                });
+            let last = repo.list_commits(Some(&b.name), 1).ok().and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    v.sort_by(|a, c| c.created_at.cmp(&a.created_at));
+                    Some(v[0].created_at)
+                }
+            });
             IndexBranch {
                 name: b.name,
                 kind: b.kind.as_str().to_string(),
@@ -159,9 +156,7 @@ pub fn build_index(repo: &BasicRepository) -> Result<RouteIndex> {
     }
 
     // Recent commits — at most 50, with body only for the most recent 5.
-    let mut all = repo
-        .list_commits(None, 50)
-        .unwrap_or_default();
+    let mut all = repo.list_commits(None, 50).unwrap_or_default();
     all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     // Build a branch_id → branch_name lookup so we can stamp each
     // commit with a friendly name. The Commit struct only carries the
@@ -315,8 +310,10 @@ mod tests {
             let raw = std::fs::read_to_string(&dest).unwrap();
             let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
             assert_eq!(v["version"].as_u64().unwrap(), 1);
-            assert!(v["track"]["track_all"].as_bool().unwrap_or(false)
-                || v["track"]["track_suffixes"].is_array());
+            assert!(
+                v["track"]["track_all"].as_bool().unwrap_or(false)
+                    || v["track"]["track_suffixes"].is_array()
+            );
             assert!(v["ai_prompt"].as_str().unwrap().contains("INTENT"));
             assert!(v["files"].get("hello.py").is_some());
         });

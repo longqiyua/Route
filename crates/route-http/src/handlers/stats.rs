@@ -18,8 +18,7 @@ pub struct StatsReportQuery {
 
 /// `GET /api/stats`
 pub async fn stats_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::stats()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::stats().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 

@@ -148,10 +148,7 @@ fn map_err(e: String) -> anyhow::Error {
 /// use unit separators instead of newlines so commit messages with embedded
 /// newlines don't break parsing.
 fn split_record(record: &str) -> Vec<String> {
-    record
-        .split('\u{1f}')
-        .map(|s| s.to_string())
-        .collect()
+    record.split('\u{1f}').map(|s| s.to_string()).collect()
 }
 
 /// True when the project folder contains a `.git` entry.
@@ -172,7 +169,9 @@ pub fn ensure_repo(project_path: &Path) -> Result<()> {
 
     // Bootstrap a local identity ONLY if the user hasn't set one globally
     // or system-wide. We never overwrite an existing identity.
-    let name = try_git(project_path, &["config", "user.name"]).trim().to_string();
+    let name = try_git(project_path, &["config", "user.name"])
+        .trim()
+        .to_string();
     if name.is_empty() {
         let _ = run_git(project_path, &["config", "user.name", "Route"]);
     }
@@ -234,9 +233,11 @@ pub fn current_branch(project_path: &Path) -> Result<String> {
     if !is_repo(project_path) {
         return Ok(String::new());
     }
-    Ok(try_git(project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .trim()
-        .to_string())
+    Ok(
+        try_git(project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string(),
+    )
 }
 
 /// Stage every change and create a git commit. This is the "打点"
@@ -396,7 +397,11 @@ pub fn branch_list(project_path: &Path) -> Result<Vec<GitBranch>> {
     }
     let out = run_git(
         project_path,
-        &["branch", "--list", "--format=%(refname:short) %(objectname:short)"],
+        &[
+            "branch",
+            "--list",
+            "--format=%(refname:short) %(objectname:short)",
+        ],
     )
     .map_err(map_err)?;
     // `branch --format` doesn't mark HEAD reliably across git versions, so

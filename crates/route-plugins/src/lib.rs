@@ -29,11 +29,11 @@ pub use bus::{DispatchResult, EventBus};
 pub use config::{
     build_bus_from_config, load_config as load_plugin_config, plugins_config_path,
     save_config as save_plugin_config, validate_builtin as validate_plugin_builtin,
-    validate_config as validate_plugin_config, BUILTIN_PLUGINS, PluginEntry, PluginsFile,
+    validate_config as validate_plugin_config, PluginEntry, PluginsFile, BUILTIN_PLUGINS,
 };
 pub use context::PluginContext;
 pub use events::{BranchKind, CommitKind, Event, EventKind};
 pub use plugins::{
-    builtin::{LoggerPlugin, WebhookPlugin, WebhookConfig},
+    builtin::{LoggerPlugin, WebhookConfig, WebhookPlugin},
     Plugin,
 };

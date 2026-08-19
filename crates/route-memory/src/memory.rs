@@ -123,6 +123,49 @@ impl MemoryStore {
             .collect()
     }
 
+    /// Fuzzy search memory entries by key and value.
+    ///
+    /// Uses route-engine's FuzzyMatcher for Levenshtein-based matching.
+    /// Returns entries sorted by relevance score (highest first).
+    /// Only returns entries with score >= threshold (default: 0.3).
+    pub fn search_by_fuzzy(&self, query: &str, threshold: Option<f64>) -> Vec<(&MemoryEntry, f64)> {
+        use route_engine::FuzzyMatcher;
+
+        let threshold = threshold.unwrap_or(0.3);
+        let matcher = FuzzyMatcher::with_threshold(threshold);
+        let mut results: Vec<(&MemoryEntry, f64)> = Vec::new();
+
+        for entry in self.entries.values() {
+            // Search both key and value
+            let key_score = matcher.similarity(query, &entry.key);
+            let value_score = matcher.similarity(query, &entry.value);
+            let best_score = key_score.max(value_score);
+
+            if best_score >= threshold {
+                results.push((entry, best_score));
+            }
+        }
+
+        // Sort by score descending
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results
+    }
+
+    /// Combined search: prefix match first, then fuzzy fallback.
+    ///
+    /// Returns entries with their relevance score (1.0 = exact prefix match).
+    pub fn search(&self, query: &str) -> Vec<(&MemoryEntry, f64)> {
+        // First try exact prefix match
+        let prefix_results: Vec<&MemoryEntry> = self.search_by_prefix(query);
+
+        if !prefix_results.is_empty() {
+            return prefix_results.into_iter().map(|e| (e, 1.0)).collect();
+        }
+
+        // Fallback to fuzzy search
+        self.search_by_fuzzy(query, Some(0.3))
+    }
+
     /// Total number of entries.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -178,7 +221,12 @@ mod tests {
     #[test]
     fn test_set_and_get() {
         let mut store = MemoryStore::new();
-        store.set("architecture/layers", "clean architecture", MemoryTier::Core, vec!["arch".to_string()]);
+        store.set(
+            "architecture/layers",
+            "clean architecture",
+            MemoryTier::Core,
+            vec!["arch".to_string()],
+        );
         let entry = store.get("architecture/layers");
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().value, "clean architecture");

@@ -55,9 +55,7 @@ pub struct SyncStartRequest {
 // ---------------------------------------------------------------------------
 
 /// `POST /api/sync`
-pub async fn add_handler(
-    Json(req): Json<AddSyncTargetRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn add_handler(Json(req): Json<AddSyncTargetRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::sync_commands::sync_add(
         req.name,
         req.source,
@@ -84,33 +82,24 @@ pub async fn add_handler(
 
 /// `GET /api/sync`
 pub async fn list_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::sync_commands::sync_list()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::sync_commands::sync_list().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `DELETE /api/sync/:name`
-pub async fn remove_handler(
-    Path(name): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    route_cli::sync_commands::sync_remove(name)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+pub async fn remove_handler(Path(name): Path<String>) -> Result<Json<Value>, ApiError> {
+    route_cli::sync_commands::sync_remove(name).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/sync/:name`
-pub async fn show_handler(
-    Path(name): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    route_cli::sync_commands::sync_show(name)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+pub async fn show_handler(Path(name): Path<String>) -> Result<Json<Value>, ApiError> {
+    route_cli::sync_commands::sync_show(name).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/sync/run`
-pub async fn run_handler(
-    Json(req): Json<SyncRunRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn run_handler(Json(req): Json<SyncRunRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::sync_commands::sync_run(req.name, req.verbose.unwrap_or(false))
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
@@ -126,9 +115,7 @@ pub async fn enable_handler(
 }
 
 /// `POST /api/sync/start`
-pub async fn start_handler(
-    Json(req): Json<SyncStartRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn start_handler(Json(req): Json<SyncStartRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::sync_commands::sync_start(req.interval)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))

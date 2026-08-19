@@ -148,10 +148,7 @@ impl SshTransport {
         })?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            return Err(anyhow!(
-                "ssh failed: {}",
-                stderr.trim(),
-            ));
+            return Err(anyhow!("ssh failed: {}", stderr.trim(),));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
@@ -165,10 +162,7 @@ impl SshTransport {
         cmd.arg(local);
         cmd.arg(format!(
             "{}@{}:{}/{}",
-            target.user,
-            target.host,
-            target.path,
-            remote_path
+            target.user, target.host, target.path, remote_path
         ));
         let out = cmd.output().map_err(|e| {
             anyhow!("failed to spawn `scp`: {e}. Is OpenSSH installed and on PATH?")
@@ -238,7 +232,11 @@ impl Transport for SshTransport {
         let out = self.run_ssh(&[], &cmd)?;
         let mut files: Vec<String> = out
             .lines()
-            .map(|l| l.trim_start_matches(&remote).trim_start_matches('/').to_string())
+            .map(|l| {
+                l.trim_start_matches(&remote)
+                    .trim_start_matches('/')
+                    .to_string()
+            })
             .filter(|s| !s.is_empty())
             .collect();
         files.sort();

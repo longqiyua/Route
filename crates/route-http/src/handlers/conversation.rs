@@ -17,9 +17,7 @@ fn open_store(state: &SharedState) -> route_memory::ConversationStore {
 }
 
 /// `GET /api/conversations`
-pub async fn list_handler(
-    State(state): State<SharedState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn list_handler(State(state): State<SharedState>) -> Result<Json<Value>, ApiError> {
     let store = open_store(&state);
     let sessions = store.list_sessions();
     let list: Vec<Value> = sessions
@@ -157,7 +155,13 @@ pub async fn rollback_handler(
     Json(req): Json<RollbackRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let mut store = open_store(&state);
-    let result = store.rollback_to_message(&id, &req.message_id, req.reason.as_deref());
+    // Pass project_path explicitly from state to ensure correct repository
+    let result = store.rollback_to_message(
+        &id,
+        &req.message_id,
+        req.reason.as_deref(),
+        Some(&state.project_path),
+    );
 
     if result.success {
         Ok(Json(json!({
@@ -167,7 +171,9 @@ pub async fn rollback_handler(
         })))
     } else {
         Err(ApiError::internal(
-            result.error.unwrap_or_else(|| "Unknown rollback error".to_string()),
+            result
+                .error
+                .unwrap_or_else(|| "Unknown rollback error".to_string()),
         ))
     }
 }
@@ -201,12 +207,12 @@ pub async fn delete_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_state::AppState;
+    use crate::build_router;
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
     use std::sync::Arc;
     use tower::ServiceExt;
-    use crate::app_state::AppState;
-    use crate::build_router;
 
     fn make_state(tmp: &tempfile::TempDir) -> Arc<AppState> {
         Arc::new(AppState::new(tmp.path().to_path_buf()))
@@ -224,13 +230,17 @@ mod tests {
             .uri(format!("/api{}", path))
             .header("Content-Type", "application/json");
         let req = if let Some(body) = body {
-            builder.body(Body::from(serde_json::to_string(&body).unwrap())).unwrap()
+            builder
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap()
         } else {
             builder.body(Body::empty()).unwrap()
         };
         let response = app.oneshot(req).await.unwrap();
         let status = response.status();
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         (status, value)
     }
@@ -256,7 +266,8 @@ mod tests {
             Method::POST,
             "/conversations",
             Some(json!({"title": "test session"})),
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
         let session_id = body["session"]["id"].as_str().unwrap().to_string();
@@ -281,7 +292,8 @@ mod tests {
             Method::POST,
             "/conversations",
             Some(json!({"title": "show test"})),
-        ).await;
+        )
+        .await;
         let session_id = body["session"]["id"].as_str().unwrap().to_string();
 
         // Add a message
@@ -290,7 +302,8 @@ mod tests {
             Method::POST,
             &format!("/conversations/{}/messages", session_id),
             Some(json!({"role": "user", "content": "hello"})),
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["message"]["role"], "user");
 
@@ -300,7 +313,8 @@ mod tests {
             Method::GET,
             &format!("/conversations/{}", session_id),
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["session"]["title"], "show test");
         let messages = body["messages"].as_array().unwrap();
@@ -312,12 +326,8 @@ mod tests {
     async fn test_show_not_found() {
         let tmp = tempfile::TempDir::new().unwrap();
         let state = make_state(&tmp);
-        let (status, body) = send_request(
-            state,
-            Method::GET,
-            "/conversations/nonexistent",
-            None,
-        ).await;
+        let (status, body) =
+            send_request(state, Method::GET, "/conversations/nonexistent", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], true);
     }
@@ -332,7 +342,8 @@ mod tests {
             Method::POST,
             "/conversations",
             Some(json!({"title": "to archive"})),
-        ).await;
+        )
+        .await;
         let session_id = body["session"]["id"].as_str().unwrap().to_string();
 
         // Archive it
@@ -341,7 +352,8 @@ mod tests {
             Method::POST,
             &format!("/conversations/{}/archive", session_id),
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
 
@@ -355,7 +367,8 @@ mod tests {
             Method::DELETE,
             &format!("/conversations/{}", session_id),
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
     }
@@ -369,7 +382,8 @@ mod tests {
             Method::POST,
             "/conversations/nonexistent/messages",
             Some(json!({"role": "user", "content": "hello"})),
-        ).await;
+        )
+        .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }

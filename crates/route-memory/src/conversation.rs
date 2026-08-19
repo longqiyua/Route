@@ -74,6 +74,18 @@ pub struct Message {
     /// Optional: rollback target — if this message was a rollback point, store the
     /// snapshot that was restored to.
     pub rollback_snapshot_id: Option<String>,
+    /// Lineage: which version of the Effective Development Context was
+    /// attached to the AI when this message was produced. All fields
+    /// are optional (skip_serializing_if + default) so legacy stores
+    /// continue to load cleanly and are never rewritten on write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constitution_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_entries_hash: Option<String>,
 }
 
 /// In-memory conversation store, persisted to JSON.
@@ -137,7 +149,12 @@ impl ConversationStore {
     /// Generate a unique ID with timestamp and monotonic counter.
     fn next_id(&mut self, prefix: &str) -> String {
         self.id_counter += 1;
-        format!("{}-{}-{}", prefix, chrono::Utc::now().timestamp_millis(), self.id_counter)
+        format!(
+            "{}-{}-{}",
+            prefix,
+            chrono::Utc::now().timestamp_millis(),
+            self.id_counter
+        )
     }
 
     /// Save the store to disk (if a storage path is set).
@@ -146,8 +163,20 @@ impl ConversationStore {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            // Atomic write: temp → fsync → rename. This prevents a
+            // crash mid-write from leaving a truncated JSON file.
+            let tmp = path.with_extension(format!(
+                "route-csvtmp-{}-{}",
+                std::process::id(),
+                chrono::Utc::now().timestamp_millis()
+            ));
+            let _ = std::fs::remove_file(&tmp);
             let json = serde_json::to_string_pretty(self)?;
-            std::fs::write(path, json)?;
+            std::fs::write(&tmp, json)?;
+            if let Ok(f) = std::fs::File::open(&tmp) {
+                let _ = f.sync_all();
+            }
+            std::fs::rename(&tmp, path)?;
         }
         Ok(())
     }
@@ -259,6 +288,22 @@ impl ConversationStore {
         content: &str,
         snapshot_id: Option<String>,
     ) -> std::io::Result<Option<&Message>> {
+        self.add_message_with_context(session_id, role, content, snapshot_id, None)
+    }
+
+    /// Same as [`Self::add_message`] but also attaches a context-lineage
+    /// payload (context_hash, constitution_version, protocol_revision,
+    /// reference_entries_hash). All four lineage fields are optional so
+    /// the caller can pass `None` on legacy code paths. The existing
+    /// signature is preserved for backwards compatibility.
+    pub fn add_message_with_context(
+        &mut self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        snapshot_id: Option<String>,
+        context_meta: Option<(String, u32, u64, String)>,
+    ) -> std::io::Result<Option<&Message>> {
         if !self.sessions.contains_key(session_id) {
             return Ok(None);
         }
@@ -267,8 +312,16 @@ impl ConversationStore {
         let now = chrono::Utc::now().timestamp_millis();
 
         // Find the parent (last message in the session)
-        let parent_id = self.session_messages.get(session_id)
+        let parent_id = self
+            .session_messages
+            .get(session_id)
             .and_then(|ids| ids.last().cloned());
+
+        let (context_hash, constitution_version, protocol_revision, reference_entries_hash) =
+            match context_meta {
+                Some((h, cv, pr, rh)) => (Some(h), Some(cv), Some(pr), Some(rh)),
+                None => (None, None, None, None),
+            };
 
         let msg = Message {
             id: id.clone(),
@@ -279,6 +332,10 @@ impl ConversationStore {
             snapshot_id,
             parent_id,
             rollback_snapshot_id: None,
+            context_hash,
+            constitution_version,
+            protocol_revision,
+            reference_entries_hash,
         };
 
         self.messages.insert(id.clone(), msg);
@@ -290,7 +347,11 @@ impl ConversationStore {
 
         // Update session metadata
         if let Some(session) = self.sessions.get_mut(session_id) {
-            session.message_count = self.session_messages.get(session_id).map(|v| v.len()).unwrap_or(0);
+            session.message_count = self
+                .session_messages
+                .get(session_id)
+                .map(|v| v.len())
+                .unwrap_or(0);
             session.updated_at = now;
         }
 
@@ -307,11 +368,7 @@ impl ConversationStore {
     pub fn session_messages(&self, session_id: &str) -> Vec<&Message> {
         self.session_messages
             .get(session_id)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.messages.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.messages.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -359,12 +416,25 @@ impl ConversationStore {
     /// 2. Calls `BasicRepository::rollback_to` to restore the project
     /// 3. Truncates all messages after the rollback point
     ///
-    /// Returns the rollback result.
+    /// # Project path
+    ///
+    /// Passing `project_path` explicitly sets the directory to open
+    /// the repository from. When `None`, the current working directory
+    /// is used (backward-compatible with CLI usage).
+    ///
+    /// # Error handling
+    ///
+    /// If the code rollback fails (e.g. snapshot not found, IO error),
+    /// the conversation messages are NOT truncated — the function
+    /// returns an error result with `success: false`. This prevents
+    /// the split-brain state where conversation history and project
+    /// state are out of sync.
     pub fn rollback_to_message(
         &mut self,
         session_id: &str,
         message_id: &str,
         reason: Option<&str>,
+        project_path: Option<&Path>,
     ) -> RollbackResult {
         // Validate session and message
         let msg = match self.messages.get(message_id) {
@@ -376,7 +446,10 @@ impl ConversationStore {
                     snapshot_id: String::new(),
                     messages_removed: 0,
                     success: false,
-                    error: Some(format!("Message '{}' not found in session '{}'", message_id, session_id)),
+                    error: Some(format!(
+                        "Message '{}' not found in session '{}'",
+                        message_id, session_id
+                    )),
                 };
             }
         };
@@ -391,34 +464,40 @@ impl ConversationStore {
                     snapshot_id: String::new(),
                     messages_removed: 0,
                     success: false,
-                    error: Some(format!("Message '{}' has no linked snapshot — cannot rollback", message_id)),
+                    error: Some(format!(
+                        "Message '{}' has no linked snapshot — cannot rollback",
+                        message_id
+                    )),
                 };
             }
         };
 
-        // Perform the rollback via BasicRepository
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        match route_basic::BasicRepository::open(&cwd) {
-            Ok(repo) => {
-                if let Err(e) = repo.rollback_to_with(
-                    &snapshot_id,
-                    Some(reason.unwrap_or("rollback from conversation")),
-                    route_basic::RollbackOptions {
-                        operator: Some("ai".to_string()),
-                        body: None,
-                        is_ai: true,
-                    },
-                ) {
-                    return RollbackResult {
-                        session_id: session_id.to_string(),
-                        message_id: message_id.to_string(),
-                        snapshot_id,
-                        messages_removed: 0,
-                        success: false,
-                        error: Some(format!("Rollback failed: {}", e)),
-                    };
-                }
-            }
+        // Determine the project path: use provided path, fall back to current dir
+        let project_dir = match project_path {
+            Some(p) => p.to_path_buf(),
+            None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        };
+
+        // Build the conversation intent that will be linked into the
+        // transaction journal so a crash is detectable and recoverable.
+        let conv_intent = route_basic::ConvIntent {
+            storage_path: self
+                .storage_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            session_id: session_id.to_string(),
+            target_message_id: message_id.to_string(),
+            target_snapshot_id: snapshot_id.clone(),
+        };
+
+        // Phase 1: Rollback code FIRST (with conv-linked transaction).
+        // This prevents the old split-brain: if code rollback fails,
+        // conversation messages are NOT truncated. The conv intent in
+        // the journal ensures that even a crash after code rollback
+        // but before conv truncation is detectable on next open.
+        let repo = match route_basic::BasicRepository::open(&project_dir) {
+            Ok(r) => r,
             Err(e) => {
                 return RollbackResult {
                     session_id: session_id.to_string(),
@@ -429,9 +508,35 @@ impl ConversationStore {
                     error: Some(format!("Failed to open repository: {}", e)),
                 };
             }
-        }
+        };
 
-        // Truncate messages after the rollback point
+        let commit = match repo.rollback_to_with(
+            &snapshot_id,
+            Some(reason.unwrap_or("rollback from conversation")),
+            route_basic::RollbackOptions {
+                operator: Some("ai".to_string()),
+                body: None,
+                is_ai: true,
+                conv: Some(conv_intent),
+            },
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                return RollbackResult {
+                    session_id: session_id.to_string(),
+                    message_id: message_id.to_string(),
+                    snapshot_id,
+                    messages_removed: 0,
+                    success: false,
+                    error: Some(format!("Rollback failed: {}", e)),
+                };
+            }
+        };
+
+        // Phase 2: Conversation truncation. If this fails (e.g. IO error
+        // during save), we still have a recoverable state: the transaction
+        // journal records the intended conv state, and `open` will surface
+        // it as a COMMITTED+conv tx for reconciliation.
         let removed = self.truncate_after(session_id, message_id);
 
         // Add a system message recording the rollback
@@ -441,6 +546,21 @@ impl ConversationStore {
         );
 
         let _ = self.add_message(session_id, "system", &rollback_note, None);
+
+        // Phase 3: Finalize the transaction. If the rollback carried a
+        // conv-linked tx_id (set by rollback_to_with), complete it so
+        // the journal dir is cleaned up. If this fails (non-fatal, the
+        // journal is still valid and recovery will handle it), log it.
+        if let Some(tx_id) = &commit.tx_id {
+            if let Err(e) = repo.complete_committed_transaction(tx_id) {
+                tracing::warn!(
+                    target: "route::conversation",
+                    tx_id = %tx_id,
+                    error = %e,
+                    "failed to complete conv-linked transaction (non-fatal, recovery will handle)"
+                );
+            }
+        }
 
         RollbackResult {
             session_id: session_id.to_string(),
@@ -506,9 +626,7 @@ impl ConversationStore {
 
         format!(
             "{:<20}  {:<4} msgs  {}",
-            session.title,
-            session.message_count,
-            last_preview,
+            session.title, session.message_count, last_preview,
         )
     }
 }
@@ -543,7 +661,12 @@ mod tests {
         let mut store = ConversationStore::new();
         let session_id = store.create_session("Test").unwrap().id.clone();
         let msg = store
-            .add_message(&session_id, "ai", "Here is the refactored code", Some("snap-123".to_string()))
+            .add_message(
+                &session_id,
+                "ai",
+                "Here is the refactored code",
+                Some("snap-123".to_string()),
+            )
             .unwrap()
             .unwrap();
         assert_eq!(msg.snapshot_id, Some("snap-123".to_string()));
@@ -553,9 +676,13 @@ mod tests {
     fn test_session_messages_order() {
         let mut store = ConversationStore::new();
         let session_id = store.create_session("Test").unwrap().id.clone();
-        store.add_message(&session_id, "user", "msg1", None).unwrap();
+        store
+            .add_message(&session_id, "user", "msg1", None)
+            .unwrap();
         store.add_message(&session_id, "ai", "msg2", None).unwrap();
-        store.add_message(&session_id, "user", "msg3", None).unwrap();
+        store
+            .add_message(&session_id, "user", "msg3", None)
+            .unwrap();
 
         let msgs = store.session_messages(&session_id);
         assert_eq!(msgs.len(), 3);
@@ -568,9 +695,18 @@ mod tests {
     fn test_truncate_after() {
         let mut store = ConversationStore::new();
         let session_id = store.create_session("Test").unwrap().id.clone();
-        store.add_message(&session_id, "user", "msg1", None).unwrap();
-        let msg2_id = store.add_message(&session_id, "ai", "msg2", None).unwrap().unwrap().id.clone();
-        store.add_message(&session_id, "user", "msg3", None).unwrap();
+        store
+            .add_message(&session_id, "user", "msg1", None)
+            .unwrap();
+        let msg2_id = store
+            .add_message(&session_id, "ai", "msg2", None)
+            .unwrap()
+            .unwrap()
+            .id
+            .clone();
+        store
+            .add_message(&session_id, "user", "msg3", None)
+            .unwrap();
 
         let removed = store.truncate_after(&session_id, &msg2_id);
         assert_eq!(removed, 1); // only msg3 removed
@@ -586,7 +722,9 @@ mod tests {
         {
             let mut store = ConversationStore::with_path(path.clone());
             let session_id = store.create_session("Persist test").unwrap().id.clone();
-            store.add_message(&session_id, "user", "Hello", None).unwrap();
+            store
+                .add_message(&session_id, "user", "Hello", None)
+                .unwrap();
             store.save().unwrap();
         }
 

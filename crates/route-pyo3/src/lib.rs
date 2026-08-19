@@ -29,8 +29,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use route_basic::{
-    BasicRepository, CommitOptions, CreateBranchOptions, DiffSummary,
-    WorkingFileStatus,
+    BasicRepository, CommitOptions, CreateBranchOptions, DiffSummary, WorkingFileStatus,
 };
 use route_memory::ConversationStore;
 
@@ -194,7 +193,9 @@ fn init(path: Option<String>) -> PyResult<String> {
     let repo = BasicRepository::init(&target).map_err(anyhow_to_pyerr)?;
     let _ = route_core::ensure_guard_anchor(&target);
     let path_str = repo.project_path().to_string_lossy().to_string();
-    let mut guard = GLOBAL_REPO.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    let mut guard = GLOBAL_REPO
+        .lock()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     *guard = Some(repo);
     Ok(path_str)
 }
@@ -208,7 +209,9 @@ fn open(path: Option<String>) -> PyResult<String> {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let repo = BasicRepository::open(&target).map_err(anyhow_to_pyerr)?;
     let path_str = repo.project_path().to_string_lossy().to_string();
-    let mut guard = GLOBAL_REPO.lock().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    let mut guard = GLOBAL_REPO
+        .lock()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     *guard = Some(repo);
     Ok(path_str)
 }
@@ -230,10 +233,12 @@ fn status() -> PyResult<PyObject> {
             .collect();
 
         let history = repo.history(1).map_err(anyhow_to_pyerr)?;
-        let latest = history.first().map(|s| serde_json::json!({
-            "id": s.snapshot.id,
-            "created_at": s.snapshot.created_at,
-        }));
+        let latest = history.first().map(|s| {
+            serde_json::json!({
+                "id": s.snapshot.id,
+                "created_at": s.snapshot.created_at,
+            })
+        });
 
         let result = serde_json::json!({
             "project_path": repo.project_path().to_string_lossy().to_string(),
@@ -280,7 +285,9 @@ fn commit(
 #[pyo3(signature = (limit = 20, branch = None))]
 fn log(limit: usize, branch: Option<String>) -> PyResult<PyObject> {
     with_repo(|repo| {
-        let commits = repo.list_commits(branch.as_deref(), limit).map_err(anyhow_to_pyerr)?;
+        let commits = repo
+            .list_commits(branch.as_deref(), limit)
+            .map_err(anyhow_to_pyerr)?;
         let list: Vec<serde_json::Value> = commits.iter().map(commit_to_dict).collect();
         Ok(json_result_to_py(serde_json::json!(list)))
     })
@@ -403,9 +410,11 @@ fn branch_create(name: String, kind: &str, from_branch: Option<String>) -> PyRes
             "main" => route_basic::BranchKind::Main,
             "inherited" => route_basic::BranchKind::Inherited,
             "sandbox" => route_basic::BranchKind::Sandbox,
-            _ => return Err(PyValueError::new_err(
-                "Unknown branch kind. Use: main, inherited, sandbox",
-            )),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "Unknown branch kind. Use: main, inherited, sandbox",
+                ))
+            }
         };
         let current = repo.get_current_branch_name().map_err(anyhow_to_pyerr)?;
         let branch = repo
@@ -471,7 +480,9 @@ fn tag_create(name: String, message: Option<String>) -> PyResult<PyObject> {
             .first()
             .map(|s| s.snapshot.id.clone())
             .ok_or_else(|| PyRuntimeError::new_err("No commits yet — cannot tag"))?;
-        let tag = repo.tag_create(&name, &snapshot_id, message.as_deref()).map_err(anyhow_to_pyerr)?;
+        let tag = repo
+            .tag_create(&name, &snapshot_id, message.as_deref())
+            .map_err(anyhow_to_pyerr)?;
         Ok(json_result_to_py(serde_json::json!({
             "id": tag.id,
             "name": tag.name,
@@ -516,14 +527,35 @@ fn stats() -> PyResult<PyObject> {
         let snapshots = repo.all_snapshots().map_err(anyhow_to_pyerr)?;
         let commits = repo.list_commits(None, 10000).map_err(anyhow_to_pyerr)?;
 
-        let main_count = branches.iter().filter(|b| b.kind == route_basic::BranchKind::Main).count();
-        let inherited_count = branches.iter().filter(|b| b.kind == route_basic::BranchKind::Inherited).count();
-        let sandbox_count = branches.iter().filter(|b| b.kind == route_basic::BranchKind::Sandbox).count();
+        let main_count = branches
+            .iter()
+            .filter(|b| b.kind == route_basic::BranchKind::Main)
+            .count();
+        let inherited_count = branches
+            .iter()
+            .filter(|b| b.kind == route_basic::BranchKind::Inherited)
+            .count();
+        let sandbox_count = branches
+            .iter()
+            .filter(|b| b.kind == route_basic::BranchKind::Sandbox)
+            .count();
 
-        let inc = commits.iter().filter(|c| c.kind == route_basic::CommitKind::Incremental).count();
-        let full = commits.iter().filter(|c| c.kind == route_basic::CommitKind::Full).count();
-        let rollback = commits.iter().filter(|c| c.kind == route_basic::CommitKind::Rollback).count();
-        let merge = commits.iter().filter(|c| c.kind == route_basic::CommitKind::Merge).count();
+        let inc = commits
+            .iter()
+            .filter(|c| c.kind == route_basic::CommitKind::Incremental)
+            .count();
+        let full = commits
+            .iter()
+            .filter(|c| c.kind == route_basic::CommitKind::Full)
+            .count();
+        let rollback = commits
+            .iter()
+            .filter(|c| c.kind == route_basic::CommitKind::Rollback)
+            .count();
+        let merge = commits
+            .iter()
+            .filter(|c| c.kind == route_basic::CommitKind::Merge)
+            .count();
 
         let result = serde_json::json!({
             "branches": {
@@ -725,7 +757,9 @@ fn conversation_rollback(
 ) -> PyResult<PyObject> {
     let path = get_project_path()?;
     let mut store = open_conversation_store(&path);
-    let result = store.rollback_to_message(&session_id, &message_id, reason.as_deref());
+    // Pass project_path explicitly to ensure correct repository is opened
+    let result =
+        store.rollback_to_message(&session_id, &message_id, reason.as_deref(), Some(&path));
     if result.success {
         Ok(json_result_to_py(serde_json::json!({
             "success": true,
@@ -734,7 +768,9 @@ fn conversation_rollback(
         })))
     } else {
         Err(PyRuntimeError::new_err(
-            result.error.unwrap_or_else(|| "Unknown rollback error".to_string()),
+            result
+                .error
+                .unwrap_or_else(|| "Unknown rollback error".to_string()),
         ))
     }
 }
@@ -748,7 +784,10 @@ fn conversation_archive(session_id: String) -> PyResult<()> {
         store.save().map_err(io_to_pyerr)?;
         Ok(())
     } else {
-        Err(PyRuntimeError::new_err(format!("Session '{}' not found", session_id)))
+        Err(PyRuntimeError::new_err(format!(
+            "Session '{}' not found",
+            session_id
+        )))
     }
 }
 
@@ -760,7 +799,10 @@ fn conversation_delete(session_id: String) -> PyResult<()> {
     if store.delete_session(&session_id).map_err(io_to_pyerr)? {
         Ok(())
     } else {
-        Err(PyRuntimeError::new_err(format!("Session '{}' not found", session_id)))
+        Err(PyRuntimeError::new_err(format!(
+            "Session '{}' not found",
+            session_id
+        )))
     }
 }
 

@@ -50,7 +50,14 @@ impl CausalChain {
     }
 
     /// Push a new entry to the causal chain.
-    pub fn push(&mut self, action: &str, actor: &str, description: &str, effect: &str, tags: Vec<String>) {
+    pub fn push(
+        &mut self,
+        action: &str,
+        actor: &str,
+        description: &str,
+        effect: &str,
+        tags: Vec<String>,
+    ) {
         let id = format!("causal-{}", chrono::Utc::now().timestamp_millis());
         let entry = CausalEntry {
             id,
@@ -134,8 +141,20 @@ mod tests {
     #[test]
     fn test_push_and_recent() {
         let mut chain = CausalChain::new();
-        chain.push("commit", "user", "added login feature", "snapshot created", vec!["feature".to_string()]);
-        chain.push("sync", "system", "auto-sync completed", "remote updated", vec!["sync".to_string()]);
+        chain.push(
+            "commit",
+            "user",
+            "added login feature",
+            "snapshot created",
+            vec!["feature".to_string()],
+        );
+        chain.push(
+            "sync",
+            "system",
+            "auto-sync completed",
+            "remote updated",
+            vec!["sync".to_string()],
+        );
 
         assert_eq!(chain.len(), 2);
         let recent = chain.recent(1);

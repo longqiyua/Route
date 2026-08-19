@@ -55,10 +55,7 @@ pub enum Event {
         timestamp: i64,
     },
     /// A branch was deleted.
-    BranchDeleted {
-        name: String,
-        timestamp: i64,
-    },
+    BranchDeleted { name: String, timestamp: i64 },
     /// A sync target run started.
     SyncStarted {
         target_name: String,

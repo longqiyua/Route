@@ -13,9 +13,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3.workspace = true
-route-basic = { path = "../route-basic", version = "0.4.0-beta" }
-route-core = { path = "../route-core", version = "0.4.0-beta" }
-route-memory = { path = "../route-memory", version = "0.4.0-beta" }
+route-basic = { path = "../route-basic", version = "1.0.0" }
+route-core = { path = "../route-core", version = "1.0.0" }
+route-memory = { path = "../route-memory", version = "1.0.0" }
 serde_json.workspace = true
 chrono.workspace = true
 anyhow.workspace = true

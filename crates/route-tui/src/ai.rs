@@ -31,7 +31,7 @@ pub struct AiConfig {
     pub endpoint: String,
     pub key: String,
     pub model: String,
-    }
+}
 
 impl AiConfig {
     /// Read AI config from environment variables.
@@ -94,7 +94,15 @@ pub fn load_project_context(project_path: &Path) -> String {
 
 fn build_tree(project_path: &Path) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let skip_dirs = [".route", ".git", "node_modules", "target", ".next", "dist", "build"];
+    let skip_dirs = [
+        ".route",
+        ".git",
+        "node_modules",
+        "target",
+        ".next",
+        "dist",
+        "build",
+    ];
 
     if let Ok(entries) = std::fs::read_dir(project_path) {
         let mut dirs: Vec<String> = Vec::new();
@@ -132,12 +140,15 @@ fn build_tree(project_path: &Path) -> String {
 fn get_current_branch(project_path: &Path) -> String {
     use std::process::Command;
     let output = Command::new("git")
-        .args(["-C", &project_path.to_string_lossy(), "branch", "--show-current"])
+        .args([
+            "-C",
+            &project_path.to_string_lossy(),
+            "branch",
+            "--show-current",
+        ])
         .output();
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => "(unknown)".to_string(),
     }
 }
@@ -160,7 +171,11 @@ fn get_recent_commits(project_path: &Path) -> String {
             if lines.is_empty() {
                 "  (no commits)".to_string()
             } else {
-                lines.iter().map(|l| format!("  - {l}")).collect::<Vec<_>>().join("\n")
+                lines
+                    .iter()
+                    .map(|l| format!("  - {l}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
         }
         _ => "  (no git history)".to_string(),
@@ -200,7 +215,11 @@ fn get_references(project_path: &Path) -> String {
 
 /// Send a chat message to the configured AI provider.
 /// Returns the response text.
-pub fn ai_chat(config: &AiConfig, system_prompt: &str, user_message: &str) -> Result<String, String> {
+pub fn ai_chat(
+    config: &AiConfig,
+    system_prompt: &str,
+    user_message: &str,
+) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     let url = format!("{}/chat/completions", config.endpoint.trim_end_matches('/'));
 
@@ -247,17 +266,53 @@ pub fn ai_chat(config: &AiConfig, system_prompt: &str, user_message: &str) -> Re
 
 /// List of dangerous operations that the AI should warn about.
 const DANGEROUS_OPERATIONS: &[(&str, &str, &str)] = &[
-    ("rollback", "rb", "Rolls back to a previous snapshot — irreversible."),
+    (
+        "rollback",
+        "rb",
+        "Rolls back to a previous snapshot — irreversible.",
+    ),
     ("reset", "git reset", "Discards commits — data loss risk."),
-    ("--hard", "hard", "Discards working-tree changes permanently."),
-    ("push --force", "force push", "Overwrites remote history — affects collaborators."),
-    ("delete branch", "branch delete", "Removes a branch and its commits."),
+    (
+        "--hard",
+        "hard",
+        "Discards working-tree changes permanently.",
+    ),
+    (
+        "push --force",
+        "force push",
+        "Overwrites remote history — affects collaborators.",
+    ),
+    (
+        "delete branch",
+        "branch delete",
+        "Removes a branch and its commits.",
+    ),
     ("tag delete", "tag delete", "Removes a tag reference."),
-    ("revert", "git revert", "Creates an inverse commit — can be disruptive."),
-    ("stash drop", "stash drop", "Permanently removes a stash entry."),
-    ("stash clear", "stash clear", "Permanently removes ALL stashes."),
-    ("checkout", "git checkout", "Can be destructive with --force."),
-    ("clean -f", "git clean", "Removes untracked files permanently."),
+    (
+        "revert",
+        "git revert",
+        "Creates an inverse commit — can be disruptive.",
+    ),
+    (
+        "stash drop",
+        "stash drop",
+        "Permanently removes a stash entry.",
+    ),
+    (
+        "stash clear",
+        "stash clear",
+        "Permanently removes ALL stashes.",
+    ),
+    (
+        "checkout",
+        "git checkout",
+        "Can be destructive with --force.",
+    ),
+    (
+        "clean -f",
+        "git clean",
+        "Removes untracked files permanently.",
+    ),
     ("rm -rf", "rm -rf", "Deletes files from disk and index."),
 ];
 
@@ -288,7 +343,11 @@ pub fn handle_ai_command(project_path: &Path, args: &[String]) -> bool {
                 "{}",
                 err("✗ AI not configured. Set ROUTE_AI_KEY (and optionally ROUTE_AI_ENDPOINT, ROUTE_AI_MODEL, ROUTE_AI_PROVIDER).")
             );
-            println!("  {} {}", dim("Example:"), faint("set ROUTE_AI_KEY=sk-... && route-tui ai tell me about this project"));
+            println!(
+                "  {} {}",
+                dim("Example:"),
+                faint("set ROUTE_AI_KEY=sk-... && route-tui ai tell me about this project")
+            );
             return false;
         }
     };
@@ -316,7 +375,11 @@ pub fn handle_ai_command(project_path: &Path, args: &[String]) -> bool {
     }
 
     // Load project context
-    println!("  {} {}", dim("Loading project context..."), faint("(this may take a moment)"));
+    println!(
+        "  {} {}",
+        dim("Loading project context..."),
+        faint("(this may take a moment)")
+    );
     let context = load_project_context(project_path);
 
     // Build system prompt
@@ -372,15 +435,30 @@ fn print_ai_help(config: &AiConfig) {
     println!();
     println!("{}", crate::fmt::head("Route — AI Assistant"));
     println!();
-    println!("  {}", dim("Ask questions about your project. The AI has full context:"));
+    println!(
+        "  {}",
+        dim("Ask questions about your project. The AI has full context:")
+    );
     println!("  {}  {}", dim("•"), faint("project structure"));
-    println!("  {}  {}", dim("•"), faint("current branch and recent commits"));
+    println!(
+        "  {}  {}",
+        dim("•"),
+        faint("current branch and recent commits")
+    );
     println!("  {}  {}", dim("•"), faint("references (project memory)"));
     println!();
     println!("  {}", dim("Usage:"));
-    println!("  {}  {}", accent("ai <question>"), dim("Ask a question about the project"));
+    println!(
+        "  {}  {}",
+        accent("ai <question>"),
+        dim("Ask a question about the project")
+    );
     println!("  {}  {}", accent("ai help"), dim("Show this help"));
-    println!("  {}  {}", accent("ai config"), dim("Show current AI configuration"));
+    println!(
+        "  {}  {}",
+        accent("ai config"),
+        dim("Show current AI configuration")
+    );
     println!();
     println!("  {}", dim("Examples:"));
     println!("  {}", faint("  ai what is the current branch status?"));
@@ -419,10 +497,18 @@ fn terminal_width() -> Option<usize> {
         }
         #[allow(non_snake_case)]
         #[repr(C)]
-        struct COORD { X: i16, Y: i16 }
+        struct COORD {
+            X: i16,
+            Y: i16,
+        }
         #[allow(non_snake_case)]
         #[repr(C)]
-        struct SMALL_RECT { Left: i16, Top: i16, Right: i16, Bottom: i16 }
+        struct SMALL_RECT {
+            Left: i16,
+            Top: i16,
+            Right: i16,
+            Bottom: i16,
+        }
 
         unsafe {
             let handle = GetStdHandle(STD_OUTPUT_HANDLE);

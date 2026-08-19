@@ -2,10 +2,10 @@
 
 pub mod local;
 pub mod relay;
+pub mod s3;
 pub mod server;
 pub mod ssh;
 pub mod webdav;
-pub mod s3;
 
 use std::path::Path;
 
@@ -104,7 +104,10 @@ pub trait Transport: Send + Sync {
 }
 
 /// Create a transport instance for the given type, with optional remote credentials.
-pub fn create_transport(tt: TransportType, creds: Option<&RemoteCredentials>) -> Box<dyn Transport> {
+pub fn create_transport(
+    tt: TransportType,
+    creds: Option<&RemoteCredentials>,
+) -> Box<dyn Transport> {
     match tt {
         TransportType::Local => Box::new(LocalTransport),
         TransportType::Relay => Box::new(RelayTransport::new()),

@@ -64,10 +64,7 @@ impl Plugin for LoggerPlugin {
 
     fn handle_event(&self, event: &Event, ctx: &PluginContext) -> Result<()> {
         self.seen.fetch_add(1, Ordering::Relaxed);
-        let path = ctx
-            .project_path()
-            .to_string_lossy()
-            .into_owned();
+        let path = ctx.project_path().to_string_lossy().into_owned();
         tracing::info!(
             target: "route::plugin::logger",
             kind = event.kind_label(),
@@ -168,10 +165,7 @@ impl WebhookPlugin {
             return true;
         }
         let label = event.kind_label();
-        self.config
-            .include_kinds
-            .iter()
-            .any(|k| k == label)
+        self.config.include_kinds.iter().any(|k| k == label)
     }
 
     /// Compute the HMAC-SHA256 signature of a body. Returns `sha256=<hex>`.

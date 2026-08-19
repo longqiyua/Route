@@ -21,9 +21,34 @@ use crate::fmt::{dim, err, prompt};
 
 /// All first-word command names + aliases, used for Tab completion.
 const COMMAND_NAMES: &[&str] = &[
-    "ai", "chat", "help", "?", "status", "st", "log", "lg", "commit", "ci", "changes", "branch", "br", "rollback",
-    "rb", "undo", "redo", "checkpoint", "cp", "diff", "export", "git", "root", "clear", "cls",
-    "exit", "quit", "q",
+    "ai",
+    "chat",
+    "help",
+    "?",
+    "status",
+    "st",
+    "log",
+    "lg",
+    "commit",
+    "ci",
+    "changes",
+    "branch",
+    "br",
+    "rollback",
+    "rb",
+    "undo",
+    "redo",
+    "checkpoint",
+    "cp",
+    "diff",
+    "export",
+    "git",
+    "root",
+    "clear",
+    "cls",
+    "exit",
+    "quit",
+    "q",
 ];
 
 struct RouteHelper;

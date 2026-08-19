@@ -35,7 +35,8 @@ fn load_config(paths: &RoutePaths) -> Result<SyncConfig> {
     if !path.exists() {
         return Ok(SyncConfig::default());
     }
-    SyncConfig::load(&path).with_context(|| format!("Failed to load sync config: {}", path.display()))
+    SyncConfig::load(&path)
+        .with_context(|| format!("Failed to load sync config: {}", path.display()))
 }
 
 fn save_config(paths: &RoutePaths, cfg: &SyncConfig) -> Result<()> {
@@ -85,16 +86,23 @@ pub fn sync_add(
         Some("p2p") => TransportType::P2P,
         Some("webdav") => TransportType::Webdav,
         Some("s3") => TransportType::S3,
-        Some(other) => return Err(anyhow!(
-            "Unknown transport: {} (use local|relay|server|p2p|webdav|s3)",
-            other
-        )),
+        Some(other) => {
+            return Err(anyhow!(
+                "Unknown transport: {} (use local|relay|server|p2p|webdav|s3)",
+                other
+            ))
+        }
     };
     let conflict = match conflict.as_deref() {
         Some("keep_both") | None => ConflictResolution::KeepBoth,
         Some("skip") => ConflictResolution::SkipExisting,
         Some("overwrite") => ConflictResolution::Overwrite,
-        Some(other) => return Err(anyhow!("Unknown conflict: {} (use keep_both|skip|overwrite)", other)),
+        Some(other) => {
+            return Err(anyhow!(
+                "Unknown conflict: {} (use keep_both|skip|overwrite)",
+                other
+            ))
+        }
     };
 
     // Build remote credentials. Only populate fields relevant to the chosen
@@ -116,10 +124,14 @@ pub fn sync_add(
                 anyhow!("--bucket is required for s3 transport (or set ROUTE_REMOTE_BUCKET)")
             })?;
             let access_key_val = access_key.clone().ok_or_else(|| {
-                anyhow!("--access-key is required for s3 transport (or set ROUTE_REMOTE_ACCESS_KEY)")
+                anyhow!(
+                    "--access-key is required for s3 transport (or set ROUTE_REMOTE_ACCESS_KEY)"
+                )
             })?;
             let secret_key_val = secret_key.clone().ok_or_else(|| {
-                anyhow!("--secret-key is required for s3 transport (or set ROUTE_REMOTE_SECRET_KEY)")
+                anyhow!(
+                    "--secret-key is required for s3 transport (or set ROUTE_REMOTE_SECRET_KEY)"
+                )
             })?;
             Some(RemoteCredentials {
                 url: url.unwrap_or_default(),
@@ -160,7 +172,10 @@ pub fn sync_add(
     println!("  conflict:    {}", target.conflict.as_str());
     println!("  enabled:     {}", target.enabled);
     if let Some(c) = &target.credentials {
-        println!("  remote url:  {}", if c.url.is_empty() { "(none)" } else { &c.url });
+        println!(
+            "  remote url:  {}",
+            if c.url.is_empty() { "(none)" } else { &c.url }
+        );
         if c.username.is_some() {
             println!("  username:    (set)");
         }
@@ -197,7 +212,10 @@ pub fn sync_list() -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<16} {:<8} {:<10} {:<8} {:<8} src → dst", "NAME", "MODE", "TRANSPORT", "ENABLED", "CONFLICT");
+    println!(
+        "{:<16} {:<8} {:<10} {:<8} {:<8} src → dst",
+        "NAME", "MODE", "TRANSPORT", "ENABLED", "CONFLICT"
+    );
     println!("{}", "-".repeat(80));
     for t in &cfg.targets {
         println!(
@@ -230,7 +248,9 @@ pub fn sync_remove(name: String) -> Result<()> {
 pub fn sync_show(name: String) -> Result<()> {
     let paths = cwd_paths()?;
     let cfg = load_config(&paths)?;
-    let t = cfg.find(&name).ok_or_else(|| anyhow!("Sync target '{}' not found", name))?;
+    let t = cfg
+        .find(&name)
+        .ok_or_else(|| anyhow!("Sync target '{}' not found", name))?;
 
     println!("Name:        {}", t.name);
     println!("Source:      {}", t.source.display());
@@ -280,7 +300,9 @@ pub fn sync_show(name: String) -> Result<()> {
 pub fn sync_set_enabled(name: String, enabled: bool) -> Result<()> {
     let paths = cwd_paths()?;
     let mut cfg = load_config(&paths)?;
-    let t = cfg.find_mut(&name).ok_or_else(|| anyhow!("Sync target '{}' not found", name))?;
+    let t = cfg
+        .find_mut(&name)
+        .ok_or_else(|| anyhow!("Sync target '{}' not found", name))?;
     t.enabled = enabled;
     let label = if enabled { "enabled" } else { "disabled" };
     save_config(&paths, &cfg)?;
@@ -308,7 +330,9 @@ pub fn sync_run(name: Option<String>, verbose: bool) -> Result<()> {
 
     let results: Vec<SyncResult> = match &name {
         Some(n) => {
-            let t = cfg.find(n).ok_or_else(|| anyhow!("Sync target '{}' not found", n))?;
+            let t = cfg
+                .find(n)
+                .ok_or_else(|| anyhow!("Sync target '{}' not found", n))?;
             vec![engine.run(t)]
         }
         None => cfg
@@ -373,7 +397,13 @@ pub fn sync_start(interval_secs: u64) -> Result<()> {
     println!("Targets:");
     for t in &cfg.targets {
         if t.enabled {
-            println!("  - {} [{}] {} → {}", t.name, t.mode.as_str(), t.source.display(), t.destination.display());
+            println!(
+                "  - {} [{}] {} → {}",
+                t.name,
+                t.mode.as_str(),
+                t.source.display(),
+                t.destination.display()
+            );
         }
     }
     println!("Press Ctrl+C to stop.");

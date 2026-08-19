@@ -75,7 +75,10 @@ impl StructureSnapshot {
         // Show directories first, then files
         for dir in &dirs {
             if lines.len() >= max_lines {
-                lines.push(format!("  ... ({} more entries)", self.entries.len() - lines.len()));
+                lines.push(format!(
+                    "  ... ({} more entries)",
+                    self.entries.len() - lines.len()
+                ));
                 return (lines.join("\n"), true);
             }
             let depth = dir.matches('/').count();
@@ -86,7 +89,10 @@ impl StructureSnapshot {
 
         for file in &files {
             if lines.len() >= max_lines {
-                lines.push(format!("  ... ({} more entries)", self.entries.len() - lines.len()));
+                lines.push(format!(
+                    "  ... ({} more entries)",
+                    self.entries.len() - lines.len()
+                ));
                 return (lines.join("\n"), true);
             }
             let depth = file.matches('/').count();
@@ -116,15 +122,36 @@ impl ProjectStructure {
     ///
     /// Skips common ignored directories (.git, node_modules, target, etc.)
     /// and respects depth limits.
-    pub fn scan(project_path: &std::path::Path, max_depth: usize) -> std::io::Result<StructureSnapshot> {
+    pub fn scan(
+        project_path: &std::path::Path,
+        max_depth: usize,
+    ) -> std::io::Result<StructureSnapshot> {
         let mut entries = BTreeMap::new();
         let mut file_count = 0;
         let mut dir_count = 0;
 
-        let skip_dirs: &[&str] = &[".git", ".route", ".route-basic", "node_modules", "target", ".next", "dist", "build"];
+        let skip_dirs: &[&str] = &[
+            ".git",
+            ".route",
+            ".route-basic",
+            "node_modules",
+            "target",
+            ".next",
+            "dist",
+            "build",
+        ];
 
         if project_path.exists() {
-            Self::scan_recursive(project_path, project_path, 0, max_depth, skip_dirs, &mut entries, &mut file_count, &mut dir_count)?;
+            Self::scan_recursive(
+                project_path,
+                project_path,
+                0,
+                max_depth,
+                skip_dirs,
+                &mut entries,
+                &mut file_count,
+                &mut dir_count,
+            )?;
         }
 
         Ok(StructureSnapshot {
@@ -162,7 +189,8 @@ impl ProjectStructure {
                     continue;
                 }
 
-                let rel_path = path.strip_prefix(root)
+                let rel_path = path
+                    .strip_prefix(root)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .to_string()
@@ -174,7 +202,8 @@ impl ProjectStructure {
                 } else {
                     entry.metadata().map(|m| m.len()).unwrap_or(0)
                 };
-                let modified_at = entry.metadata()
+                let modified_at = entry
+                    .metadata()
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -193,7 +222,16 @@ impl ProjectStructure {
 
                 if is_dir {
                     *dir_count += 1;
-                    Self::scan_recursive(root, &path, depth + 1, max_depth, skip_dirs, entries, file_count, dir_count)?;
+                    Self::scan_recursive(
+                        root,
+                        &path,
+                        depth + 1,
+                        max_depth,
+                        skip_dirs,
+                        entries,
+                        file_count,
+                        dir_count,
+                    )?;
                 } else {
                     *file_count += 1;
                 }

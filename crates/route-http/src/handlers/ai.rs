@@ -24,18 +24,14 @@ pub struct AiConfigQuery {
 }
 
 /// `GET /api/ai/config`
-pub async fn config_handler(
-    Query(query): Query<AiConfigQuery>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn config_handler(Query(query): Query<AiConfigQuery>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::ai_config(query.show.unwrap_or(false))
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/ai/chat`
-pub async fn chat_handler(
-    Json(req): Json<ChatRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn chat_handler(Json(req): Json<ChatRequest>) -> Result<Json<Value>, ApiError> {
     let output = capture_stdout(|| {
         route_cli::commands::ai_chat(req.message, req.system, req.session_id, req.snapshot)
     })?;

@@ -13,15 +13,12 @@ pub struct SetPermissionRequest {
 
 /// `GET /api/permission`
 pub async fn status_handler() -> Result<Json<Value>, ApiError> {
-    route_cli::commands::permission_status()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    route_cli::commands::permission_status().map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/permission`
-pub async fn set_handler(
-    Json(req): Json<SetPermissionRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn set_handler(Json(req): Json<SetPermissionRequest>) -> Result<Json<Value>, ApiError> {
     route_cli::commands::permission_set(req.level)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))

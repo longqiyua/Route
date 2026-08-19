@@ -6,7 +6,7 @@ use rusqlite::Connection;
 /// Schema version stored in `meta` table.
 pub type SchemaVersion = u32;
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = 4;
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = 5;
 
 /// Apply all migrations up to `CURRENT_SCHEMA_VERSION` on a fresh or existing DB.
 pub fn migrate(conn: &Connection) -> Result<()> {
@@ -36,6 +36,7 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         (2, include_str!("../migrations/v002_tags.sql")),
         (3, include_str!("../migrations/v003_operator.sql")),
         (4, include_str!("../migrations/v004_ai_conflicts.sql")),
+        (5, include_str!("../migrations/v005_context_lineage.sql")),
         // future migrations appended here
     ];
 
@@ -71,7 +72,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "4");
+        assert_eq!(v, "5");
     }
 
     #[test]

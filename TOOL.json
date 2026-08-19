@@ -1,0 +1,32 @@
+{
+  "tool_id": "route",
+  "name": "Route",
+  "kind": "HARNESS",
+  "version": "1.0.0-beta",
+  "source": "BUNDLED",
+  "description": "Development execution system with AI worker orchestration, safety gates, and causal evidence tracking.",
+  "canonical_source": ".",
+  "entrypoint": "route",
+  "native_handle": true,
+  "handle_id": "handle:route",
+  "handle_protocol_revision_min": 1,
+  "handle_protocol_revision_max": 2,
+  "capabilities": [
+    "cap:develop-software",
+    "cap:modify-software",
+    "cap:self-modify",
+    "cap:analyze-code",
+    "cap:run-tests",
+    "cap:manage-branches"
+  ],
+  "interfaces": ["DevelopmentIntentPacket", "RouteOutcomePacket", "MutualLearningReview"],
+  "permissions": ["read project files", "write project files", "execute tests", "git operations"],
+  "side_effects": "modifies project files and git state",
+  "state_location": ".route/",
+  "standalone": true,
+  "license": "AGPL-3.0",
+  "availability_probe": "manifest-valid AND tool-root/Cargo.toml exists (NAME_COLLISION: OS `route` is the Windows network command, never proof of the Route dev system)",
+  "degradation_policy": "A hosting host falls back to Skill/Interface mode when Route is unavailable",
+  "migration_status": "CONFIRMED",
+  "migration_note": "Route canonical source is physically embedded here as a standalone workspace (crates/ + Cargo.toml + Cargo.lock + packages/route-py + .cargo). canonical_source='.' denotes this tool root itself; no reference points outside tool/route/. This manifest is the canonical discovery reference."
+}

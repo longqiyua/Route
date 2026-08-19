@@ -162,7 +162,9 @@ pub fn record_verdict(
     }
 
     {
-        let conn = db_lock.lock().map_err(|e| anyhow!("db lock poisoned: {e}"))?;
+        let conn = db_lock
+            .lock()
+            .map_err(|e| anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO ai_conflict_verdicts(id, commit_id, path, verdict, note, created_at)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)
@@ -188,7 +190,9 @@ pub fn list_verdicts(
     db_lock: &std::sync::Mutex<rusqlite::Connection>,
     commit_id: &str,
 ) -> Result<Vec<AiConflictVerdict>> {
-    let conn = db_lock.lock().map_err(|e| anyhow!("db lock poisoned: {e}"))?;
+    let conn = db_lock
+        .lock()
+        .map_err(|e| anyhow!("db lock poisoned: {e}"))?;
     let mut stmt = conn.prepare(
         "SELECT commit_id, path, verdict, note, created_at
          FROM ai_conflict_verdicts

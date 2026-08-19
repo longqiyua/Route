@@ -55,7 +55,11 @@ impl FuzzyMatcher {
             .collect();
 
         // Sort by score descending
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(self.max_results);
         results
     }
@@ -96,13 +100,17 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     for i in 1..=a_len {
         curr_row[0] = i;
         for j in 1..=b_len {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
             curr_row[j] = std::cmp::min(
                 std::cmp::min(
-                    curr_row[j - 1] + 1,      // insertion
-                    prev_row[j] + 1,           // deletion
+                    curr_row[j - 1] + 1, // insertion
+                    prev_row[j] + 1,     // deletion
                 ),
-                prev_row[j - 1] + cost,        // substitution
+                prev_row[j - 1] + cost, // substitution
             );
         }
         std::mem::swap(&mut prev_row, &mut curr_row);
@@ -130,7 +138,13 @@ mod tests {
     #[test]
     fn test_fuzzy_search() {
         let m = FuzzyMatcher::new();
-        let candidates = &["find_user_by_id", "create_user", "delete_user", "find_all_users", "update_email"];
+        let candidates = &[
+            "find_user_by_id",
+            "create_user",
+            "delete_user",
+            "find_all_users",
+            "update_email",
+        ];
         let results = m.fuzzy_search("find_user", candidates);
         assert!(!results.is_empty());
         assert!(results[0].score >= 0.4);

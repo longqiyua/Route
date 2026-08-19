@@ -20,9 +20,8 @@ use route_basic::BasicRepository;
 fn main() -> Result<()> {
     fmt::init_colors();
 
-    let project_path = parse_path_arg().unwrap_or_else(|_| {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    });
+    let project_path = parse_path_arg()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     // Try to open the repo; None if not a Route repository. We don't
     // treat this as fatal — the banner shows a hint and the REPL still
