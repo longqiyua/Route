@@ -29,6 +29,10 @@ fn route_binary() -> PathBuf {
 fn run(route: &Path, cwd: &Path, args: &[&str]) -> (bool, String, String) {
     let out = Command::new(route)
         .args(args)
+        // Isolate every child process' central archive root to this test's own
+        // unique temp dir; never write to the real Documents/Route. Does not
+        // mutate the test process, so parallel tests cannot race.
+        .env("ROUTE_ARCHIVE_ROOT", cwd)
         .current_dir(cwd)
         .output()
         .expect("run route binary");
@@ -106,19 +110,46 @@ fn emergence_blackboard_events_persist_across_processes() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["emerge", "event", "--actor", "explorer-a", "--source", "observation", "--confidence", "0.9"],
+        &[
+            "emerge",
+            "event",
+            "--actor",
+            "explorer-a",
+            "--source",
+            "observation",
+            "--confidence",
+            "0.9",
+        ],
         "event a",
     );
     must_run(
         &route,
         tmp.path(),
-        &["emerge", "event", "--actor", "explorer-b", "--source", "hypothesis", "--confidence", "0.6"],
+        &[
+            "emerge",
+            "event",
+            "--actor",
+            "explorer-b",
+            "--source",
+            "hypothesis",
+            "--confidence",
+            "0.6",
+        ],
         "event b",
     );
     must_run(
         &route,
         tmp.path(),
-        &["emerge", "event", "--actor", "evaluator-1", "--source", "evidence", "--confidence", "0.8"],
+        &[
+            "emerge",
+            "event",
+            "--actor",
+            "evaluator-1",
+            "--source",
+            "evidence",
+            "--confidence",
+            "0.8",
+        ],
         "event c",
     );
 
@@ -128,7 +159,12 @@ fn emergence_blackboard_events_persist_across_processes() -> Result<()> {
         stdout.contains("blackboard events: 3"),
         "blackboard must retain all events: {stdout}"
     );
-    let json = must_run(&route, tmp.path(), &["emerge", "status", "--json"], "status json");
+    let json = must_run(
+        &route,
+        tmp.path(),
+        &["emerge", "status", "--json"],
+        "status json",
+    );
     assert!(
         json.contains("\"experimental_enabled\": true"),
         "json status should show enabled: {json}"
@@ -160,12 +196,7 @@ fn emergence_novelty_archive_is_exposed() -> Result<()> {
     // A proposed experiment is lineage-explainable.
     let id = proposed_id(&route, tmp.path());
     let short = &id[..8];
-    let stdout = must_run(
-        &route,
-        tmp.path(),
-        &["evolve", "explain", short],
-        "explain",
-    );
+    let stdout = must_run(&route, tmp.path(), &["evolve", "explain", short], "explain");
     assert!(
         stdout.contains("Parent candidate"),
         "explain should answer parent lineage: {stdout}"

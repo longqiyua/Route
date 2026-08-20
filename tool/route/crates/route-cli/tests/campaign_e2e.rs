@@ -34,6 +34,10 @@ fn route_binary() -> PathBuf {
 fn run(route: &Path, cwd: &Path, args: &[&str]) -> (bool, String, String) {
     let out = Command::new(route)
         .args(args)
+        // Point the central archive root at this test's own unique temp dir so
+        // no child process writes to the real Documents/Route. Test-process env
+        // is untouched; parallel tests cannot race over ROUTE_ARCHIVE_ROOT.
+        .env("ROUTE_ARCHIVE_ROOT", cwd)
         .current_dir(cwd)
         .output()
         .expect("run route binary");
@@ -95,7 +99,17 @@ fn start_task_with_campaign(route: &Path, cwd: &Path, campaign_id: &str) -> Stri
 }
 
 fn create_campaign(route: &Path, cwd: &Path, task_id: Option<&str>) -> String {
-    let mut args = vec!["evolve", "campaign", "create", "--goal", "g", "--scope", "s", "--strategy", "st"];
+    let mut args = vec![
+        "evolve",
+        "campaign",
+        "create",
+        "--goal",
+        "g",
+        "--scope",
+        "s",
+        "--strategy",
+        "st",
+    ];
     if let Some(t) = task_id {
         args.push("--task-id");
         args.push(t);
@@ -154,7 +168,11 @@ fn task_campaign_association_persists() -> Result<()> {
 
     // Campaign side: status JSON carries the parent task id.
     let status = json(
-        run(&route, tmp.path(), &["evolve", "campaign", "status", &campaign, "--json"]),
+        run(
+            &route,
+            tmp.path(),
+            &["evolve", "campaign", "status", &campaign, "--json"],
+        ),
         "campaign status",
     );
     assert_eq!(status["task_id"], Value::String(session.clone()));
@@ -197,7 +215,11 @@ fn nextaction_contains_executable_contract() -> Result<()> {
     let campaign = create_campaign(&route, tmp.path(), None);
 
     let next = json(
-        run(&route, tmp.path(), &["evolve", "campaign", "next", &campaign, "--json"]),
+        run(
+            &route,
+            tmp.path(),
+            &["evolve", "campaign", "next", &campaign, "--json"],
+        ),
         "campaign next",
     );
     assert_eq!(next["campaign_id"], Value::String(campaign.clone()));
@@ -234,7 +256,9 @@ fn nextaction_contract_surface_reports_satisfiability() -> Result<()> {
         run(
             &route,
             tmp.path(),
-            &["evolve", "campaign", "next", &campaign, "--json", "--cap", "shell"],
+            &[
+                "evolve", "campaign", "next", &campaign, "--json", "--cap", "shell",
+            ],
         ),
         "campaign next with single cap",
     );
@@ -262,7 +286,15 @@ fn report_success_without_trusted_evidence_cannot_promote() -> Result<()> {
         run(
             &route,
             tmp.path(),
-            &["evolve", "campaign", "report", &campaign, "--json", "--outcome", &outcome],
+            &[
+                "evolve",
+                "campaign",
+                "report",
+                &campaign,
+                "--json",
+                "--outcome",
+                &outcome,
+            ],
         ),
         "ingest success report",
     );
@@ -291,7 +323,14 @@ fn campaign_success_does_not_bypass_task_verification() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "campaign", "report", &campaign, "--outcome", &outcome],
+        &[
+            "evolve",
+            "campaign",
+            "report",
+            &campaign,
+            "--outcome",
+            &outcome,
+        ],
         "ingest success report",
     );
 
@@ -332,19 +371,34 @@ fn crash_reopen_restores_task_campaign_chain() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "campaign", "report", &campaign, "--outcome", &outcome],
+        &[
+            "evolve",
+            "campaign",
+            "report",
+            &campaign,
+            "--outcome",
+            &outcome,
+        ],
         "ingest report",
     );
 
     // A fresh process (each invocation is new) re-reads the persisted chain.
     let status = json(
-        run(&route, tmp.path(), &["evolve", "campaign", "status", &campaign, "--json"]),
+        run(
+            &route,
+            tmp.path(),
+            &["evolve", "campaign", "status", &campaign, "--json"],
+        ),
         "campaign status (reopen)",
     );
     assert_eq!(status["task_id"], Value::String(session.clone()));
     // The report recorded before the "crash" is still there.
     let report = json(
-        run(&route, tmp.path(), &["evolve", "campaign", "report", &campaign, "--json"]),
+        run(
+            &route,
+            tmp.path(),
+            &["evolve", "campaign", "report", &campaign, "--json"],
+        ),
         "campaign report (reopen)",
     );
     assert_eq!(report["task_id"], Value::String(session.clone()));
@@ -369,7 +423,15 @@ fn duplicate_report_idempotent() -> Result<()> {
         run(
             &route,
             tmp.path(),
-            &["evolve", "campaign", "report", &campaign, "--json", "--outcome", &outcome],
+            &[
+                "evolve",
+                "campaign",
+                "report",
+                &campaign,
+                "--json",
+                "--outcome",
+                &outcome,
+            ],
         ),
         "first ingest",
     );
@@ -380,7 +442,15 @@ fn duplicate_report_idempotent() -> Result<()> {
         run(
             &route,
             tmp.path(),
-            &["evolve", "campaign", "report", &campaign, "--json", "--outcome", &outcome],
+            &[
+                "evolve",
+                "campaign",
+                "report",
+                &campaign,
+                "--json",
+                "--outcome",
+                &outcome,
+            ],
         ),
         "duplicate ingest",
     );
@@ -405,7 +475,14 @@ fn conflicting_duplicate_detected() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "campaign", "report", &campaign, "--outcome", &ok_outcome],
+        &[
+            "evolve",
+            "campaign",
+            "report",
+            &campaign,
+            "--outcome",
+            &ok_outcome,
+        ],
         "ingest success",
     );
 
@@ -415,7 +492,15 @@ fn conflicting_duplicate_detected() -> Result<()> {
         run(
             &route,
             tmp.path(),
-            &["evolve", "campaign", "report", &campaign, "--json", "--outcome", &bad_outcome],
+            &[
+                "evolve",
+                "campaign",
+                "report",
+                &campaign,
+                "--json",
+                "--outcome",
+                &bad_outcome,
+            ],
         ),
         "conflicting ingest",
     );
@@ -442,19 +527,37 @@ fn cross_harness_keeps_campaign_lineage() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "campaign", "report", &campaign, "--outcome", &report_json(&campaign, "e1", "success", "dsh-pic")],
+        &[
+            "evolve",
+            "campaign",
+            "report",
+            &campaign,
+            "--outcome",
+            &report_json(&campaign, "e1", "success", "dsh-pic"),
+        ],
         "ingest dsh report",
     );
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "campaign", "report", &campaign, "--outcome", &report_json(&campaign, "e2", "success", "generic-claude")],
+        &[
+            "evolve",
+            "campaign",
+            "report",
+            &campaign,
+            "--outcome",
+            &report_json(&campaign, "e2", "success", "generic-claude"),
+        ],
         "ingest generic report",
     );
 
     // Campaign identity + parent task lineage are continuous across hosts.
     let status = json(
-        run(&route, tmp.path(), &["evolve", "campaign", "status", &campaign, "--json"]),
+        run(
+            &route,
+            tmp.path(),
+            &["evolve", "campaign", "status", &campaign, "--json"],
+        ),
         "campaign status",
     );
     assert_eq!(status["task_id"], Value::String(session.clone()));
@@ -482,7 +585,10 @@ fn campaign_explain_answers_from_persisted_data() -> Result<()> {
         &["evolve", "campaign", "report", &campaign, "--explain"],
         "campaign explain",
     );
-    assert!(explain.contains(&session), "explain should name the parent task: {explain}");
+    assert!(
+        explain.contains(&session),
+        "explain should name the parent task: {explain}"
+    );
     assert!(explain.contains("What was attempted"));
     assert!(explain.contains("Task recommendation"));
     assert!(!explain.trim().is_empty());

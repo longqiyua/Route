@@ -37,6 +37,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -50,6 +51,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .args(["commit", "-m", "initial commit"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -61,6 +63,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .args(["log"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -70,6 +73,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .args(["export", "-f", "mermaid"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -84,6 +88,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .args(["export", "-f", "emacs"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -93,6 +98,7 @@ fn full_workflow_init_commit_log_export() -> Result<()> {
     let output = Command::new(&route)
         .args(["stats"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -113,17 +119,20 @@ fn branch_workflow() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     std::fs::write(tmp.path().join("a.txt"), b"a")?;
     Command::new(&route)
         .args(["commit", "-m", "main commit"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // create inherited branch
     let output = Command::new(&route)
         .args(["branch", "create", "feat", "-k", "inherited"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -131,6 +140,7 @@ fn branch_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["branch", "create", "sandbox1", "-k", "sandbox"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -138,6 +148,7 @@ fn branch_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["branch", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("main"));
@@ -159,6 +170,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(tmp.path().join(".route-basic").exists());
 
@@ -183,6 +195,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
             "backup",
         ])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -197,6 +210,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -210,6 +224,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "run", "t1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -223,6 +238,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "show", "t1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -233,12 +249,14 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "disable", "t1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
     let output = Command::new(&route)
         .args(["sync", "enable", "t1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -246,6 +264,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "remove", "t1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -253,6 +272,7 @@ fn sync_workflow_add_list_run_remove() -> Result<()> {
     let output = Command::new(&route)
         .args(["sync", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -276,6 +296,7 @@ fn create_conversation_session(
     let output = Command::new(route)
         .args(["conversation", "new", title])
         .current_dir(cwd)
+        .env("ROUTE_ARCHIVE_ROOT", cwd)
         .output()?;
     assert!(
         output.status.success(),
@@ -302,6 +323,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -316,6 +338,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -332,6 +355,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "record", &session_id, "user", "hello"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -343,6 +367,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "record", &session_id, "ai", "Hi there!"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -350,6 +375,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "show", &session_id])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -363,6 +389,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "show", &session_id, "--limit", "1"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     // With limit=1, only the last message should be shown
@@ -376,6 +403,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "archive", &session_id])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -387,6 +415,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -398,6 +427,7 @@ fn conversation_workflow() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "delete", &session_id])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -420,6 +450,7 @@ fn conversation_show_nonexistent() -> Result<()> {
     let output = Command::new(&route)
         .args(["conversation", "show", "nonexistent-session"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         !output.status.success(),
@@ -474,6 +505,7 @@ fn mvp_profile_list_and_use() -> Result<()> {
     let output = Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "init failed");
 
@@ -481,6 +513,7 @@ fn mvp_profile_list_and_use() -> Result<()> {
     let output = Command::new(&route)
         .args(["profile", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "profile list failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -498,6 +531,7 @@ fn mvp_profile_list_and_use() -> Result<()> {
     let output = Command::new(&route)
         .args(["profile", "show"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "profile show failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -510,6 +544,7 @@ fn mvp_profile_list_and_use() -> Result<()> {
     let output = Command::new(&route)
         .args(["profile", "use", "strict"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "profile use strict failed");
 
@@ -517,6 +552,7 @@ fn mvp_profile_list_and_use() -> Result<()> {
     let output = Command::new(&route)
         .args(["profile", "show"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -539,6 +575,7 @@ fn mvp_workflow_import_json() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // Create a workflow JSON file
@@ -560,6 +597,7 @@ fn mvp_workflow_import_json() -> Result<()> {
     let output = Command::new(&route)
         .args(["workflow", "import", "test-workflow.json"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -571,6 +609,7 @@ fn mvp_workflow_import_json() -> Result<()> {
     let output = Command::new(&route)
         .args(["workflow", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -580,6 +619,7 @@ fn mvp_workflow_import_json() -> Result<()> {
     let output = Command::new(&route)
         .args(["workflow", "show", "wf-test"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -591,12 +631,14 @@ fn mvp_workflow_import_json() -> Result<()> {
     let output = Command::new(&route)
         .args(["workflow", "disable", "wf-test"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
     let output = Command::new(&route)
         .args(["workflow", "enable", "wf-test"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
 
@@ -615,6 +657,7 @@ fn mvp_workflow_import_markdown() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // Create a Markdown workflow file
@@ -631,6 +674,7 @@ fn mvp_workflow_import_markdown() -> Result<()> {
             "My Workflow",
         ])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -642,6 +686,7 @@ fn mvp_workflow_import_markdown() -> Result<()> {
     let output = Command::new(&route)
         .args(["workflow", "show", "my-workflow"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -666,6 +711,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // Add a reference
@@ -694,6 +740,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
             "medium",
         ])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -705,6 +752,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "inspect", "my-ref"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -719,6 +767,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -728,6 +777,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "disable", "my-ref"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "disable failed");
 
@@ -735,6 +785,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "list", "--show-disabled"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -747,6 +798,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "enable", "my-ref"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(output.status.success(), "enable failed");
 
@@ -754,6 +806,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "remove", "my-ref", "--force"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),
@@ -765,6 +818,7 @@ fn mvp_reference_inspect_enable_disable() -> Result<()> {
     let output = Command::new(&route)
         .args(["reference", "list"])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -787,6 +841,7 @@ fn mvp_status_shows_profile_and_refs() -> Result<()> {
     Command::new(&route)
         .arg("init")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // Add a reference
@@ -803,12 +858,14 @@ fn mvp_status_shows_profile_and_refs() -> Result<()> {
             "test",
         ])
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
 
     // Check status
     let output = Command::new(&route)
         .arg("status")
         .current_dir(tmp.path())
+        .env("ROUTE_ARCHIVE_ROOT", tmp.path())
         .output()?;
     assert!(
         output.status.success(),

@@ -19,8 +19,8 @@ pub mod curator;
 pub mod discovery;
 pub mod drift;
 pub mod emergence;
-pub mod execution;
 pub mod evolution;
+pub mod execution;
 pub mod experiment;
 pub mod export;
 pub mod fail_inject;
@@ -48,6 +48,7 @@ pub mod repository;
 pub mod roadmap;
 pub mod role_template;
 pub mod savepoint;
+pub mod self_archive;
 pub mod strategy;
 pub mod study;
 pub mod trajectory;
@@ -59,7 +60,8 @@ pub use adapter::{
     ApplyTarget, VerifyInfo, ROUTE_BEGIN, ROUTE_END,
 };
 pub use agent_compiler::{
-    compile_plan, compile_to_host, render_plan, AgentPlan, AgentSpec, CompilerInput, HostCapabilities,
+    compile_plan, compile_to_host, render_plan, AgentPlan, AgentSpec, CompilerInput,
+    HostCapabilities,
 };
 pub use agent_org::{
     agent_org_dir, agent_org_path, classify_task_pattern, OrganizationExperience,

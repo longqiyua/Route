@@ -78,16 +78,119 @@ const SAVES_DIR: &str = "saves";
 /// Objects directory (content-addressed blobs).
 const OBJECTS_DIR: &str = "objects";
 
+/// Serializes read-modify-write cycles on the shared registry file. Multiple
+/// projects archive in parallel (one thread per project), so without this a
+/// concurrent `save()` can overwrite a sibling's freshly-written entry — which
+/// would be dropped from `archive_dir_name_for`'s lookup and break the
+/// name-based directory resolution.
+static REGISTRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Global lock serializing any test that reads or mutates the process-wide
+/// `ROUTE_ARCHIVE_ROOT` env var (or the real archive directory under it).
+///
+/// `archive_root()` resolves from a global env var, so tests must pretend the
+/// whole archive root is shared state even when they redirect it to a temp dir.
+/// Both `game_save` disk-level tests and `self_archive` tests take this lock so
+/// they never redirect/observe the env mid-flight on another test.
+#[cfg(test)]
+pub(crate) static TEST_ARCHIVE_ROOT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Test-only RAII guard that redirects the process-global `ROUTE_ARCHIVE_ROOT`
+/// to a unique temp directory for the duration of the body, then restores the
+/// previous value on Drop.
+///
+/// Because `archive_root()` resolves from a global env var, the *entire* archive
+/// root is shared state — any test that reads or writes it must run under
+/// `TEST_ARCHIVE_ROOT_LOCK` (held by this guard). Both `game_save` and
+/// `self_archive` tests use exactly this guard so there is one synchronization
+/// domain for one process-global variable.
+///
+/// Drop is RAII, so env restoration happens even on panic / early `return`.
+/// Only the unique temp dir created by this guard is ever removed — never any
+/// pre-existing user data.
+#[cfg(test)]
+pub(crate) struct TestArchiveRootGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    prev: Option<String>,
+    temp_root: std::path::PathBuf,
+}
+
+#[cfg(test)]
+impl TestArchiveRootGuard {
+    /// Acquire the archive-root lock, snapshot the previous `ROUTE_ARCHIVE_ROOT`
+    /// (if any), and point it at a fresh, unique temp root.
+    pub(crate) fn new() -> Self {
+        Self::with_lock(
+            TEST_ARCHIVE_ROOT_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        )
+    }
+
+    /// Same as [`Self::new`], but takes an already-held archive-root lock.
+    ///
+    /// The deterministic env-restoration tests use this so they can set up the
+    /// "previous" `ROUTE_ARCHIVE_ROOT` state (via `set_var` / `remove_var`)
+    /// while already holding the shared lock — creating the guard must never
+    /// try to re-acquire the same non-reentrant mutex.
+    pub(crate) fn with_lock(lock: std::sync::MutexGuard<'static, ()>) -> Self {
+        let prev = std::env::var("ROUTE_ARCHIVE_ROOT").ok();
+        let temp_root = std::env::temp_dir().join(format!(
+            "route_archive_test_{}_{}",
+            std::process::id(),
+            route_core::hash::new_id()
+        ));
+        std::env::set_var("ROUTE_ARCHIVE_ROOT", &temp_root);
+        Self {
+            _lock: lock,
+            prev,
+            temp_root,
+        }
+    }
+
+    /// The isolated archive root in effect inside this guard.
+    pub(crate) fn temp_root(&self) -> &std::path::Path {
+        &self.temp_root
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestArchiveRootGuard {
+    fn drop(&mut self) {
+        // Restore the previous env first (so no other thread observes the temp
+        // root after we release the lock), then remove only our own temp dir.
+        match self.prev.take() {
+            Some(prev) => std::env::set_var("ROUTE_ARCHIVE_ROOT", prev),
+            None => std::env::remove_var("ROUTE_ARCHIVE_ROOT"),
+        }
+        let _ = std::fs::remove_dir_all(&self.temp_root);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // P0 — User Save Root
 // ---------------------------------------------------------------------------
 
 /// Resolve the user-level archive root directory.
 ///
+/// If `ROUTE_ARCHIVE_ROOT` is set, it wins (useful for tests, portable archives,
+/// and relocating the central save). Otherwise:
+///
 /// Windows: `%USERPROFILE%\Documents\Route\`
 /// macOS:   `~/Documents/Route/`
 /// Linux:   `~/Documents/Route/` (fallback)
 pub fn archive_root() -> Result<PathBuf> {
+    if let Ok(root) = std::env::var("ROUTE_ARCHIVE_ROOT") {
+        if !root.trim().is_empty() {
+            let mut resolved = PathBuf::from(root);
+            if let Ok(canon) = fs::canonicalize(&resolved) {
+                resolved = canon;
+            } else {
+                fs::create_dir_all(&resolved)?;
+            }
+            return Ok(resolved);
+        }
+    }
     let base = if cfg!(target_os = "windows") {
         let user_profile =
             std::env::var("USERPROFILE").map_err(|_| anyhow::anyhow!("USERPROFILE not set"))?;
@@ -107,6 +210,64 @@ pub fn archive_root() -> Result<PathBuf> {
 /// The projects directory: `Documents/Route/projects/`
 pub fn projects_dir() -> Result<PathBuf> {
     Ok(archive_root()?.join(PROJECTS_DIR))
+}
+
+/// Sanitize an arbitrary project name into a safe, single-path-component
+/// directory segment. Keeps alphanumerics, spaces, `-`, `_`, `.`. Collapses to
+/// "project" when nothing usable remains, so the segment never becomes `.`/`..`
+/// or empty (which would escape the projects directory).
+pub fn sanitize_dir_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_space = false;
+    for ch in name.chars() {
+        if ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            if prev_space && !out.is_empty() && ch != ' ' {
+                out.push('-');
+            }
+            prev_space = false;
+            // Keep a single leading dot only if it isn't a trailing-ellipsis path.
+            if ch == '.' && (out.is_empty() || out == ".") {
+                continue;
+            }
+            out.push(ch);
+        } else if ch.is_whitespace() {
+            prev_space = true;
+        }
+    }
+    // Trim trailing dots/spaces that Windows would strip.
+    let trimmed = out.trim_end_matches(['.', ' ', '-']).to_string();
+    let candidate = if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed
+    };
+    if candidate == "." || candidate == ".." {
+        "project".to_string()
+    } else {
+        candidate
+    }
+}
+
+/// Resolve the on-disk archive directory name for a project.
+///
+/// Project archives are classified by **project name** so users can browse the
+/// central archive at `Documents/Route/projects/<项目名>/` by human-readable
+/// name. The stable `project_id` is retained inside `registry.json` and
+/// `project.json` as the authoritative identity, but the directory is organized
+/// by name.
+///
+/// When the project is not (yet) registered — or the name resolves to an
+/// unknown id — we fall back to the project_id itself, preserving backward
+/// compatibility for archive roots created before name-based classification.
+pub fn archive_dir_name_for(project_id: &str) -> Result<String> {
+    let registry = ProjectRegistry::load()?;
+    if let Some(entry) = registry.get(project_id) {
+        let name = sanitize_dir_name(&entry.project_name);
+        if name != "project" {
+            return Ok(name);
+        }
+    }
+    Ok(project_id.to_string())
 }
 
 /// The registry file path: `Documents/Route/registry.json`
@@ -141,7 +302,19 @@ pub struct ProjectRegistry {
 
 impl ProjectRegistry {
     /// Load registry from disk. Returns empty if not found.
+    ///
+    /// Takes `REGISTRY_LOCK`, so any caller (e.g. `archive_dir_name_for`) is
+    /// mutually exclusive with `save()` and sees a consistent on-disk snapshot.
     pub fn load() -> Result<Self> {
+        let _guard = REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        Self::load_unlocked()
+    }
+
+    /// Load registry from disk WITHOUT acquiring `REGISTRY_LOCK`.
+    ///
+    /// Internal only — callers that already hold the lock must go through this
+    /// to avoid re-entrant deadlock on the non-reentrant `std::sync::Mutex`.
+    fn load_unlocked() -> Result<Self> {
         let path = registry_path()?;
         if !path.exists() {
             return Ok(Self::default());
@@ -154,16 +327,25 @@ impl ProjectRegistry {
     }
 
     /// Save registry to disk.
+    ///
+    /// Serializes the whole read-modify-write cycle under `REGISTRY_LOCK` and
+    /// merges with the current on-disk state before writing, so concurrent
+    /// writers (e.g. multiple projects archiving in parallel) do not drop each
+    /// other's entries. `self` wins on a per-project_id collision.
     pub fn save(&self) -> Result<()> {
+        let _guard = REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let path = registry_path()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create archive root at {}", parent.display())
             })?;
         }
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(&path, &json)?;
-        Ok(())
+        let mut merged = ProjectRegistry::load_unlocked().unwrap_or_default();
+        for entry in &self.entries {
+            merged.upsert(entry.clone());
+        }
+        let json = serde_json::to_string_pretty(&merged)?;
+        crate::constitutive::write_atomic(&path, json.as_bytes())
     }
 
     /// Get entry by project ID.
@@ -219,8 +401,11 @@ impl ProjectRegistry {
 // ---------------------------------------------------------------------------
 
 /// Project archive directory path.
+///
+/// The directory is classified by project name (see `archive_dir_name_for`),
+/// falling back to the project_id for unknown/unregistered projects.
 pub fn project_archive_dir(project_id: &str) -> Result<PathBuf> {
-    Ok(projects_dir()?.join(project_id))
+    Ok(projects_dir()?.join(archive_dir_name_for(project_id)?))
 }
 
 /// Project metadata file path.
@@ -820,8 +1005,35 @@ pub fn init_project_archive(
 ) -> Result<String> {
     let project_id = project_id_from_path(project_root);
     let now = now_millis();
+    let project_name = project_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
-    // Ensure directories exist
+    // Register the project in the central registry FIRST, so the on-disk
+    // archive directory resolves to the project-name classification (<项目名>)
+    // rather than the fallback project_id. If the project was previously
+    // archived under an older name, migrate its directory.
+    let mut registry = ProjectRegistry::load()?;
+    if let Some(existing) = registry.get(&project_id) {
+        if existing.project_name != project_name {
+            migrate_archive_dir(&project_id, &existing.project_name, &project_name)?;
+        }
+    }
+    let project_path_str = project_root
+        .to_string_lossy()
+        .to_string()
+        .replace('\\', "/");
+    registry.upsert(RegistryEntry {
+        project_id: project_id.clone(),
+        project_name: project_name.clone(),
+        known_paths: vec![project_path_str],
+        created_at: now,
+        last_seen_at: now,
+    });
+    registry.save()?;
+
+    // Ensure directories exist (now resolved by project name)
     let archive_dir = project_archive_dir(&project_id)?;
     fs::create_dir_all(&archive_dir)
         .with_context(|| format!("failed to create archive dir at {}", archive_dir.display()))?;
@@ -848,10 +1060,7 @@ pub fn init_project_archive(
     // Create project metadata
     let meta = ProjectArchiveMeta {
         project_id: project_id.clone(),
-        project_name: project_root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
+        project_name: project_name.clone(),
         created_at: now,
         last_updated_at: now,
         save_count: 0,
@@ -860,26 +1069,40 @@ pub fn init_project_archive(
     };
     meta.save()?;
 
-    // Update registry
-    let mut registry = ProjectRegistry::load()?;
-    let project_name = project_root
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-    let project_path_str = project_root
-        .to_string_lossy()
-        .to_string()
-        .replace('\\', "/");
-    registry.upsert(RegistryEntry {
-        project_id: project_id.clone(),
-        project_name,
-        known_paths: vec![project_path_str],
-        created_at: now,
-        last_seen_at: now,
-    });
-    registry.save()?;
-
     Ok(project_id)
+}
+
+/// Rename a project's on-disk archive directory when its name changes.
+///
+/// `old_name`/`new_name` are the raw project names; both are sanitized before
+/// computing the old vs. new directory. Only migrates when the old dir exists
+/// and the new dir does not, so a no-op rename is safe.
+fn migrate_archive_dir(project_id: &str, old_name: &str, new_name: &str) -> Result<()> {
+    let old = projects_dir()?.join(sanitize_dir_name(old_name));
+    let new = projects_dir()?.join(sanitize_dir_name(new_name));
+    if old == new {
+        return Ok(());
+    }
+    // A legacy archive keyed by project_id (pre-name-classification). This
+    // only matters for archives created before v1.0's name-based layout.
+    let legacy = projects_dir()?.join(project_id);
+    let from = if old.exists() {
+        &old
+    } else if legacy.exists() {
+        &legacy
+    } else {
+        return Ok(());
+    };
+    if from != &new && !new.exists() {
+        fs::rename(from, &new).with_context(|| {
+            format!(
+                "failed to migrate archive dir {} -> {}",
+                from.display(),
+                new.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 /// Create a save (auto or manual). Returns the save ID.
@@ -3089,14 +3312,26 @@ pub fn verify_no_recursive_save(
     let snapshot = repo.get_snapshot(&head_id)?;
     let manifest = repo.get_manifest(&snapshot.manifest_hash)?;
 
+    Ok(verify_no_recursive_save_core(
+        &archive_root_str,
+        &manifest.keys().cloned().collect::<Vec<_>>(),
+    ))
+}
+
+/// Core check shared by [`verify_no_recursive_save`] and tests: flag any path
+/// that lives inside the archive root. Pure function — no I/O.
+pub(crate) fn verify_no_recursive_save_core(
+    archive_root_str: &str,
+    paths: &[String],
+) -> Vec<String> {
     let mut violations = Vec::new();
-    for (path, _) in &manifest {
+    for path in paths {
         let normalized = path.replace('\\', "/");
-        if normalized.starts_with(&archive_root_str) {
+        if normalized.starts_with(archive_root_str) {
             violations.push(format!("Archive root path found in snapshot: {}", path));
         }
     }
-    Ok(violations)
+    violations
 }
 
 // ---------------------------------------------------------------------------
@@ -3106,9 +3341,9 @@ pub fn verify_no_recursive_save(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     /// Serialize disk-level tests to avoid corrupting the shared registry.
-    static DISK_TEST_LOCK: Mutex<()> = Mutex::new(());
+    // Uses the shared `TEST_ARCHIVE_ROOT_LOCK` so self_archive tests (which
+    // redirect ROUTE_ARCHIVE_ROOT) never race these disk-touching tests.
 
     #[test]
     fn test_project_id_stable() {
@@ -3119,6 +3354,131 @@ mod tests {
         let id2 = project_id_from_path(&p);
         assert_eq!(id1, id2);
         assert!(id1.starts_with("prj_"));
+    }
+
+    #[test]
+    fn test_sanitize_dir_name() {
+        assert_eq!(sanitize_dir_name("My Project"), "My-Project");
+        assert_eq!(sanitize_dir_name("A  B  C"), "A-B-C");
+        assert_eq!(sanitize_dir_name("   "), "project");
+        assert_eq!(sanitize_dir_name(""), "project");
+        assert_eq!(sanitize_dir_name(".."), "project");
+        assert_eq!(sanitize_dir_name("."), "project");
+        assert_eq!(sanitize_dir_name(".hidden"), "hidden");
+        assert_eq!(sanitize_dir_name("trailing. "), "trailing");
+        assert_eq!(sanitize_dir_name("name.with.dots"), "name.with.dots");
+        assert_eq!(sanitize_dir_name("中文 / 项目"), "中文-项目");
+        // Never empty and never a path traversal.
+        assert!(!sanitize_dir_name("x").is_empty());
+        for s in ["", ".", "..", "   ", "a/b", "a\\b"] {
+            let name = sanitize_dir_name(s);
+            assert!(!name.is_empty());
+            assert!(!name.contains('/'));
+            assert!(!name.contains('\\'));
+        }
+    }
+
+    #[test]
+    fn test_archive_dir_name_safety_and_collision() {
+        // P13/P16: central archive classifies project dirs by sanitized name.
+        // Every resolved dir name must be a single safe path component.
+        let _guard = TestArchiveRootGuard::new();
+
+        // Unknown/unregistered project falls back to the stable project_id,
+        // which is `prj_` + lowercase hex — never a path traversal.
+        let unknown = archive_dir_name_for("prj_0123456789abcdef").unwrap();
+        assert_eq!(unknown, "prj_0123456789abcdef");
+        assert!(!unknown.contains('/'));
+        assert!(!unknown.contains('\\'));
+        assert!(!unknown.starts_with('.'));
+        assert_ne!(unknown, "..");
+
+        // Names that sanitize to "project" also fall back to the project_id so
+        // they can never collide with the literal fallback sentinel.
+        let mut reg = ProjectRegistry::default();
+        reg.upsert(RegistryEntry {
+            project_id: "prj_a".to_string(),
+            project_name: "   ".to_string(),
+            known_paths: vec![],
+            created_at: 1,
+            last_seen_at: 1,
+        });
+        reg.save().unwrap();
+        assert_eq!(archive_dir_name_for("prj_a").unwrap(), "prj_a");
+
+        // Same sanitized name => same archive dir (documented by-design
+        // collision: two different project_ids share one name-classified dir).
+        // Identity remains authoritative inside registry/project metadata.
+        let mut reg2 = ProjectRegistry::default();
+        reg2.upsert(RegistryEntry {
+            project_id: "prj_aaaa".to_string(),
+            project_name: "Alpha Project".to_string(),
+            known_paths: vec![],
+            created_at: 1,
+            last_seen_at: 1,
+        });
+        reg2.upsert(RegistryEntry {
+            project_id: "prj_bbbb".to_string(),
+            project_name: "Alpha Project".to_string(),
+            known_paths: vec![],
+            created_at: 1,
+            last_seen_at: 1,
+        });
+        reg2.save().unwrap();
+        let dir_a = archive_dir_name_for("prj_aaaa").unwrap();
+        let dir_b = archive_dir_name_for("prj_bbbb").unwrap();
+        assert_eq!(dir_a, dir_b);
+        assert_eq!(dir_a, "Alpha-Project");
+    }
+
+    #[test]
+    fn test_sanitize_no_traversal_disk() {
+        // P13: hostile names must never escape the projects directory even when
+        // joined. Verify against the actual on-disk projects dir.
+        let _guard = TestArchiveRootGuard::new();
+        // Ensure the root exists so `archive_root()` canonicalizes consistently
+        // (the first call creates it and returns a non-canonical path).
+        let _ = archive_root().unwrap();
+        let root = std::fs::canonicalize(archive_root().unwrap()).unwrap();
+        for hostile in [
+            "../../escape",
+            "..\\escape",
+            "a/b",
+            "a\\b",
+            "..",
+            "CON",
+            "trailing. ",
+        ] {
+            let safe = sanitize_dir_name(hostile);
+            let joined = projects_dir().unwrap().join(&safe);
+            assert!(
+                joined.starts_with(&root),
+                "sanitized '{}' -> '{}' escaped archive root",
+                hostile,
+                joined.display()
+            );
+            // Sanitized segment must never contain a separator.
+            assert!(!safe.contains('/') && !safe.contains('\\'));
+        }
+    }
+
+    #[test]
+    fn test_verify_no_recursive_save_rejects_archive_root() {
+        // P17: a snapshot that would include the archive root must be flagged.
+        let _guard = TestArchiveRootGuard::new();
+        let root_str = archive_root()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+            .replace('\\', "/");
+        // Simulate a manifest entry pointing inside the archive root.
+        let violations =
+            verify_no_recursive_save_core(&root_str, &[format!("{root_str}/projects/x/a.txt")]);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("Archive root path found in snapshot"));
+        // Unrelated paths are not flagged.
+        let ok = verify_no_recursive_save_core(&root_str, &["src/main.rs".to_string()]);
+        assert!(ok.is_empty());
     }
 
     #[test]
@@ -3923,7 +4283,7 @@ mod tests {
     // -------------------------------------------------------------------
     #[test]
     fn test_disk_full_restore_selective() {
-        let _lock = DISK_TEST_LOCK.lock().unwrap();
+        let _guard = TestArchiveRootGuard::new();
         let tmp = tempfile::tempdir().expect("temp dir");
         let project_root = tmp.path().to_path_buf();
         let route_version = "0.0.0-test";
@@ -4004,7 +4364,7 @@ mod tests {
     // -------------------------------------------------------------------
     #[test]
     fn test_disk_delete_and_recover() {
-        let _lock = DISK_TEST_LOCK.lock().unwrap();
+        let _guard = TestArchiveRootGuard::new();
         let tmp = tempfile::tempdir().expect("temp dir");
         let project_root = tmp.path().to_path_buf();
         let route_version = "0.0.0-test";
@@ -4106,7 +4466,7 @@ mod tests {
     // -------------------------------------------------------------------
     #[test]
     fn test_disk_binary_restore() {
-        let _lock = DISK_TEST_LOCK.lock().unwrap();
+        let _guard = TestArchiveRootGuard::new();
         let tmp = tempfile::tempdir().expect("temp dir");
         let project_root = tmp.path().to_path_buf();
         let route_version = "0.0.0-test";
@@ -4165,7 +4525,7 @@ mod tests {
     // -------------------------------------------------------------------
     #[test]
     fn test_disk_missing_object_recover_fails() {
-        let _lock = DISK_TEST_LOCK.lock().unwrap();
+        let _guard = TestArchiveRootGuard::new();
         let tmp = tempfile::tempdir().expect("temp dir");
         let project_root = tmp.path().to_path_buf();
         let route_version = "0.0.0-test";
@@ -4246,6 +4606,148 @@ mod tests {
                     e
                 );
             }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // P6 — ENV RESTORATION (deterministic, order-independent)
+    // -------------------------------------------------------------------
+    //
+    // Each test acquires the shared `TEST_ARCHIVE_ROOT_LOCK` first, does any
+    // `set_var` / `remove_var` baseline setup under that lock, then runs a
+    // `TestArchiveRootGuard` scope. On Drop the guard must restore the exact
+    // previous `ROUTE_ARCHIVE_ROOT` state. No reliance on test execution order.
+
+    fn acquire_lock() -> std::sync::MutexGuard<'static, ()> {
+        TEST_ARCHIVE_ROOT_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn current_root() -> Option<std::path::PathBuf> {
+        std::env::var("ROUTE_ARCHIVE_ROOT")
+            .ok()
+            .map(std::path::PathBuf::from)
+    }
+
+    /// P6-A: previously unset → guard → temp root → drop → unset again.
+    #[test]
+    fn test_p6a_guard_unset_restores_to_unset() {
+        let lock = acquire_lock();
+        std::env::remove_var("ROUTE_ARCHIVE_ROOT");
+        assert!(current_root().is_none(), "baseline must be unset");
+
+        let temp_root_marker;
+        {
+            let guard = TestArchiveRootGuard::with_lock(lock);
+            let cur = current_root();
+            assert_eq!(cur.as_deref(), Some(guard.temp_root()));
+            assert!(
+                guard.temp_root().starts_with(std::env::temp_dir()),
+                "temp root must live under the OS temp dir"
+            );
+            temp_root_marker = guard.temp_root().to_path_buf();
+        } // Drop restores
+
+        assert!(current_root().is_none(), "env must be unset after Drop");
+        assert!(
+            !temp_root_marker.exists(),
+            "guard's own temp dir must be removed on Drop"
+        );
+    }
+
+    /// P6-B: previously set → guard → temp root → drop → previous value restored.
+    #[test]
+    fn test_p6b_guard_restores_previous_value() {
+        let lock = acquire_lock();
+        const PREV: &str = "route_archive_test_previous_root_sentinel";
+        std::env::set_var("ROUTE_ARCHIVE_ROOT", PREV);
+        assert_eq!(current_root().as_deref(), Some(std::path::Path::new(PREV)));
+
+        let temp_root_marker;
+        {
+            let guard = TestArchiveRootGuard::with_lock(lock);
+            let cur = current_root();
+            assert_eq!(cur.as_deref(), Some(guard.temp_root()));
+            temp_root_marker = guard.temp_root().to_path_buf();
+        } // Drop restores
+
+        assert_eq!(
+            std::env::var("ROUTE_ARCHIVE_ROOT").as_deref(),
+            Ok(PREV),
+            "previous ROUTE_ARCHIVE_ROOT value must be restored on Drop"
+        );
+        assert!(!temp_root_marker.exists());
+    }
+
+    /// P6-C: two sequential isolated scopes never leak roots across each other.
+    #[test]
+    fn test_p6c_guard_no_cross_scope_contamination() {
+        let mut last: Option<std::path::PathBuf> = None;
+        for _ in 0..3 {
+            let marker;
+            {
+                // Each scope acquires the shared lock fresh (RAII) and releases
+                // it on Drop, so scopes are serialized but not nested.
+                let guard = TestArchiveRootGuard::new();
+                let cur = current_root().expect("guard must set a temp root");
+                assert_eq!(cur, guard.temp_root());
+                if let Some(prev) = &last {
+                    assert_ne!(
+                        guard.temp_root(),
+                        prev,
+                        "each isolated scope must get a fresh, unique temp root"
+                    );
+                }
+                marker = guard.temp_root().to_path_buf();
+            } // Drop restores + removes own temp dir
+
+            assert!(!marker.exists(), "temp root removed after scope");
+            last = Some(marker);
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // P7 — FAILURE / PANIC HYGIENE
+    // -------------------------------------------------------------------
+    //
+    // A failure inside a guard scope must still Drop the guard, restoring the
+    // process env so later tests are never corrupted.
+
+    #[test]
+    fn test_p7_guard_restores_env_even_on_panic() {
+        let lock = acquire_lock();
+        std::env::remove_var("ROUTE_ARCHIVE_ROOT"); // unset baseline
+
+        let temp_seen = std::sync::Arc::new(std::sync::Mutex::new(None::<std::path::PathBuf>));
+        let temp_handle = temp_seen.clone();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = TestArchiveRootGuard::with_lock(lock);
+            *temp_handle.lock().unwrap() = current_root();
+            panic!("simulated internal failure inside isolated scope");
+        }));
+
+        assert!(
+            result.is_err(),
+            "the simulated panic must propagate to the caller"
+        );
+
+        let redirect = temp_seen.lock().unwrap().clone();
+        assert!(
+            redirect.is_some(),
+            "the guard must have redirected the env while it was alive"
+        );
+        // Env fully restored after the panic unwound the guard's Drop.
+        assert!(
+            current_root().is_none(),
+            "env must be unset after guard Drop on panic"
+        );
+        if let Some(path) = redirect {
+            assert!(
+                !path.exists(),
+                "guard's own temp dir must be cleaned even on panic"
+            );
         }
     }
 }

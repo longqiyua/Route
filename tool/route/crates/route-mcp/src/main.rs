@@ -811,6 +811,58 @@ fn tool_registry() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
         },
+        // ===================================================================
+        // Self-archive / self-evolve tools
+        // ===================================================================
+        ToolDef {
+            name: "route_self_archive_archive",
+            description: "Snapshot Route's current standard files as a new self-version. Returns the archived version metadata (seq, version_id, files, root).",
+            input_schema: json!({
+                "type": "object",
+                "required": ["from"],
+                "properties": {
+                    "from": { "type": "string", "description": "Source file or directory to snapshot (fetches all files under it)." },
+                    "message": { "type": "string", "description": "Why this iteration is happening." },
+                    "route_version": { "type": "string", "description": "Route product version to tag the snapshot with." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_self_archive_list",
+            description: "List the self-archive history (newest last). Returns version metadata for each snapshot.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
+            name: "route_self_archive_show",
+            description: "Show a specific archived self-version by sequence number. Returns the full file contents.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["seq"],
+                "properties": {
+                    "seq": { "type": "integer", "description": "Sequence number from `route self-archive list`." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_self_archive_apply",
+            description: "Roll the archive back to a version. Returns the archived file contents, optionally written to an output directory.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["seq"],
+                "properties": {
+                    "seq": { "type": "integer", "description": "Sequence number to roll back to." },
+                    "out": { "type": "string", "description": "Optional directory to write the archived files into." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "route_self_evolve",
+            description: "Emit cross-project self-evolution input (read-only). Returns aggregated project info for AI to propose new standards.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
         ToolDef {
             name: "route_git_mode",
             description: "Get or set the git mode (route.mode config). Pass `mode` to set a new mode; omit to read the current mode. Mode controls how Route interacts with git (e.g. 'standard', 'mirror', 'incremental').",
@@ -3067,6 +3119,138 @@ fn do_plugin_list(_args: Value) -> Result<Value> {
 }
 
 // ---------------------------------------------------------------------------
+// Self-archive / self-evolve handlers (central Route archive; no project repo)
+// ---------------------------------------------------------------------------
+
+fn collect_path_files(
+    path: &std::path::Path,
+    prefix: &str,
+    out: &mut std::collections::HashMap<String, String>,
+) -> Result<()> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let p = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            let logical = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if p.is_dir() {
+                collect_path_files(&p, &logical, out)?;
+            } else if let Ok(content) = std::fs::read_to_string(&p) {
+                out.insert(logical, content);
+            }
+        }
+    } else if let Ok(content) = std::fs::read_to_string(path) {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string());
+        out.insert(name, content);
+    }
+    Ok(())
+}
+
+fn do_self_archive_archive(args: Value) -> Result<Value> {
+    let from = args
+        .get("from")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing required `from` path"))?;
+    let message = args.get("message").and_then(|v| v.as_str()).unwrap_or("");
+    let route_version = args
+        .get("route_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let from_path = std::path::Path::new(from);
+    if !from_path.exists() {
+        return Err(anyhow!("`from` path does not exist: {from}"));
+    }
+    let mut files = std::collections::HashMap::new();
+    collect_path_files(from_path, "", &mut files)?;
+    if files.is_empty() {
+        return Err(anyhow!("no readable files under {from}"));
+    }
+    let v = route_basic::self_archive::archive_current(&files, route_version, message)?;
+    Ok(json!({
+        "version_id": v.meta.version_id,
+        "seq": v.meta.seq,
+        "route_version": v.meta.route_version,
+        "message": v.meta.message,
+        "files": v.meta.files,
+        "root": route_basic::self_archive::self_archive_root()?.to_string_lossy(),
+    }))
+}
+
+fn do_self_archive_list(_args: Value) -> Result<Value> {
+    let versions: Vec<Value> = route_basic::self_archive::list()?
+        .into_iter()
+        .map(|m| {
+            json!({
+                "seq": m.seq,
+                "version_id": m.version_id,
+                "route_version": m.route_version,
+                "message": m.message,
+                "created_at": m.created_at,
+                "files": m.files,
+            })
+        })
+        .collect();
+    Ok(json!({ "count": versions.len(), "versions": versions }))
+}
+
+fn do_self_archive_show(args: Value) -> Result<Value> {
+    let seq = args
+        .get("seq")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| anyhow!("missing required `seq`"))?;
+    match route_basic::self_archive::get(seq)? {
+        Some(v) => Ok(json!({
+            "seq": v.meta.seq,
+            "version_id": v.meta.version_id,
+            "route_version": v.meta.route_version,
+            "message": v.meta.message,
+            "files": v.file_contents,
+        })),
+        None => Err(anyhow!("no self-version with seq {seq}")),
+    }
+}
+
+fn do_self_archive_apply(args: Value) -> Result<Value> {
+    let seq = args
+        .get("seq")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| anyhow!("missing required `seq`"))?;
+    let v = route_basic::self_archive::apply(seq)?;
+    if let Some(out) = args
+        .get("out")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        let dir = std::path::Path::new(out);
+        std::fs::create_dir_all(dir)?;
+        for (name, content) in &v.file_contents {
+            let safe = route_basic::game_save::sanitize_dir_name(name);
+            std::fs::write(dir.join(safe), content)?;
+        }
+        Ok(json!({ "seq": v.meta.seq, "applied_to": out, "files": v.meta.files.len() }))
+    } else {
+        Ok(json!({ "seq": v.meta.seq, "files": v.file_contents }))
+    }
+}
+
+fn do_self_evolve(_args: Value) -> Result<Value> {
+    let input = route_basic::self_archive::collect_self_evolve_input()?;
+    Ok(json!({
+        "generated_at": input.generated_at,
+        "project_count": input.project_count,
+        "latest_self_version": input.latest_self_version,
+        "projects": input.projects,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // AI Chat handler
 // ---------------------------------------------------------------------------
 
@@ -3960,6 +4144,12 @@ fn dispatch_tool(name: &str, args: Value) -> Result<Value> {
             }
             Ok(json!({ "session_id": session_id, "deleted": true }))
         }
+        // Self-archive / self-evolve tools
+        "route_self_archive_archive" => do_self_archive_archive(args),
+        "route_self_archive_list" => do_self_archive_list(args),
+        "route_self_archive_show" => do_self_archive_show(args),
+        "route_self_archive_apply" => do_self_archive_apply(args),
+        "route_self_evolve" => do_self_evolve(args),
         other => Err(anyhow!("unknown tool: {}", other)),
     }
 }

@@ -158,30 +158,67 @@ pub fn status(json: bool) -> Result<()> {
         });
         let integrity = match &check_result {
             Ok(report) => {
-                let has_warnings = report.findings.iter().any(|f| matches!(f.severity, route_basic::VerifySeverity::Warning));
-                let has_issues = report.findings.iter().any(|f| !matches!(f.severity, route_basic::VerifySeverity::Ok | route_basic::VerifySeverity::Warning));
-                if !has_issues && !has_warnings { "ok".to_string() }
-                else if !has_issues { format!("{} warnings", report.findings.len()) }
-                else { format!("{} issues", report.findings.len()) }
+                let has_warnings = report
+                    .findings
+                    .iter()
+                    .any(|f| matches!(f.severity, route_basic::VerifySeverity::Warning));
+                let has_issues = report.findings.iter().any(|f| {
+                    !matches!(
+                        f.severity,
+                        route_basic::VerifySeverity::Ok | route_basic::VerifySeverity::Warning
+                    )
+                });
+                if !has_issues && !has_warnings {
+                    "ok".to_string()
+                } else if !has_issues {
+                    format!("{} warnings", report.findings.len())
+                } else {
+                    format!("{} issues", report.findings.len())
+                }
             }
             Err(_) => "check_failed".to_string(),
         };
 
-        use route_basic::{SessionStore, ProfileStore, ProjectArchiveMeta, BrainStore, ReferenceRegistry, StrategyStore, WorkflowStore};
+        use route_basic::{
+            BrainStore, ProfileStore, ProjectArchiveMeta, ReferenceRegistry, SessionStore,
+            StrategyStore, WorkflowStore,
+        };
         let session_store = SessionStore::load(&cwd).unwrap_or_default();
-        let active_sessions: Vec<String> = session_store.sessions.iter().filter(|s| matches!(s.status, route_basic::SessionStatus::Active)).map(|s| s.id.clone()).collect();
+        let active_sessions: Vec<String> = session_store
+            .sessions
+            .iter()
+            .filter(|s| matches!(s.status, route_basic::SessionStatus::Active))
+            .map(|s| s.id.clone())
+            .collect();
         let active_profile = ProfileStore::active_id(&cwd).ok().flatten();
         let meta = ProjectArchiveMeta::load(&project_id).ok().flatten();
         let brain_store = BrainStore::load(&cwd).ok();
-        let brain_count = brain_store.as_ref().and_then(|b| b.current.as_ref().map(|c| c.items.len())).unwrap_or(0);
+        let brain_count = brain_store
+            .as_ref()
+            .and_then(|b| b.current.as_ref().map(|c| c.items.len()))
+            .unwrap_or(0);
         let registry = ReferenceRegistry::read(&cwd).unwrap_or_default();
         let total_refs = registry.entries.len();
         let enabled_refs = registry.entries.iter().filter(|e| e.enabled).count();
-        let active_strategy = StrategyStore::load(&cwd).ok().and_then(|s| s.current).unwrap_or_else(|| "(none)".to_string());
+        let active_strategy = StrategyStore::load(&cwd)
+            .ok()
+            .and_then(|s| s.current)
+            .unwrap_or_else(|| "(none)".to_string());
         let workflow_store = WorkflowStore::load(&cwd).unwrap_or_default();
-        let enabled_wf = workflow_store.workflows.iter().filter(|w| w.enabled).count();
+        let enabled_wf = workflow_store
+            .workflows
+            .iter()
+            .filter(|w| w.enabled)
+            .count();
         let ctx_dir = route_basic::context_history_dir(&cwd);
-        let ctx_count = if ctx_dir.exists() { std::fs::read_dir(&ctx_dir).ok().map(|e| e.filter_map(|e| e.ok()).count()).unwrap_or(0) } else { 0 };
+        let ctx_count = if ctx_dir.exists() {
+            std::fs::read_dir(&ctx_dir)
+                .ok()
+                .map(|e| e.filter_map(|e| e.ok()).count())
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         let output = serde_json::json!({
             "project": {
@@ -1711,20 +1748,27 @@ pub fn check(full: bool, no_blobs: bool, json: bool) -> Result<()> {
     let ledger_findings = route_basic::check_execution_ledger(&cwd)?;
 
     if json {
-        let findings: Vec<serde_json::Value> = report.findings.iter().map(|f| {
-            serde_json::json!({
-                "severity": format!("{:?}", f.severity),
-                "code": f.code,
-                "detail": f.detail,
+        let findings: Vec<serde_json::Value> = report
+            .findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "severity": format!("{:?}", f.severity),
+                    "code": f.code,
+                    "detail": f.detail,
+                })
             })
-        }).collect();
-        let ledger: Vec<serde_json::Value> = ledger_findings.iter().map(|f| {
-            serde_json::json!({
-                "severity": f.severity,
-                "category": f.category,
-                "message": f.message,
+            .collect();
+        let ledger: Vec<serde_json::Value> = ledger_findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "severity": f.severity,
+                    "category": f.category,
+                    "message": f.message,
+                })
             })
-        }).collect();
+            .collect();
         let output = serde_json::json!({
             "status": format!("{:?}", report.status),
             "snapshots_checked": report.snapshots_checked,
@@ -1813,21 +1857,25 @@ pub fn repair_plan(json: bool) -> Result<()> {
     let report = repo.verify(&opts)?;
 
     if json {
-        let findings: Vec<serde_json::Value> = report.findings.iter().map(|f| {
-            serde_json::json!({
-                "severity": format!("{:?}", f.severity),
-                "code": f.code,
-                "detail": f.detail,
-                "repair": match f.code.as_str() {
-                    "missing_snapshot" => "Run `route commit` to create a snapshot",
-                    "orphan_blob" => "Run `route check --full` to reconcile",
-                    "broken_manifest" => "Run `route snapshot` to rebuild manifest",
-                    "stale_evidence" => "Re-run verification evidence commands",
-                    "incomplete_session" => "Run `route task end` to close the session",
-                    _ => "Manual review recommended",
-                },
+        let findings: Vec<serde_json::Value> = report
+            .findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "severity": format!("{:?}", f.severity),
+                    "code": f.code,
+                    "detail": f.detail,
+                    "repair": match f.code.as_str() {
+                        "missing_snapshot" => "Run `route commit` to create a snapshot",
+                        "orphan_blob" => "Run `route check --full` to reconcile",
+                        "broken_manifest" => "Run `route snapshot` to rebuild manifest",
+                        "stale_evidence" => "Re-run verification evidence commands",
+                        "incomplete_session" => "Run `route task end` to close the session",
+                        _ => "Manual review recommended",
+                    },
+                })
             })
-        }).collect();
+            .collect();
         let output = serde_json::json!({
             "status": format!("{:?}", report.status),
             "snapshots_checked": report.snapshots_checked,
@@ -1988,9 +2036,19 @@ pub fn evolve_propose(
     println!("  status:    {}", exp.status.as_str());
     println!("  candidate: {}", exp.candidate_id);
     println!("  baseline:  {}", exp.baseline_id);
-    println!("  save:      {}", exp.manifest.reversible_save_id.as_deref().unwrap_or("none"));
+    println!(
+        "  save:      {}",
+        exp.manifest.reversible_save_id.as_deref().unwrap_or("none")
+    );
     println!("  references: {}", exp.reference_ids.len());
-    println!("  studios:   {}", if exp.studio_ids.is_empty() { "none".to_string() } else { exp.studio_ids.join(",") });
+    println!(
+        "  studios:   {}",
+        if exp.studio_ids.is_empty() {
+            "none".to_string()
+        } else {
+            exp.studio_ids.join(",")
+        }
+    );
     if let Some(t) = &exp.task_id {
         println!("  task:      {}", t);
     }
@@ -2001,7 +2059,11 @@ pub fn evolve_propose(
         println!("  harness:   {}", h);
     }
     println!();
-    println!("Next: `route evolve evaluate {}` then `route evolve promote {} --label ...`", &exp.id[..8], &exp.id[..8]);
+    println!(
+        "Next: `route evolve evaluate {}` then `route evolve promote {} --label ...`",
+        &exp.id[..8],
+        &exp.id[..8]
+    );
     Ok(())
 }
 
@@ -2050,7 +2112,10 @@ pub fn evolve_show(id: String, explain: bool, json: bool) -> Result<()> {
     println!("  hypothesis: {}", exp.hypothesis);
     println!("  candidate: {}", exp.candidate_id);
     println!("  baseline:  {}", exp.baseline_id);
-    println!("  save:      {}", exp.manifest.reversible_save_id.as_deref().unwrap_or("none"));
+    println!(
+        "  save:      {}",
+        exp.manifest.reversible_save_id.as_deref().unwrap_or("none")
+    );
     if let Some(d) = exp.decision {
         println!("  decision:  {}", d.as_str());
     }
@@ -2084,14 +2149,15 @@ pub fn evolve_show(id: String, explain: bool, json: bool) -> Result<()> {
         println!();
         println!("=== EXPLAIN (P11) ===");
         println!("Why proposed?: {}", exp.hypothesis);
-        println!("What changed?: scopes = {}", exp.manifest.changed_scope.join(", "));
+        println!(
+            "What changed?: scopes = {}",
+            exp.manifest.changed_scope.join(", ")
+        );
         println!(
             "Baseline:     {} (rationale: {})",
             exp.baseline_id, exp.manifest.rationale
         );
-        println!(
-            "Generated by: {}", exp.manifest.generated_by
-        );
+        println!("Generated by: {}", exp.manifest.generated_by);
         println!(
             "Benchmarks:   suite {} ({} cases)",
             exp.benchmark_suite_id,
@@ -2110,14 +2176,19 @@ pub fn evolve_show(id: String, explain: bool, json: bool) -> Result<()> {
         );
         println!(
             "Decision:     {}",
-            exp.decision.map(|d| d.as_str()).unwrap_or("(not evaluated)")
+            exp.decision
+                .map(|d| d.as_str())
+                .unwrap_or("(not evaluated)")
         );
         if let Some(r) = &exp.decision_reason {
             println!("  reason: {}", r);
         }
         println!(
             "Recovery:     reversible_save = {}",
-            exp.manifest.reversible_save_id.as_deref().unwrap_or("MISSING")
+            exp.manifest
+                .reversible_save_id
+                .as_deref()
+                .unwrap_or("MISSING")
         );
     }
     Ok(())
@@ -2126,9 +2197,12 @@ pub fn evolve_show(id: String, explain: bool, json: bool) -> Result<()> {
 /// Parse a harness metric arg `name=baseline:candidate[:hib]` into a Metric.
 pub fn parse_metric_arg(arg: &str) -> Result<route_basic::evolution::Metric> {
     use route_basic::evolution::Metric;
-    let (name, rest) = arg
-        .split_once('=')
-        .ok_or_else(|| anyhow!("metric format: name=baseline:candidate[:hib], got '{}'", arg))?;
+    let (name, rest) = arg.split_once('=').ok_or_else(|| {
+        anyhow!(
+            "metric format: name=baseline:candidate[:hib], got '{}'",
+            arg
+        )
+    })?;
     let parts: Vec<&str> = rest.split(':').collect();
     if parts.len() < 2 {
         anyhow::bail!("metric '{}' needs baseline:candidate", arg);
@@ -2224,7 +2298,9 @@ pub fn evolve_evaluate(id: String, json: bool, metric_args: Vec<String>) -> Resu
     }
 
     let policy = PromotionPolicy::default();
-    let exp = evaluate_experiment(&cwd, &mut store, &id, &baseline, &baseline, metrics, &policy)?;
+    let exp = evaluate_experiment(
+        &cwd, &mut store, &id, &baseline, &baseline, metrics, &policy,
+    )?;
 
     if json {
         let output = serde_json::json!({
@@ -2245,7 +2321,10 @@ pub fn evolve_evaluate(id: String, json: bool, metric_args: Vec<String>) -> Resu
 
     println!("Evaluation for experiment {}", &exp.id[..8]);
     println!("{}", "-".repeat(60));
-    println!("  Repository verify: {}", if verified { "OK" } else { "FAILED" });
+    println!(
+        "  Repository verify: {}",
+        if verified { "OK" } else { "FAILED" }
+    );
     println!(
         "  Decision:         {}",
         exp.decision.map(|d| d.as_str()).unwrap_or("(none)")
@@ -2308,7 +2387,11 @@ pub fn evolve_promote(id: String, label: String) -> Result<()> {
     println!("  label:      {}", label);
     println!(
         "  known_good: {}",
-        store.known_good.as_ref().map(|k| k.id.clone()).unwrap_or_default()
+        store
+            .known_good
+            .as_ref()
+            .map(|k| k.id.clone())
+            .unwrap_or_default()
     );
     Ok(())
 }
@@ -2362,9 +2445,7 @@ fn load_emergence() -> Result<route_basic::emergence::EmergenceStore> {
     route_basic::emergence::EmergenceStore::load(&cwd)
 }
 
-fn save_emergence(
-    store: &route_basic::emergence::EmergenceStore,
-) -> Result<()> {
+fn save_emergence(store: &route_basic::emergence::EmergenceStore) -> Result<()> {
     let cwd = current_project_root();
     store.save(&cwd)
 }
@@ -2383,7 +2464,14 @@ pub fn emerge_status(json: bool) -> Result<()> {
         print_json(true, &store)?;
         return Ok(());
     }
-    println!("Emergence (experimental): {}", if store.experimental_enabled { "enabled" } else { "disabled (default)" });
+    println!(
+        "Emergence (experimental): {}",
+        if store.experimental_enabled {
+            "enabled"
+        } else {
+            "disabled (default)"
+        }
+    );
     println!("  blackboard events: {}", store.blackboard.events.len());
     println!("  champions:         {}", store.champions.len());
     println!("  novelty archive:   {}", store.novelty_archive.len());
@@ -2544,22 +2632,45 @@ pub fn evolve_explain(id: String, json: bool) -> Result<()> {
     }
 
     println!("=== EMERGENCE EXPLAIN (P24) ===");
-    println!("Parent candidate: {}", exp.manifest.parent_candidate.as_deref().unwrap_or("(root)"));
+    println!(
+        "Parent candidate: {}",
+        exp.manifest.parent_candidate.as_deref().unwrap_or("(root)")
+    );
     println!("Mutation:         {}", exp.manifest.rationale);
     println!("Hypothesis:       {}", exp.hypothesis);
     println!("Generated by:     {}", exp.manifest.generated_by);
-    println!("References:       {}", if exp.reference_ids.is_empty() { "(none)".to_string() } else { exp.reference_ids.join(", ") });
+    println!(
+        "References:       {}",
+        if exp.reference_ids.is_empty() {
+            "(none)".to_string()
+        } else {
+            exp.reference_ids.join(", ")
+        }
+    );
     println!("Novelty:          {:.2}", exp.novelty_score);
     println!("Quality:          {:.2}", exp.quality_score);
     println!("Benchmark suite:  {}", exp.benchmark_suite_id);
-    println!("Decision:         {}", exp.decision.map(|d| d.as_str()).unwrap_or("(not evaluated)"));
+    println!(
+        "Decision:         {}",
+        exp.decision
+            .map(|d| d.as_str())
+            .unwrap_or("(not evaluated)")
+    );
     if let Some(r) = &exp.decision_reason {
         println!("  reason:         {}", r);
     }
-    println!("Replicated:       {} (threshold for strategy: cross-task or ablation)",
-        exp.replication_count);
+    println!(
+        "Replicated:       {} (threshold for strategy: cross-task or ablation)",
+        exp.replication_count
+    );
     println!("Ablation passed:  {}", exp.ablation_passed);
-    println!("Recovery:         reversible_save = {}", exp.manifest.reversible_save_id.as_deref().unwrap_or("MISSING"));
+    println!(
+        "Recovery:         reversible_save = {}",
+        exp.manifest
+            .reversible_save_id
+            .as_deref()
+            .unwrap_or("MISSING")
+    );
     Ok(())
 }
 
@@ -2641,7 +2752,11 @@ pub fn campaign_status(id: String, json: bool) -> Result<()> {
     println!("  strategy: {}", c.strategy);
     println!("  task:     {}", c.task_id.as_deref().unwrap_or("(none)"));
     println!("  status:   {}", c.status.as_str());
-    println!("  experiments: {} / {}", c.experiment_ids.len(), c.budget.max_experiments);
+    println!(
+        "  experiments: {} / {}",
+        c.experiment_ids.len(),
+        c.budget.max_experiments
+    );
     println!("  champion: {}", c.champion.as_deref().unwrap_or("(none)"));
     if let Some(r) = &c.stop_reason {
         println!("  stop:     {}", r);
@@ -2655,9 +2770,7 @@ pub fn campaign_status(id: String, json: bool) -> Result<()> {
 /// needs_human with `satisfiable = false` — Route never pretends execution is
 /// possible.
 pub fn campaign_next(id: String, json: bool, cap: Vec<String>) -> Result<()> {
-    use route_basic::campaign::{
-        build_next_action_contract, CampaignStore, NextAction,
-    };
+    use route_basic::campaign::{build_next_action_contract, CampaignStore, NextAction};
     let cwd = current_project_root();
     let store = CampaignStore::load(&cwd)?;
     let c = store
@@ -2713,7 +2826,11 @@ pub fn campaign_next(id: String, json: bool, cap: Vec<String>) -> Result<()> {
         print_json(true, &v)?;
         return Ok(());
     }
-    println!("campaign {} next_action: {}", c.id, contract.action.as_str());
+    println!(
+        "campaign {} next_action: {}",
+        c.id,
+        contract.action.as_str()
+    );
     if !contract.missing_capabilities.is_empty() {
         println!(
             "  degraded: missing capabilities {}",
@@ -2732,10 +2849,14 @@ pub fn campaign_next(id: String, json: bool, cap: Vec<String>) -> Result<()> {
 ///   Route resolves trust through its Evidence hierarchy (P4). Idempotent:
 ///   exact re-submission returns `duplicate`; a disagreeing duplicate returns
 ///   `conflict` and records conflict evidence (P9).
-pub fn campaign_report(id: String, json: bool, explain: bool, outcome: Option<String>) -> Result<()> {
+pub fn campaign_report(
+    id: String,
+    json: bool,
+    explain: bool,
+    outcome: Option<String>,
+) -> Result<()> {
     use route_basic::campaign::{
-        CampaignReport, CampaignStore, IngestReportResult, TaskRecommendation,
-        task_recommendation,
+        task_recommendation, CampaignReport, CampaignStore, IngestReportResult, TaskRecommendation,
     };
 
     // Ingest path: mutating, must reload + save.
@@ -2894,14 +3015,34 @@ pub fn campaign_report(id: String, json: bool, explain: bool, outcome: Option<St
         "Parent task:           {}",
         c.task_id.as_deref().unwrap_or("(none)")
     );
-    println!("Routes explored:       {} candidate experiment(s)", c.experiment_ids.len());
-    println!("Champion:              {}", c.champion.as_deref().unwrap_or("(none)"));
-    println!("Challengers:           {}", if c.challengers.is_empty() { "(none)".to_string() } else { c.challengers.join(", ") });
+    println!(
+        "Routes explored:       {} candidate experiment(s)",
+        c.experiment_ids.len()
+    );
+    println!(
+        "Champion:              {}",
+        c.champion.as_deref().unwrap_or("(none)")
+    );
+    println!(
+        "Challengers:           {}",
+        if c.challengers.is_empty() {
+            "(none)".to_string()
+        } else {
+            c.challengers.join(", ")
+        }
+    );
     println!("Status:                {}", c.status.as_str());
     if let Some(r) = &c.stop_reason {
         println!("Why stopped:           {}", r);
     }
-    println!("Summary:               {}", if c.summary.is_empty() { "(not yet summarized)".to_string() } else { c.summary.clone() });
+    println!(
+        "Summary:               {}",
+        if c.summary.is_empty() {
+            "(not yet summarized)".to_string()
+        } else {
+            c.summary.clone()
+        }
+    );
     Ok(())
 }
 
@@ -5805,6 +5946,184 @@ pub fn study_compare(ids: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// Snapshot Route's current standard files as a new self-version.
+///
+/// `from` may be a directory (all files, recursive) or a single file.
+/// Snapshots are append-only — an old version is never overwritten.
+pub fn self_archive_archive(from: &Path, message: &str, route_version: &str) -> Result<()> {
+    let mut files: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if from.is_dir() {
+        collect_dir_files(from, "", &mut files)?;
+    } else if from.is_file() {
+        let name = from
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .ok_or_else(|| anyhow!("invalid source file"))?;
+        let content = std::fs::read_to_string(from)
+            .with_context(|| format!("failed to read {}", from.display()))?;
+        files.insert(name, content);
+    } else {
+        anyhow::bail!("`--from` path does not exist: {}", from.display());
+    }
+    if files.is_empty() {
+        anyhow::bail!("no files found under {}", from.display());
+    }
+
+    let version = route_basic::self_archive::archive_current(&files, route_version, message)?;
+    println!(
+        "📦 Archived self-version {} (seq {}) at:",
+        version.meta.version_id, version.meta.seq
+    );
+    println!(
+        "   {}",
+        route_basic::self_archive::self_archive_root()?.display()
+    );
+    println!("   files: {}", version.meta.files.join(", "));
+    Ok(())
+}
+
+fn collect_dir_files(
+    dir: &Path,
+    prefix: &str,
+    out: &mut std::collections::HashMap<String, String>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let logical = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        if path.is_dir() {
+            collect_dir_files(&path, &logical, out)?;
+        } else if let Ok(content) = std::fs::read_to_string(&path) {
+            out.insert(logical, content);
+        }
+    }
+    Ok(())
+}
+
+/// List all archived self-versions (history).
+pub fn self_archive_list() -> Result<()> {
+    let versions = route_basic::self_archive::list()?;
+    if versions.is_empty() {
+        println!("No self-versions archived yet.");
+        println!("  Try: route self-archive archive --from <dir> --message \"why\"");
+        return Ok(());
+    }
+    println!("📚 Route self-archive history ({}):", versions.len());
+    for v in versions.iter().rev() {
+        println!(
+            "  v{:06}  {}  route={}  {}",
+            v.seq,
+            chrono_like_ts(v.created_at),
+            v.route_version,
+            if v.message.is_empty() {
+                "(no message)"
+            } else {
+                &v.message
+            }
+        );
+        print!("       files: ");
+        println!("{}", v.files.join(", "));
+    }
+    Ok(())
+}
+
+fn chrono_like_ts(millis: i64) -> String {
+    // Compact UTC timestamp without adding chrono to the CLI.
+    let secs = millis / 1000;
+    let days = secs / 86400;
+    let h = (secs % 86400) / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    format!("+{}d {:02}:{:02}:{:02}", days, h, m, s)
+}
+
+/// Show a specific archived self-version, optionally as JSON.
+pub fn self_archive_show(seq: u64, json: bool) -> Result<()> {
+    let v = match route_basic::self_archive::get(seq)? {
+        Some(v) => v,
+        None => anyhow::bail!("no self-version with seq {seq}"),
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    println!("Self-version v{:06} ({})", v.meta.seq, v.meta.version_id);
+    println!("  route {}", v.meta.route_version);
+    println!("  message: {}", v.meta.message);
+    for (name, content) in v.file_contents.iter() {
+        println!("  --- {name} ---");
+        println!("{}", content.trim_end());
+        println!();
+    }
+    Ok(())
+}
+
+/// Roll the self-archive back to a version.
+///
+/// Prints the archived files, or writes them under `out` when provided so the
+/// harness/user can adopt them. Never mutates the repo itself.
+pub fn self_archive_apply(seq: u64, out: Option<PathBuf>) -> Result<()> {
+    let v = route_basic::self_archive::apply(seq)?;
+    match out {
+        Some(dir) => {
+            std::fs::create_dir_all(&dir)?;
+            for (name, content) in &v.file_contents {
+                let safe = route_basic::game_save::sanitize_dir_name(name);
+                let dest = dir.join(&safe);
+                std::fs::write(&dest, content)?;
+            }
+            println!(
+                "Applied self-version v{:06} to {}",
+                v.meta.seq,
+                dir.display()
+            );
+        }
+        None => {
+            for (name, content) in v.file_contents.iter() {
+                println!("--- {name} ---");
+                println!("{}", content.trim_end());
+                println!();
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Emit cross-project self-evolution input, read-only.
+pub fn self_evolve() -> Result<()> {
+    let input = route_basic::self_archive::collect_self_evolve_input()?;
+    println!(
+        "🧬 Cross-project self-evolution input (project_count: {}):",
+        input.project_count
+    );
+    println!("   latest self-version: {:?}", input.latest_self_version);
+    for p in &input.projects {
+        println!();
+        println!("  - {}", p.project_name);
+        println!("      id: {}", p.project_id);
+        println!(
+            "      known_path: {}",
+            p.known_path.as_deref().unwrap_or("(none)")
+        );
+        println!(
+            "      save_count: {}, latest_save: {}",
+            p.save_count,
+            p.latest_save_id.as_deref().unwrap_or("(none)")
+        );
+        if let Some(c) = &p.constitution_preview {
+            for line in c.lines() {
+                println!("      | {}", line);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `route self-improve` — study Route itself and generate improvement proposals.
 ///
 /// 1. Studies Route itself (current directory)
@@ -7417,13 +7736,17 @@ pub fn learn_why(id: String, kind: String, json: bool) -> Result<()> {
     let explanation = explain_learning(&store, &id, &kind);
 
     if json {
-        let chain: Vec<serde_json::Value> = explanation.chain.iter().map(|link| {
-            serde_json::json!({
-                "kind": link.kind,
-                "id": link.id,
-                "description": link.description,
+        let chain: Vec<serde_json::Value> = explanation
+            .chain
+            .iter()
+            .map(|link| {
+                serde_json::json!({
+                    "kind": link.kind,
+                    "id": link.id,
+                    "description": link.description,
+                })
             })
-        }).collect();
+            .collect();
         let output = serde_json::json!({
             "target_id": id,
             "target_type": explanation.target_type,

@@ -7,6 +7,7 @@ mod sync_commands;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::process;
 
 #[derive(Parser)]
@@ -364,6 +365,21 @@ enum Commands {
     /// evolution proposals, and memory proposals — all in 'pending' status.
     /// Does NOT auto-apply anything.
     SelfImprove,
+    /// Manage Route's own versioned self-archive.
+    ///
+    /// Snapshots Route's current standard files into
+    /// `Documents/Route/route/versions/` (append-only), lists the history, and
+    /// rolls back to a historical version. Works outside any project.
+    SelfArchive {
+        #[command(subcommand)]
+        action: SelfArchiveAction,
+    },
+    /// Emit cross-project self-evolution input.
+    ///
+    /// Reads the central archive (`Documents/Route/`) — registry + each
+    /// project's save metadata and root info — and emits candidate input for a
+    /// new standard. Read-only; never mutates projects or auto-applies.
+    SelfEvolve,
     /// Manage AI task sessions — start, execute, verify, and end
     ///
     /// Create a session with `route task begin "<task>" --target <target>`,
@@ -530,6 +546,45 @@ enum Commands {
     },
     /// Generate a handoff document for a new AI session
     Handoff,
+}
+
+#[derive(Subcommand)]
+enum SelfArchiveAction {
+    /// Snapshot Route's current standard files as a new version.
+    ///
+    /// `from` may be a directory (recursive) or a single file.
+    Archive {
+        /// Source file or directory to snapshot (fetches all files under it).
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Why this iteration is happening.
+        #[arg(long, default_value = "")]
+        message: String,
+        /// Route product version to tag the snapshot with.
+        #[arg(long, default_value = "")]
+        route_version: String,
+    },
+    /// List the self-archive history (newest last).
+    List,
+    /// Show a specific archived self-version.
+    Show {
+        /// Sequence number from `route self-archive list`.
+        seq: u64,
+        /// Emit as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Roll the archive back to a version.
+    ///
+    /// Prints the archived files, or writes them under `--out` so the
+    /// harness/user can adopt them. Never mutates the repo itself.
+    Apply {
+        /// Sequence number to roll back to.
+        seq: u64,
+        /// Directory to write the archived files into.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2721,7 +2776,11 @@ fn main() -> Result<()> {
             }
             ConversationAction::Delete { session_id } => commands::conversation_delete(&session_id),
         },
-        Commands::Check { full, no_blobs, json } => commands::check(full, no_blobs, json),
+        Commands::Check {
+            full,
+            no_blobs,
+            json,
+        } => commands::check(full, no_blobs, json),
         Commands::RepairPlan { json } => commands::repair_plan(json),
         Commands::Constitution { action } => match action {
             ConstitutionAction::Show => commands::constitution_show(),
@@ -3001,6 +3060,22 @@ fn main() -> Result<()> {
         },
         Commands::StudyApply { candidate_id } => commands::study_apply(candidate_id),
         Commands::SelfImprove => commands::self_improve(),
+        Commands::SelfArchive { action } => match action {
+            SelfArchiveAction::Archive {
+                from,
+                message,
+                route_version,
+            } => {
+                let from = from.unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                });
+                commands::self_archive_archive(&from, &message, &route_version)
+            }
+            SelfArchiveAction::List => commands::self_archive_list(),
+            SelfArchiveAction::Show { seq, json } => commands::self_archive_show(seq, json),
+            SelfArchiveAction::Apply { seq, out } => commands::self_archive_apply(seq, out),
+        },
+        Commands::SelfEvolve => commands::self_evolve(),
         Commands::Task { action } => match action {
             TaskAction::Begin {
                 task,
@@ -3033,7 +3108,13 @@ fn main() -> Result<()> {
                 savepoint,
                 campaign_id,
             } => commands::task_start(
-                task, target, profile, workflow, strategy, savepoint, campaign_id,
+                task,
+                target,
+                profile,
+                workflow,
+                strategy,
+                savepoint,
+                campaign_id,
             ),
             TaskAction::Resume { id } => commands::task_resume(id),
             TaskAction::Report { id, observations } => commands::task_report(id, observations),

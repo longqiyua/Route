@@ -30,6 +30,11 @@ fn route_binary() -> PathBuf {
 fn run(route: &Path, cwd: &Path, args: &[&str]) -> (bool, String, String) {
     let out = Command::new(route)
         .args(args)
+        // Every real-`route` invocation is isolated from user data: point the
+        // central archive root at this test's own unique temp dir so nothing
+        // is ever written to the real Documents/Route. The test process env is
+        // left untouched, so parallel tests cannot race over ROUTE_ARCHIVE_ROOT.
+        .env("ROUTE_ARCHIVE_ROOT", cwd)
         .current_dir(cwd)
         .output()
         .expect("run route binary");
@@ -42,10 +47,7 @@ fn run(route: &Path, cwd: &Path, args: &[&str]) -> (bool, String, String) {
 
 fn must_run(route: &Path, cwd: &Path, args: &[&str], what: &str) -> String {
     let (ok, stdout, stderr) = run(route, cwd, args);
-    assert!(
-        ok,
-        "{what} failed\nstdout: {stdout}\nstderr: {stderr}"
-    );
+    assert!(ok, "{what} failed\nstdout: {stdout}\nstderr: {stderr}");
     stdout
 }
 
@@ -256,7 +258,10 @@ fn evolution_route_failure_stable_continues() -> Result<()> {
         ],
         "propose",
     );
-    assert!(stdout.contains("route"), "proposal should record route target");
+    assert!(
+        stdout.contains("route"),
+        "proposal should record route target"
+    );
 
     // Even if the candidate would fail to build, the stable binary is a
     // separate process: it keeps working normally. No live edit happened.
@@ -292,7 +297,13 @@ fn evolution_crash_recovery_reopens_state() -> Result<()> {
     must_run(
         &route,
         tmp.path(),
-        &["evolve", "evaluate", short, "--metric", "correctness=0.8:0.9"],
+        &[
+            "evolve",
+            "evaluate",
+            short,
+            "--metric",
+            "correctness=0.8:0.9",
+        ],
         "evaluate",
     );
 
