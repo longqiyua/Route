@@ -23,6 +23,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Route Cooperation Protocol route/1 over stdin/stdout JSON.
+    Rpc {
+        /// Process one JSON request per input line, sequentially.
+        #[arg(long)]
+        jsonl: bool,
+    },
+    /// Manage persisted project/workspace identity.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     /// Initialize a Route project in the current directory
     Init {
         /// Initialize in a specific path (defaults to current dir)
@@ -61,6 +72,15 @@ enum Commands {
         /// Filter by branch
         #[arg(short, long)]
         branch: Option<String>,
+    },
+    /// View the locked, hash-chained Route command history
+    History {
+        /// Max entries to display
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+        /// Verify the complete chain and locked head anchor
+        #[arg(long)]
+        verify: bool,
     },
     /// Rollback to a snapshot
     Rollback {
@@ -369,17 +389,38 @@ enum Commands {
     ///
     /// Snapshots Route's current standard files into
     /// `Documents/Route/route/versions/` (append-only), lists the history, and
-    /// rolls back to a historical version. Works outside any project.
+    /// rolls back to a historical version. Also maintains a **local git backup**
+    /// of the whole `Documents/Route` area (no remote) for machine-level
+    /// history tracking. Works outside any project.
     SelfArchive {
         #[command(subcommand)]
         action: SelfArchiveAction,
     },
+    /// Upgrade Route's own development constraints into a Standard Operating
+    /// Procedure.
+    ///
+    /// Reads this project's decision memory plus its own standard files
+    /// (constitution / protocol / reference registry) and writes a distilled,
+    /// evidence-based SOP to `.route/sop.md`. This is how Route constrains its
+    /// own development and turns it into a repeatable SOP. Works inside any
+    /// Route project.
+    SelfSop,
     /// Emit cross-project self-evolution input.
     ///
     /// Reads the central archive (`Documents/Route/`) — registry + each
     /// project's save metadata and root info — and emits candidate input for a
     /// new standard. Read-only; never mutates projects or auto-applies.
     SelfEvolve,
+    /// Launch the interactive TUI REPL (Claude-Code-style portal).
+    ///
+    /// Starts the default-hidden interactive REPL. When no `--path` is given
+    /// it targets the current directory. While inside: `help` lists commands,
+    /// `exit` quits, `git <cmd>` drives your own git binary.
+    Tui {
+        /// Project directory the TUI should open (defaults to cwd)
+        #[arg(long)]
+        path: Option<String>,
+    },
     /// Manage AI task sessions — start, execute, verify, and end
     ///
     /// Create a session with `route task begin "<task>" --target <target>`,
@@ -432,6 +473,10 @@ enum Commands {
     Discover {
         /// Path to scan (defaults to current directory)
         path: Option<String>,
+        /// Register discovered skills into the capability registry and
+        /// promote them to reusable `.route/skills/*.md` files
+        #[arg(long)]
+        promote_skill: bool,
     },
     /// Manage capability packs
     Pack {
@@ -585,6 +630,37 @@ enum SelfArchiveAction {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Initialize the document-area **local git backup** (no remote).
+    ///
+    /// Idempotently `git init`s `Documents/Route/` and guarantees it stays
+    /// remote-less, so archive history is snapped locally only.
+    GitInit,
+    /// Snapshot the whole document-area archive as a local git commit.
+    ///
+    /// `git add -A` + commit inside `Documents/Route/` (local, no remote).
+    /// Recording machine-level history on top of the structured self-archive.
+    GitCommit {
+        /// Why this iteration is happening (becomes the commit message).
+        #[arg(long, default_value = "backup document area")]
+        message: String,
+    },
+    /// Show the local document-area backup git history.
+    GitLog {
+        /// Maximum number of recent commits to show.
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProjectAction {
+    /// Attach the current checkout to an existing Route project identity.
+    Attach {
+        /// Existing project directory (or a nested path inside it).
+        path: String,
+    },
+    /// Show the current persisted project/workspace identity.
+    Identity,
 }
 
 #[derive(Subcommand)]
@@ -2112,6 +2188,14 @@ enum CapabilityAction {
         /// Capability ID
         id: String,
     },
+    /// Promote Skill-kind capabilities to reusable `.route/skills/*.md` files
+    PromoteSkill {
+        /// Capability ID (omit to promote all Skill capabilities)
+        id: Option<String>,
+        /// Overwrite existing skill files
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2548,8 +2632,14 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    let history_operation = route_history_operation();
     let cli = Cli::parse();
     let result = match cli.command {
+        Commands::Rpc { jsonl } => route_cli::rpc::serve(jsonl),
+        Commands::Project { action } => match action {
+            ProjectAction::Attach { path } => commands::project_attach(path),
+            ProjectAction::Identity => commands::project_identity(),
+        },
         Commands::Init { path, scan } => commands::init(path, scan),
         Commands::Status { json } => commands::status(json),
         Commands::Commit {
@@ -2559,6 +2649,7 @@ fn main() -> Result<()> {
             branch,
         } => commands::commit(message, author, full, branch),
         Commands::Log { limit, branch } => commands::log(limit, branch),
+        Commands::History { limit, verify } => commands::history(limit, verify),
         Commands::Rollback {
             snapshot_id,
             reason,
@@ -3074,8 +3165,20 @@ fn main() -> Result<()> {
             SelfArchiveAction::List => commands::self_archive_list(),
             SelfArchiveAction::Show { seq, json } => commands::self_archive_show(seq, json),
             SelfArchiveAction::Apply { seq, out } => commands::self_archive_apply(seq, out),
+            SelfArchiveAction::GitInit => commands::self_archive_git_init(),
+            SelfArchiveAction::GitCommit { message } => commands::self_archive_git_commit(&message),
+            SelfArchiveAction::GitLog { limit } => commands::self_archive_git_log(limit),
         },
         Commands::SelfEvolve => commands::self_evolve(),
+        Commands::SelfSop => commands::self_sop(),
+        Commands::Tui { path } => {
+            let project_path = match path {
+                Some(p) => std::path::PathBuf::from(p),
+                None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            };
+            route_tui::run(project_path)?;
+            Ok(())
+        }
         Commands::Task { action } => match action {
             TaskAction::Begin {
                 task,
@@ -3186,6 +3289,9 @@ fn main() -> Result<()> {
             CapabilityAction::List { kind } => commands::capability_list(kind),
             CapabilityAction::Show { id } => commands::capability_show(id),
             CapabilityAction::Inspect { id } => commands::capability_inspect(id),
+            CapabilityAction::PromoteSkill { id, force } => {
+                commands::capability_promote_skill(id, force)
+            }
         },
         Commands::Trajectory { action } => match action {
             TrajectoryAction::List => commands::trajectory_list(),
@@ -3193,7 +3299,10 @@ fn main() -> Result<()> {
             TrajectoryAction::Diff { a, b } => commands::trajectory_diff(a, b),
             TrajectoryAction::Analyze { id } => commands::trajectory_analyze(id),
         },
-        Commands::Discover { path } => commands::discover(path),
+        Commands::Discover {
+            path,
+            promote_skill,
+        } => commands::discover(path, promote_skill),
         Commands::Pack { action } => match action {
             PackAction::Create {
                 name,
@@ -3370,6 +3479,21 @@ fn main() -> Result<()> {
         Commands::Handoff => commands::handoff(),
     };
 
+    // History is an engine-owned append surface. The public CLI can only read
+    // it, and viewing history must itself remain a read-only operation.
+    if history_operation.as_deref() != Some("history") {
+        if let (Some(operation), Ok(cwd)) = (history_operation.as_deref(), std::env::current_dir())
+        {
+            if let Some(root) = route_basic::find_route_project_root(&cwd) {
+                if let Err(error) =
+                    route_basic::append_route_history(&root, operation, result.is_ok())
+                {
+                    eprintln!("warning: Route history was not recorded: {error}");
+                }
+            }
+        }
+    }
+
     match result {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -3377,4 +3501,54 @@ fn main() -> Result<()> {
             process::exit(1);
         }
     }
+}
+
+/// Return a sanitized command path without values or free-form arguments.
+/// This avoids leaking messages, paths, credentials, or task content into the
+/// permanent history. Examples: `status`, `task exec`, `sync run`.
+fn route_history_operation() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    let command = args.find(|arg| !arg.starts_with('-'))?;
+    let grouped = matches!(
+        command.as_str(),
+        "archive"
+            | "branch"
+            | "brain"
+            | "capability"
+            | "constitution"
+            | "conversation"
+            | "emerge"
+            | "evolve"
+            | "failure"
+            | "git"
+            | "goal"
+            | "guardian"
+            | "idea"
+            | "learn"
+            | "memory"
+            | "pack"
+            | "permission"
+            | "plugin"
+            | "principle"
+            | "profile"
+            | "protocol"
+            | "reference"
+            | "save"
+            | "self-archive"
+            | "strategy"
+            | "sync"
+            | "tag"
+            | "task"
+            | "tracking"
+            | "trajectory"
+            | "workflow"
+    );
+    if !grouped {
+        return Some(command);
+    }
+    let action = args.find(|arg| !arg.starts_with('-'));
+    Some(match action {
+        Some(action) => format!("{command} {action}"),
+        None => command,
+    })
 }

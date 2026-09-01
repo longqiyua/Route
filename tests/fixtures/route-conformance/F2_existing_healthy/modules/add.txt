@@ -1,0 +1,6 @@
+component: add
+contract: add(a, b) = a + b
+domain: integers
+examples:
+  add(2, 3) = 5
+  add(-1, 1) = 0

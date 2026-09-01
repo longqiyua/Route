@@ -1993,6 +1993,7 @@ dependencies = [
  "route-plugins",
  "route-stats",
  "route-sync",
+ "route-tui",
  "serde",
  "serde_json",
  "tempfile",

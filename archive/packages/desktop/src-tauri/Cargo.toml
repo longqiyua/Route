@@ -1,6 +1,6 @@
 [package]
 name = "route-desktop"
-version = "0.4.0-beta"
+version = "1.0.0"
 description = "Route desktop app"
 authors = ["Route Contributors"]
 edition = "2021"

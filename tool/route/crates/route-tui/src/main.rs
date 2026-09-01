@@ -1,41 +1,17 @@
 //! route-tui — Route interactive REPL (Claude-Code-style).
 //!
-//! Entry point: parse `--path`, open the Route repository (if any),
-//! print the banner, and hand off to the REPL loop. When the cwd is
-//! not a Route repository the REPL still starts but only `help` /
-//! `exit` / `clear` are usable.
-
-mod ai;
-mod banner;
-mod commands;
-mod fmt;
-mod git;
-mod repl;
+//! Binary entry point: parse `--path`, then hand off to the shared
+//! library [`route_tui::run`][crate::run]. The same `run` is reused by the
+//! main `route` CLI via the `route tui` subcommand.
 
 use std::path::PathBuf;
 
 use anyhow::Result;
-use route_basic::BasicRepository;
 
 fn main() -> Result<()> {
-    fmt::init_colors();
-
     let project_path = parse_path_arg()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-    // Try to open the repo; None if not a Route repository. We don't
-    // treat this as fatal — the banner shows a hint and the REPL still
-    // runs so the user can `help`/`exit`. Git mode (`git ...`) works even
-    // without a route_basic repo, so we pass project_path through to the
-    // REPL separately from `repo`.
-    let repo = match BasicRepository::open(&project_path) {
-        Ok(r) => Some(r),
-        Err(_) => None,
-    };
-
-    banner::print_banner(repo.as_ref())?;
-    repl::run(repo, project_path)?;
-    Ok(())
+    route_tui::run(project_path)
 }
 
 /// Parse `--path <dir>` from argv. Returns `Err` if not given (caller

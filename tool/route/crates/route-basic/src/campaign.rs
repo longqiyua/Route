@@ -403,9 +403,7 @@ pub fn advance_innovation(
     match state {
         InnovationState::Observed if replicated => InnovationState::Replicated,
         InnovationState::Replicated if generalized => InnovationState::Generalized,
-        InnovationState::Generalized
-            if ablation_passed && evidence_sufficient =>
-        {
+        InnovationState::Generalized if ablation_passed && evidence_sufficient => {
             InnovationState::Trusted
         }
         _ => state,
@@ -432,8 +430,7 @@ pub struct AblationStudy {
 /// Whether the suspected innovation contributes. If removing it changes nothing
 /// (full ≈ removed), it must not be promoted to Gene/Strategy.
 pub fn ablation_contributes(s: &AblationStudy, margin: f64) -> bool {
-    (s.full_score - s.removed_score).abs() >= margin
-        && s.full_score > s.baseline_score
+    (s.full_score - s.removed_score).abs() >= margin && s.full_score > s.baseline_score
 }
 
 // ---------------------------------------------------------------------------
@@ -697,7 +694,11 @@ pub fn build_next_action_contract(
     let required_refs: Vec<&str> = required.iter().map(|s| s.as_str()).collect();
     let (satisfiable, missing) = capabilities_satisfy(available, &required_refs);
 
-    let action = if satisfiable { action } else { NextAction::NeedsHuman };
+    let action = if satisfiable {
+        action
+    } else {
+        NextAction::NeedsHuman
+    };
 
     // Budget remaining.
     let budget_remaining_experiments = campaign
@@ -1075,11 +1076,7 @@ impl CampaignStore {
         let identity = report_identity(report);
         let now = route_core::now_millis();
 
-        if let Some(existing) = self
-            .reports
-            .iter_mut()
-            .find(|r| r.identity == identity)
-        {
+        if let Some(existing) = self.reports.iter_mut().find(|r| r.identity == identity) {
             if existing.execution_status == report.execution_status {
                 return IngestReportResult::Duplicate;
             }
@@ -1119,11 +1116,7 @@ impl CampaignStore {
     /// A report is only trusted when it references at least one piece of
     /// non-self-reported evidence (Level0/Level1) that actually exists.
     /// This is intentionally conservative — `trusted` stays false otherwise.
-    pub fn resolve_report_trust(
-        &mut self,
-        report: &CampaignReport,
-        evidence_ok: bool,
-    ) -> bool {
+    pub fn resolve_report_trust(&mut self, report: &CampaignReport, evidence_ok: bool) -> bool {
         let identity = report_identity(report);
         if let Some(rec) = self.reports.iter_mut().find(|r| r.identity == identity) {
             if evidence_ok && !report.evidence_refs.is_empty() {
@@ -1154,7 +1147,8 @@ impl CampaignStore {
         let dir = p.parent().expect("campaign dir has parent");
         std::fs::create_dir_all(dir)?;
         let json = serde_json::to_vec_pretty(self)?;
-        write_atomic(&p, &json).with_context(|| format!("writing campaign store to {}", p.display()))
+        write_atomic(&p, &json)
+            .with_context(|| format!("writing campaign store to {}", p.display()))
     }
 }
 
@@ -1325,14 +1319,7 @@ mod tests {
             InnovationState::Replicated
         );
         assert_eq!(
-            advance_innovation(
-                InnovationState::Generalized,
-                true,
-                true,
-                true,
-                true,
-                true
-            ),
+            advance_innovation(InnovationState::Generalized, true, true, true, true, true),
             InnovationState::Trusted
         );
         // Regression retires it.
@@ -1505,10 +1492,7 @@ mod tests {
     // by re-loading the persisted store (state is durable, not in-memory).
     #[test]
     fn crash_recovery_restores_campaign_state() {
-        let dir = std::env::temp_dir().join(format!(
-            "route-campaign-crash-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("route-campaign-crash-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -1558,10 +1542,8 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         // Lineage is durable through a save/load round-trip on disk.
-        let dir = std::env::temp_dir().join(format!(
-            "route-campaign-lineage-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("route-campaign-lineage-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         store.save(&dir).unwrap();
@@ -1595,7 +1577,10 @@ mod tests {
         // Harness claim alone never flips trust when evidence is absent.
         assert!(!store.resolve_report_trust(&report, false));
         // With a real evidence ref that was ingested → trusted.
-        let trusted = CampaignReport { evidence_refs: vec!["ev-1".to_string()], ..report.clone() };
+        let trusted = CampaignReport {
+            evidence_refs: vec!["ev-1".to_string()],
+            ..report.clone()
+        };
         assert_eq!(store.ingest_report(&trusted), IngestReportResult::Recorded);
         assert!(store.resolve_report_trust(&trusted, true));
     }
@@ -1625,8 +1610,14 @@ mod tests {
         assert_eq!(store.reports.len(), 1);
         assert_eq!(store.conflict_evidence.len(), 0);
         // Same identity, disagreeing status → Conflict + conflict evidence.
-        let conflicting = CampaignReport { execution_status: "failed".to_string(), ..report.clone() };
-        assert_eq!(store.ingest_report(&conflicting), IngestReportResult::Conflict);
+        let conflicting = CampaignReport {
+            execution_status: "failed".to_string(),
+            ..report.clone()
+        };
+        assert_eq!(
+            store.ingest_report(&conflicting),
+            IngestReportResult::Conflict
+        );
         assert_eq!(store.conflict_evidence.len(), 1);
         assert_eq!(store.reports.len(), 1);
     }
@@ -1638,7 +1629,16 @@ mod tests {
         let b = CampaignBudget::default();
         let mut c = campaign(CampaignStatus::Running, b, 0);
         c.experiment_ids.push("e1".to_string()); // has_candidate → ExecuteExperiment
-        let full = build_next_action_contract(&c, 1, 0, false, true, false, true, &["filesystem", "shell"]);
+        let full = build_next_action_contract(
+            &c,
+            1,
+            0,
+            false,
+            true,
+            false,
+            true,
+            &["filesystem", "shell"],
+        );
         assert_eq!(full.action, NextAction::ExecuteExperiment);
         assert!(full.satisfiable);
 
@@ -1646,7 +1646,10 @@ mod tests {
         let degraded = build_next_action_contract(&c, 1, 0, false, true, false, true, &["shell"]);
         assert_eq!(degraded.action, NextAction::NeedsHuman);
         assert!(!degraded.satisfiable);
-        assert_eq!(degraded.missing_capabilities, vec!["filesystem".to_string()]);
+        assert_eq!(
+            degraded.missing_capabilities,
+            vec!["filesystem".to_string()]
+        );
     }
 
     // P5: campaign outcome only produces a Task recommendation, never a
@@ -1656,13 +1659,22 @@ mod tests {
         let b = CampaignBudget::default();
         let mut completed = campaign(CampaignStatus::Completed, b.clone(), 0);
         completed.champion = Some("e1".to_string());
-        assert_eq!(task_recommendation(&completed), TaskRecommendation::RecommendComplete);
+        assert_eq!(
+            task_recommendation(&completed),
+            TaskRecommendation::RecommendComplete
+        );
 
         let exhausted = campaign(CampaignStatus::Exhausted, b.clone(), 0);
-        assert_eq!(task_recommendation(&exhausted), TaskRecommendation::RecommendReview);
+        assert_eq!(
+            task_recommendation(&exhausted),
+            TaskRecommendation::RecommendReview
+        );
 
         let aborted = campaign(CampaignStatus::Aborted, b.clone(), 0);
-        assert_eq!(task_recommendation(&aborted), TaskRecommendation::RecommendAbort);
+        assert_eq!(
+            task_recommendation(&aborted),
+            TaskRecommendation::RecommendAbort
+        );
 
         let running = campaign(CampaignStatus::Running, b, 0);
         assert_eq!(task_recommendation(&running), TaskRecommendation::None);

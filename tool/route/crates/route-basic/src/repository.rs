@@ -1025,12 +1025,17 @@ impl BasicRepository {
         let blob_store = BlobStore::new(self.paths.clone());
         for (rel, abs) in &scan.absolute_paths {
             if diff.added.contains(rel) || diff.modified.contains(rel) {
-                let bytes = std::fs::read(abs)?;
-                let hash = blob_store.store(&bytes)?;
+                let (hash, size) = blob_store.store_file_with_size(abs)?;
+                if scan.files.get(rel) != Some(&hash) {
+                    anyhow::bail!(
+                        "file changed while snapshot was being created: {}",
+                        abs.display()
+                    );
+                }
                 let conn = self.db.lock();
                 conn.execute(
                     "INSERT OR IGNORE INTO blobs(hash, size, created) VALUES(?1, ?2, ?3)",
-                    params![hash, bytes.len() as i64, now_millis()],
+                    params![hash, size as i64, now_millis()],
                 )?;
             }
         }
@@ -3377,7 +3382,6 @@ impl BasicRepository {
         // ---- 9. Blob existence / content (optional) ----
         let do_blob_existence = opts.check_blob_existence || opts.verify_blob_content;
         if do_blob_existence {
-            let blob_store = route_core::storage::BlobStore::new(self.paths.clone());
             let mut sorted: Vec<_> = referenced_blobs.iter().cloned().collect();
             sorted.sort();
             for blob in &sorted {
@@ -3397,9 +3401,8 @@ impl BasicRepository {
                     continue;
                 }
                 if opts.verify_blob_content {
-                    match blob_store.read(blob) {
-                        Ok(bytes) => {
-                            let recomputed = route_core::content_hash(&bytes);
+                    match route_core::content_hash_file(&path) {
+                        Ok((recomputed, _)) => {
                             if recomputed != *blob {
                                 note(
                                     VerifySeverity::Corrupted,

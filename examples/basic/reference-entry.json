@@ -1,0 +1,15 @@
+{
+  "id": "doc-architecture",
+  "type": "document",
+  "source": "./docs/architecture.md",
+  "description": "Route's layer/architecture overview.",
+  "capabilities": "Explains crate layers, data flow, and trust roots.",
+  "constraints": "Does not document CLI flags; see docs/cli.md.",
+  "created_at": 1786600000000,
+  "tags": ["architecture", "rust"],
+  "origin": "UserCreated",
+  "enabled": true,
+  "name": "Architecture doc",
+  "project_scope": "all",
+  "trust": "high"
+}

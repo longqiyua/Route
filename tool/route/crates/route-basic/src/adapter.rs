@@ -208,40 +208,47 @@ enum BlockScan {
 
 /// Scan `text` for `<!-- ROUTE:BEGIN -->` / `<!-- ROUTE:END -->` markers.
 fn scan_block(text: &str) -> BlockScan {
-    let begin_idx = text.find(ROUTE_BEGIN);
-    let end_idx = text.find(ROUTE_END);
+    fn standalone_markers(text: &str, marker: &str) -> Vec<usize> {
+        let mut offsets = Vec::new();
+        let mut cursor = 0;
+        for line in text.split_inclusive('\n') {
+            if line.trim() == marker {
+                let leading = line.len() - line.trim_start().len();
+                offsets.push(cursor + leading);
+            }
+            cursor += line.len();
+        }
+        offsets
+    }
 
-    match (begin_idx, end_idx) {
-        (None, None) => BlockScan::Absent,
-        (Some(_), None) => {
+    let begins = standalone_markers(text, ROUTE_BEGIN);
+    let ends = standalone_markers(text, ROUTE_END);
+
+    match (begins.as_slice(), ends.as_slice()) {
+        ([], []) => BlockScan::Absent,
+        ([_], []) => {
             BlockScan::Malformed("found ROUTE:BEGIN but no matching ROUTE:END".to_string())
         }
-        (None, Some(_)) => {
+        ([], [_]) => {
             BlockScan::Malformed("found ROUTE:END but no matching ROUTE:BEGIN".to_string())
         }
-        (Some(b), Some(e)) => {
+        ([b], [e]) => {
             if b > e {
                 return BlockScan::Malformed("ROUTE:BEGIN appears after ROUTE:END".to_string());
             }
-            // Check for a second BEGIN before the END (nested/duplicate).
-            let after_begin = &text[b + ROUTE_BEGIN.len()..];
-            if let Some(second_begin) = after_begin.find(ROUTE_BEGIN) {
-                if b + ROUTE_BEGIN.len() + second_begin < e {
-                    return BlockScan::Malformed(
-                        "multiple ROUTE:BEGIN markers before ROUTE:END".to_string(),
-                    );
-                }
-            }
-            let before = text[..b].to_string();
-            let content_start = b + ROUTE_BEGIN.len();
-            let content = text[content_start..e].to_string();
-            let after = text[e + ROUTE_END.len()..].to_string();
+            let before = text[..*b].to_string();
+            let content_start = *b + ROUTE_BEGIN.len();
+            let content = text[content_start..*e].to_string();
+            let after = text[*e + ROUTE_END.len()..].to_string();
             BlockScan::Found {
                 before,
                 content,
                 after,
             }
         }
+        _ => BlockScan::Malformed(
+            "expected exactly one standalone ROUTE:BEGIN/ROUTE:END pair".to_string(),
+        ),
     }
 }
 
@@ -618,6 +625,21 @@ mod tests {
     }
 
     #[test]
+    fn managed_block_ignores_marker_mentions_inside_prose() {
+        let text = "The marker `<!-- ROUTE:BEGIN -->` is documented here.\n\n\
+                    <!-- ROUTE:BEGIN -->\nhello\n<!-- ROUTE:END -->\n";
+        let result = scan_block(text);
+        assert!(matches!(result, BlockScan::Found { .. }));
+    }
+
+    #[test]
+    fn managed_block_rejects_multiple_pairs() {
+        let text = "<!-- ROUTE:BEGIN -->\none\n<!-- ROUTE:END -->\n\
+                    <!-- ROUTE:BEGIN -->\ntwo\n<!-- ROUTE:END -->\n";
+        assert!(matches!(scan_block(text), BlockScan::Malformed(_)));
+    }
+
+    #[test]
     fn replace_or_append_creates_new_block_when_absent() {
         let existing = "# My Project\n\nUser notes here.\n";
         let block = "## Route Context\n\nHello.\n";
@@ -804,7 +826,10 @@ mod tests {
         assert_eq!(record.target, ApplyTarget::DeepSeek);
 
         let ctx_md = root.join(".route/generated/deepseek-context.md");
-        assert!(ctx_md.exists(), ".route/generated/deepseek-context.md should exist");
+        assert!(
+            ctx_md.exists(),
+            ".route/generated/deepseek-context.md should exist"
+        );
         let content = std::fs::read_to_string(&ctx_md).unwrap();
         assert!(content.contains("<!-- ROUTE:BEGIN -->"));
         assert!(content.contains("Effective Development Context"));
@@ -812,9 +837,18 @@ mod tests {
 
     #[test]
     fn deepseek_target_parse_accepts_deepseek_harness_alias() {
-        assert_eq!(ApplyTarget::parse("deepseek").unwrap(), ApplyTarget::DeepSeek);
-        assert_eq!(ApplyTarget::parse("deepseek-harness").unwrap(), ApplyTarget::DeepSeek);
-        assert_eq!(ApplyTarget::parse("DEEPSEEK").unwrap(), ApplyTarget::DeepSeek);
+        assert_eq!(
+            ApplyTarget::parse("deepseek").unwrap(),
+            ApplyTarget::DeepSeek
+        );
+        assert_eq!(
+            ApplyTarget::parse("deepseek-harness").unwrap(),
+            ApplyTarget::DeepSeek
+        );
+        assert_eq!(
+            ApplyTarget::parse("DEEPSEEK").unwrap(),
+            ApplyTarget::DeepSeek
+        );
     }
 
     #[test]
@@ -836,8 +870,7 @@ mod tests {
 
         // The core context hash should be the same (same task, same project state)
         assert_eq!(
-            record_claude.context_hash,
-            record_deepseek.context_hash,
+            record_claude.context_hash, record_deepseek.context_hash,
             "core context hash must be identical across hosts for the same task"
         );
 
@@ -875,7 +908,10 @@ mod tests {
         // Modify content inside the managed block to trigger hash mismatch
         let ctx_md = root.join(".route/generated/deepseek-context.md");
         let content = std::fs::read_to_string(&ctx_md).unwrap();
-        let modified = content.replace("<!-- ROUTE:BEGIN -->", "<!-- ROUTE:BEGIN -->\nUser modification");
+        let modified = content.replace(
+            "<!-- ROUTE:BEGIN -->",
+            "<!-- ROUTE:BEGIN -->\nUser modification",
+        );
         std::fs::write(&ctx_md, &modified).unwrap();
 
         // Should detect FILE_MODIFIED

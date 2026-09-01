@@ -1,6 +1,7 @@
 node_modules/
 dist/
 target/
+/Release/
 **/target/
 crates/*/target/
 crates/*/web/dist/
@@ -44,8 +45,32 @@ packages/desktop/src-tauri/target/
 sandbox-demo/
 demo/
 
-# Third-party AI skill assets (external references, not part of the Route source)
+# Yuich backup copies (not part of the Yuich project)
+尤以迟yuich - 副本 - 副本/
+
+# Yuich standalone git repo (managed independently; not committed to Route)
+yuich/
+
+# ============================================================
+# PPAM Integration — Local Bridge vs Remote Separation
+# ============================================================
+# LOCAL:  crates/route-ppam/ 是 Route 本地桥接层，用于本地开发
+#        编译时使用，不推送到远程 Route 仓库
+# REMOTE: PPAM 是独立项目 (longqiyua/ppam)，有自己独立的远程仓库
+#        crates/route-ppam/ 应链接到该远程仓库
+# POINTER: .ppam-link 是 Route 仓库中关于 PPAM 的唯一跟踪文件
+# See: MAINTENANCE.md §5 "PPAM 集成"
+# ============================================================
+
+# PPAM install directory (cloned from remote PPAM repo, isolated from Route root)
+ppam/
 PPAM/
+
+# PPL is an independent repository (longqiyua/PPL), never vendor it into Route.
+/PPL/
+
+# PPAM bridge crate (local-only, not pushed to Route repo)
+crates/route-ppam/
 
 # Design reference documents (not part of the Route source code)
 FrontDesignSkill.md
@@ -58,3 +83,16 @@ __pycache__/
 *.pyc
 *.pyd
 *.pdb
+
+# ============================================================
+# ISM Private Reference Pack — DEFAULT DENY (local backup rule;
+# the tracked ISM/.gitignore is the authoritative whitelist)
+# ============================================================
+# ISM data is PRIVATE REFERENCE, NOT SOURCE CODE. Plaintext ISM,
+# encrypted pack, wrapped key and metadata must never be committed.
+ISM/*
+!ISM/README.private.md
+!ISM/.gitignore
+
+# Downloaded Wikimedia dumps are local datasets, not repository sources.
+/Wiki/**/zhwiki-*-pages-articles-multistream.xml

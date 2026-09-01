@@ -929,10 +929,20 @@ fn render_deepseek(plan: &AgentPlan, profile: Option<&str>) -> String {
     }
     out.push_str("  host:\n");
     out.push_str(&format!("    model: {}\n", caps.host));
-    out.push_str(&format!("    profile: {}\n", if caps.has_profile() { caps.profile.as_str() } else { "default" }));
+    out.push_str(&format!(
+        "    profile: {}\n",
+        if caps.has_profile() {
+            caps.profile.as_str()
+        } else {
+            "default"
+        }
+    ));
     out.push_str("  host_capabilities:\n");
     out.push_str(&format!("    tool_calls: {}\n", caps.tool_calls));
-    out.push_str(&format!("    structured_output: {}\n", caps.structured_output));
+    out.push_str(&format!(
+        "    structured_output: {}\n",
+        caps.structured_output
+    ));
     out.push_str(&format!("    reasoning: {}\n", caps.reasoning));
     out.push_str(&format!("    mcp: {}\n", caps.mcp));
     out.push_str(&format!("    subagents: {}\n", caps.subagents));
@@ -952,16 +962,25 @@ fn render_deepseek(plan: &AgentPlan, profile: Option<&str>) -> String {
         out.push_str(&format!("    - role: {}\n", agent.role));
         out.push_str(&format!("      goal: {}\n", agent.goal));
         if !agent.context_refs.is_empty() {
-            out.push_str(&format!("      context_refs: [{}]\n", agent.context_refs.join(", ")));
+            out.push_str(&format!(
+                "      context_refs: [{}]\n",
+                agent.context_refs.join(", ")
+            ));
         }
         if !agent.tools.is_empty() {
             out.push_str(&format!("      tools: [{}]\n", agent.tools.join(", ")));
         }
         if !agent.permissions.is_empty() {
-            out.push_str(&format!("      permissions: [{}]\n", agent.permissions.join(", ")));
+            out.push_str(&format!(
+                "      permissions: [{}]\n",
+                agent.permissions.join(", ")
+            ));
         }
         if !agent.forbidden.is_empty() {
-            out.push_str(&format!("      forbidden: [{}]\n", agent.forbidden.join(", ")));
+            out.push_str(&format!(
+                "      forbidden: [{}]\n",
+                agent.forbidden.join(", ")
+            ));
         }
         if !agent.completion_criteria.is_empty() {
             out.push_str("      completion_criteria:\n");
@@ -970,7 +989,10 @@ fn render_deepseek(plan: &AgentPlan, profile: Option<&str>) -> String {
             }
         }
         if !agent.dependencies.is_empty() {
-            out.push_str(&format!("      dependencies: [{}]\n", agent.dependencies.join(", ")));
+            out.push_str(&format!(
+                "      dependencies: [{}]\n",
+                agent.dependencies.join(", ")
+            ));
         }
     }
     out
@@ -1351,10 +1373,10 @@ mod tests {
         assert!(caps.tool_calls);
         assert!(caps.structured_output);
         assert!(caps.reasoning);
-        assert!(caps.mcp.is_unknown());    // host-dependent, not assumed
+        assert!(caps.mcp.is_unknown()); // host-dependent, not assumed
         assert!(caps.skills.is_unknown()); // host-dependent, not assumed
         assert!(caps.subagents.is_unknown()); // host-dependent, not assumed
-        assert!(caps.hooks.is_unknown());  // host-dependent, not assumed
+        assert!(caps.hooks.is_unknown()); // host-dependent, not assumed
         assert_eq!(caps.context_window, Some(1_000_000));
     }
 
@@ -1399,7 +1421,10 @@ mod tests {
             ..HostCapabilities::for_host("deepseek")
         };
         let effective = effective_capabilities("deepseek", Some("dsh-standard"), Some(&detected));
-        assert!(effective.subagents.is_false(), "detected override should win");
+        assert!(
+            effective.subagents.is_false(),
+            "detected override should win"
+        );
     }
 
     #[test]
@@ -1426,18 +1451,16 @@ mod tests {
     fn deepseek_compile_to_host() {
         let plan = AgentPlan {
             mode: "single".to_string(),
-            agents: vec![
-                AgentSpec {
-                    role: "primary".to_string(),
-                    goal: "fix the bug".to_string(),
-                    context_refs: vec!["api-docs".to_string()],
-                    tools: vec!["read".to_string(), "edit".to_string()],
-                    permissions: vec!["read".to_string()],
-                    forbidden: vec!["delete".to_string()],
-                    completion_criteria: vec!["tests pass".to_string()],
-                    dependencies: vec![],
-                },
-            ],
+            agents: vec![AgentSpec {
+                role: "primary".to_string(),
+                goal: "fix the bug".to_string(),
+                context_refs: vec!["api-docs".to_string()],
+                tools: vec!["read".to_string(), "edit".to_string()],
+                permissions: vec!["read".to_string()],
+                forbidden: vec!["delete".to_string()],
+                completion_criteria: vec!["tests pass".to_string()],
+                dependencies: vec![],
+            }],
             created_at: 1000,
             context_hash: "abc123".to_string(),
             base_policy: "{}".to_string(),

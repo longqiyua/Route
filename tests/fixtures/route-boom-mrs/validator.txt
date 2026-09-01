@@ -1,0 +1,13 @@
+# Inventory validator (baseline)
+
+Validates that every `name=` entry in items.txt is preceded by an `id=`.
+Exits 0 if all entries have ids, 1 otherwise.
+
+Example:
+```
+id=1
+name=bolt
+id=2
+name=nut
+```
+is valid. A `name=` with no preceding `id=` is a defect.

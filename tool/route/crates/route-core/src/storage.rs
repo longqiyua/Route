@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
-use crate::hash::content_hash;
+use crate::hash::{content_hash, content_hash_file};
 use crate::paths::RoutePaths;
 
 /// Monotonic counter combined with the PID and a timestamp-y value to
@@ -88,8 +88,32 @@ impl BlobStore {
 
     /// Store a file by reading it; returns content hash.
     pub fn store_file(&self, abs_path: &Path) -> Result<String> {
-        let bytes = std::fs::read(abs_path)?;
-        self.store(&bytes)
+        self.store_file_with_size(abs_path).map(|(hash, _)| hash)
+    }
+
+    /// Store a file using bounded-memory hashing and filesystem streaming.
+    pub fn store_file_with_size(&self, abs_path: &Path) -> Result<(String, u64)> {
+        let (hash, size) = content_hash_file(abs_path)?;
+        let blob_path = self.paths.blob_path(&hash);
+        if !blob_path.exists() {
+            if let Some(parent) = blob_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let tmp_path = unique_temp_path(&blob_path);
+            std::fs::copy(abs_path, &tmp_path)?;
+            if let Ok(file) = std::fs::File::open(&tmp_path) {
+                let _ = file.sync_all();
+            }
+            if let Err(error) = std::fs::rename(&tmp_path, &blob_path) {
+                let _ = std::fs::remove_file(&tmp_path);
+                // Another process may have stored the same content while we
+                // copied. In that case the desired immutable blob exists.
+                if !blob_path.exists() {
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok((hash, size))
     }
 
     /// Read a blob by hash.
@@ -422,11 +446,10 @@ impl ProjectScanner {
                             continue;
                         }
                     }
-                    let bytes = match std::fs::read(&path) {
-                        Ok(b) => b,
+                    let hash = match content_hash_file(&path) {
+                        Ok((hash, _)) => hash,
                         Err(_) => continue,
                     };
-                    let hash = content_hash(&bytes);
                     files.insert(rel_str.clone(), hash);
                     absolute_paths.insert(rel_str, path);
                 }
@@ -487,8 +510,7 @@ impl ProjectScanner {
                     continue;
                 }
             }
-            let bytes = std::fs::read(abs)?;
-            let hash = content_hash(&bytes);
+            let (hash, _) = content_hash_file(abs)?;
             files.insert(rel_str.clone(), hash);
             absolute_paths.insert(rel_str, abs.to_path_buf());
         }

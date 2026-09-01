@@ -10,6 +10,10 @@ repository.workspace = true
 name = "route-tui"
 path = "src/main.rs"
 
+[lib]
+name = "route_tui"
+path = "src/lib.rs"
+
 [dependencies]
 route-core = { path = "../route-core", version = "1.0.0" }
 route-basic = { path = "../route-basic", version = "1.0.0" }

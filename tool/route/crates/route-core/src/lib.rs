@@ -17,7 +17,7 @@ pub use guard::{
     check_protected, check_protected_cwd, ensure_guard_anchor, is_route_active, GuardResult,
     RouteGuard,
 };
-pub use hash::{content_hash, hash_to_hex, new_id, short_id};
+pub use hash::{content_hash, content_hash_file, hash_to_hex, new_id, short_id};
 pub use paths::RoutePaths;
 pub use safety::{assert_no_symlink_escape, is_plain_file_inside, safe_join, validate_rel_path};
 pub use schema::{SchemaVersion, CURRENT_SCHEMA_VERSION};

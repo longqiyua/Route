@@ -1171,20 +1171,10 @@ pub fn create_save(
     let archive_obj_dir = objects_dir(project_id)?;
     let project_blob_store = route_core::storage::BlobStore::new(repo.route_paths().clone());
     for entry in &save.project_state.entries {
-        // Read blob from project storage
-        match project_blob_store.read(&entry.blob_hash) {
-            Ok(bytes) => {
-                // Write to archive objects dir
-                let prefix = &entry.blob_hash[..2.min(entry.blob_hash.len())];
-                let archive_blob_path = archive_obj_dir.join(prefix).join(&entry.blob_hash);
-                if !archive_blob_path.exists() {
-                    if let Some(parent) = archive_blob_path.parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
-                    let _ = fs::write(&archive_blob_path, &bytes);
-                }
-            }
-            Err(e) => {
+        let prefix = &entry.blob_hash[..2.min(entry.blob_hash.len())];
+        let archive_blob_path = archive_obj_dir.join(prefix).join(&entry.blob_hash);
+        if !archive_blob_path.exists() {
+            if let Err(e) = project_blob_store.copy_to(&entry.blob_hash, &archive_blob_path) {
                 // Non-fatal: blob may not be available if project state changed
                 // between save and blob copy. The archive will be missing this
                 // blob, which is fine for in-project restore (uses repo directly).
@@ -3650,6 +3640,8 @@ mod tests {
 
     #[test]
     fn test_p13_demo_a_project_full_flow() {
+        let _archive_guard = TestArchiveRootGuard::new();
+
         // ---------------------------------------------------------------
         // P13 DEMO: A项目完整流程
         // Original → task → PRE_CHANGE → AI修改 A/B/C → verification fail
@@ -3797,9 +3789,11 @@ mod tests {
         // P13 DEMO: Recovery case generation from verification failure
         // ---------------------------------------------------------------
 
+        let _archive_guard = TestArchiveRootGuard::new();
+        let tmp = tempfile::tempdir().expect("create recovery case temp dir");
         let case = generate_recovery_case(
             "prj_demo_a",
-            Path::new("/tmp/demo"),
+            tmp.path(),
             RecoveryTrigger::VerificationFail,
             Some("after_ai".to_string()),
             vec!["test_compile_check".to_string()],
@@ -3857,6 +3851,11 @@ mod tests {
         // P7/P13: RecoveryEngine determines correct level
         // ---------------------------------------------------------------
 
+        let _archive_guard = TestArchiveRootGuard::new();
+        let tmp = tempfile::tempdir().expect("create selective recovery temp dir");
+        let project_root = tmp.path();
+        let mut repo = BasicRepository::open_or_init(project_root).unwrap();
+
         // Level L0: No suspect paths
         let case_l0 = RecoveryCase {
             id: "rc_l0".to_string(),
@@ -3872,13 +3871,9 @@ mod tests {
             resolution_save_id: None,
             project_id: "prj_test".to_string(),
         };
-        let plan_l0 = RecoveryEngine::build_repair_plan(
-            Path::new("/tmp"),
-            &case_l0,
-            &mut BasicRepository::open_or_init(Path::new("/tmp")).unwrap(),
-            "prj_test",
-        )
-        .expect("L0 plan");
+        let plan_l0 =
+            RecoveryEngine::build_repair_plan(project_root, &case_l0, &mut repo, "prj_test")
+                .expect("L0 plan");
         assert!(plan_l0.actions.is_empty(), "L0 has no file actions");
 
         // Level L1: 1 suspect path (should be <= 3)
@@ -3896,13 +3891,9 @@ mod tests {
             resolution_save_id: None,
             project_id: "prj_test".to_string(),
         };
-        let plan_l1 = RecoveryEngine::build_repair_plan(
-            Path::new("/tmp"),
-            &case_l1,
-            &mut BasicRepository::open_or_init(Path::new("/tmp")).unwrap(),
-            "prj_test",
-        )
-        .expect("L1 plan");
+        let plan_l1 =
+            RecoveryEngine::build_repair_plan(project_root, &case_l1, &mut repo, "prj_test")
+                .expect("L1 plan");
         assert_eq!(plan_l1.actions.len(), 1, "L1 restores 1 suspect path");
         assert_eq!(plan_l1.actions[0].path, "project/A.rs");
 
@@ -3926,13 +3917,9 @@ mod tests {
             resolution_save_id: None,
             project_id: "prj_test".to_string(),
         };
-        let plan_l2 = RecoveryEngine::build_repair_plan(
-            Path::new("/tmp"),
-            &case_l2,
-            &mut BasicRepository::open_or_init(Path::new("/tmp")).unwrap(),
-            "prj_test",
-        )
-        .expect("L2 plan");
+        let plan_l2 =
+            RecoveryEngine::build_repair_plan(project_root, &case_l2, &mut repo, "prj_test")
+                .expect("L2 plan");
         // L2 restores suspect paths from known-good
         assert_eq!(plan_l2.actions.len(), 4, "L2 restores all suspect paths");
 
@@ -3951,13 +3938,9 @@ mod tests {
             resolution_save_id: None,
             project_id: "prj_test".to_string(),
         };
-        let plan_l4 = RecoveryEngine::build_repair_plan(
-            Path::new("/tmp"),
-            &case_l4,
-            &mut BasicRepository::open_or_init(Path::new("/tmp")).unwrap(),
-            "prj_test",
-        )
-        .expect("L4 plan");
+        let plan_l4 =
+            RecoveryEngine::build_repair_plan(project_root, &case_l4, &mut repo, "prj_test")
+                .expect("L4 plan");
         // L4 with no known good has no save to load from — no actions
         assert!(
             plan_l4.actions.is_empty(),

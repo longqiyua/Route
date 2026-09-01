@@ -1,6 +1,8 @@
 //! Hashing utilities: SHA-256 content addressing, ULID generation, short IDs.
 
 use sha2::{Digest, Sha256};
+use std::io::{self, Read};
+use std::path::Path;
 use ulid::Ulid;
 
 /// Compute SHA-256 of raw bytes and return lowercase hex string.
@@ -8,6 +10,29 @@ pub fn content_hash(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hash_to_hex(&hasher.finalize())
+}
+
+/// Compute a file's SHA-256 digest with bounded memory.
+///
+/// The buffer is fixed regardless of file size, so snapshotting multi-GB
+/// datasets does not require allocating a `Vec` as large as the file.
+pub fn content_hash_file(path: &Path) -> io::Result<(String, u64)> {
+    const BUFFER_SIZE: usize = 256 * 1024;
+
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::with_capacity(BUFFER_SIZE, file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; BUFFER_SIZE];
+    let mut size = 0_u64;
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        size += read as u64;
+    }
+    Ok((hash_to_hex(&hasher.finalize()), size))
 }
 
 /// Convert raw digest bytes to lowercase hex.
@@ -41,6 +66,17 @@ mod tests {
         let h2 = content_hash(b"hello");
         assert_eq!(h1, h2);
         assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn file_hash_matches_in_memory_hash_across_many_chunks() {
+        let path = std::env::temp_dir().join(format!("route-hash-{}.bin", new_id()));
+        let content = vec![0x5a; 3 * 256 * 1024 + 17];
+        std::fs::write(&path, &content).unwrap();
+        let (hash, size) = content_hash_file(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(hash, content_hash(&content));
+        assert_eq!(size, content.len() as u64);
     }
 
     #[test]

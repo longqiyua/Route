@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::constitutive::{ReferenceEntry, ReferenceRegistry, write_atomic, ROUTE_DOT_DIR};
+use crate::constitutive::{write_atomic, ReferenceEntry, ReferenceRegistry, ROUTE_DOT_DIR};
 
 /// Directory name for evolution data.
 pub const EVOLUTION_DIR: &str = "evolution";
@@ -574,7 +574,8 @@ pub fn aio_screen(module_scope: &str, changed_scope: &[String]) -> bool {
         return false;
     }
     // Count how many distinct concerns the candidate crosses.
-    let concerns: std::collections::BTreeSet<&str> = changed_scope.iter().map(|s| s.as_str()).collect();
+    let concerns: std::collections::BTreeSet<&str> =
+        changed_scope.iter().map(|s| s.as_str()).collect();
     // If the candidate touches more than one concern beyond its own module
     // scope, it is drifting toward AIO.
     concerns.len() > 1
@@ -691,7 +692,10 @@ pub fn decide_promotion(
     if let Some(f) = guard_fail {
         return (
             PromotionDecision::Regresses,
-            format!("guard case '{}' regressed (baseline passed, candidate failed)", f.name),
+            format!(
+                "guard case '{}' regressed (baseline passed, candidate failed)",
+                f.name
+            ),
         );
     }
 
@@ -734,9 +738,9 @@ pub fn decide_promotion(
 
     // 4. If only speed/token improved but nothing else, and correctness lost → rejected.
     //    (Already handled by correctness pass.) If no correctness data, be conservative.
-    let has_correctness_data = metrics.iter().any(|m| {
-        policy.correctness_metrics.iter().any(|c| c == &m.name)
-    });
+    let has_correctness_data = metrics
+        .iter()
+        .any(|m| policy.correctness_metrics.iter().any(|c| c == &m.name));
     if !has_correctness_data {
         return (
             PromotionDecision::Inconclusive,
@@ -747,7 +751,10 @@ pub fn decide_promotion(
     if regressed > 0 && improved > 0 {
         return (
             PromotionDecision::Tradeoff,
-            format!("{} metric(s) improved, {} regressed (correctness holds)", improved, regressed),
+            format!(
+                "{} metric(s) improved, {} regressed (correctness holds)",
+                improved, regressed
+            ),
         );
     }
     if regressed > 0 {
@@ -757,11 +764,20 @@ pub fn decide_promotion(
         );
     }
     if improved >= 2 {
-        (PromotionDecision::Dominates, format!("{} metrics improved, none regressed", improved))
+        (
+            PromotionDecision::Dominates,
+            format!("{} metrics improved, none regressed", improved),
+        )
     } else if improved == 1 {
-        (PromotionDecision::Improves, "one metric improved, none regressed".to_string())
+        (
+            PromotionDecision::Improves,
+            "one metric improved, none regressed".to_string(),
+        )
     } else {
-        (PromotionDecision::Neutral, "no measurable improvement".to_string())
+        (
+            PromotionDecision::Neutral,
+            "no measurable improvement".to_string(),
+        )
     }
 }
 
@@ -795,21 +811,19 @@ pub fn propose_experiment(
     // that goes through the stable-Route evaluation gate.
     let violations = check_trust_root_invariants(
         &audit_path(project_root),
-        &[
-            if manifest.reversible_save_id.is_none() {
-                TrustRootViolation {
-                    trust_root: TrustRoot::RecoveryExecutor,
-                    reason: "candidate has no reversible save — must be recoverable".to_string(),
-                    severity: "blocked".to_string(),
-                }
-            } else {
-                TrustRootViolation {
-                    trust_root: TrustRoot::RecoveryExecutor,
-                    reason: "recoverable".to_string(),
-                    severity: "ok".to_string(),
-                }
-            },
-        ],
+        &[if manifest.reversible_save_id.is_none() {
+            TrustRootViolation {
+                trust_root: TrustRoot::RecoveryExecutor,
+                reason: "candidate has no reversible save — must be recoverable".to_string(),
+                severity: "blocked".to_string(),
+            }
+        } else {
+            TrustRootViolation {
+                trust_root: TrustRoot::RecoveryExecutor,
+                reason: "recoverable".to_string(),
+                severity: "ok".to_string(),
+            }
+        }],
     );
     if !violations.is_empty() {
         anyhow::bail!(
@@ -860,7 +874,10 @@ pub fn propose_experiment(
 }
 
 fn audit_path(project_root: &Path) -> PathBuf {
-    project_root.join(ROUTE_DOT_DIR).join("execution").join("evidence.json")
+    project_root
+        .join(ROUTE_DOT_DIR)
+        .join("execution")
+        .join("evidence.json")
 }
 
 /// Run evaluation for an experiment. Produces a decision but never promotes
@@ -887,13 +904,10 @@ pub fn evaluate_experiment(
         .ok_or_else(|| anyhow!("benchmark suite '{}' not found", suite_id))?
         .clone();
 
-    let results =
-        run_benchmark_suite(&suite, baseline_results, candidate_results);
+    let results = run_benchmark_suite(&suite, baseline_results, candidate_results);
     let (decision, reason) = decide_promotion(&results, &metrics, policy);
 
-    let exp = store
-        .get_mut(id)
-        .expect("experiment exists after fetch");
+    let exp = store.get_mut(id).expect("experiment exists after fetch");
     exp.metrics = metrics;
     exp.status = ExperimentStatus::Benchmarking;
     exp.decision = Some(decision);
@@ -947,9 +961,7 @@ pub fn promote_experiment(
     exp.status = ExperimentStatus::Promoted;
     exp.updated_at = route_core::now_millis();
     let exp = exp.clone();
-    store
-        .save(project_root)
-        .context("persisting promotion")?;
+    store.save(project_root).context("persisting promotion")?;
     Ok(exp)
 }
 
@@ -964,22 +976,15 @@ pub fn reject_experiment(
         .get_mut(id)
         .ok_or_else(|| anyhow!("experiment '{}' not found", id))?;
     exp.status = ExperimentStatus::Rejected;
-    exp.decision_reason = Some(
-        reason.unwrap_or("rejected by gate / user").to_string(),
-    );
+    exp.decision_reason = Some(reason.unwrap_or("rejected by gate / user").to_string());
     exp.updated_at = route_core::now_millis();
     let exp = exp.clone();
-    store
-        .save(project_root)
-        .context("persisting rejection")?;
+    store.save(project_root).context("persisting rejection")?;
     Ok(exp)
 }
 
 /// Roll back to the previous KnownGood. Always recoverable.
-pub fn rollback_experiment(
-    project_root: &Path,
-    store: &mut EvolutionStore,
-) -> Result<KnownGood> {
+pub fn rollback_experiment(project_root: &Path, store: &mut EvolutionStore) -> Result<KnownGood> {
     let kg = store
         .known_good
         .as_ref()
@@ -995,9 +1000,7 @@ pub fn rollback_experiment(
         .cloned()
         .ok_or_else(|| anyhow!("previous KnownGood '{}' not in history", prev_id))?;
     store.known_good = Some(prev.clone());
-    store
-        .save(project_root)
-        .context("persisting rollback")?;
+    store.save(project_root).context("persisting rollback")?;
     Ok(prev)
 }
 
@@ -1017,9 +1020,15 @@ pub fn derive_benchmark_from_reference(
         id: route_core::new_id(),
         name: case_name.to_string(),
         origin: BenchmarkOrigin::ReferenceDerived,
-        scope: reference.project_scope.clone().unwrap_or_else(|| "project".to_string()),
+        scope: reference
+            .project_scope
+            .clone()
+            .unwrap_or_else(|| "project".to_string()),
         expected: expected.to_string(),
-        trust: reference.trust.clone().unwrap_or_else(|| "medium".to_string()),
+        trust: reference
+            .trust
+            .clone()
+            .unwrap_or_else(|| "medium".to_string()),
         mutable: true, // reference-derived is mutable only by a new proposal
         evidence: vec![],
         reference_id: Some(reference.id.clone()),
@@ -1201,7 +1210,13 @@ mod tests {
         }
     }
 
-    fn result(case_id: &str, name: &str, origin: BenchmarkOrigin, base: bool, cand: bool) -> BenchmarkResult {
+    fn result(
+        case_id: &str,
+        name: &str,
+        origin: BenchmarkOrigin,
+        base: bool,
+        cand: bool,
+    ) -> BenchmarkResult {
         BenchmarkResult {
             case_id: case_id.to_string(),
             name: name.to_string(),
@@ -1276,8 +1291,20 @@ mod tests {
     fn correctness_regression_is_rejected() {
         let policy = PromotionPolicy::default();
         let baseline = vec![
-            result("c-fixed", "fixed", BenchmarkOrigin::FixedBaseline, true, true),
-            result("c-holdout", "holdout", BenchmarkOrigin::Holdout, true, false),
+            result(
+                "c-fixed",
+                "fixed",
+                BenchmarkOrigin::FixedBaseline,
+                true,
+                true,
+            ),
+            result(
+                "c-holdout",
+                "holdout",
+                BenchmarkOrigin::Holdout,
+                true,
+                false,
+            ),
         ];
         let (dec, reason) = decide_promotion(&baseline, &[], &policy);
         assert_eq!(dec, PromotionDecision::Regresses);
@@ -1303,7 +1330,10 @@ mod tests {
     fn anti_aio_flags_scope_crossing() {
         // A single-purpose module (scoped to "protocol") that also touches
         // "audio" and "ui" is drifting toward AIO.
-        assert!(aio_screen("protocol", &["protocol".into(), "audio".into(), "ui".into()]));
+        assert!(aio_screen(
+            "protocol",
+            &["protocol".into(), "audio".into(), "ui".into()]
+        ));
         // Same-scope change is fine.
         assert!(!aio_screen("protocol", &["protocol".into()]));
     }
@@ -1388,14 +1418,30 @@ mod tests {
             unit: "".to_string(),
             higher_is_better: true,
         }];
-        evaluate_experiment(tmp.path(), &mut store, &exp.id, &base, &cand, metrics, &policy)
-            .unwrap();
+        evaluate_experiment(
+            tmp.path(),
+            &mut store,
+            &exp.id,
+            &base,
+            &cand,
+            metrics,
+            &policy,
+        )
+        .unwrap();
         let after = store.get(&exp.id).unwrap().decision.unwrap();
         assert_eq!(after, PromotionDecision::Improves);
 
         let promoted = promote_experiment(tmp.path(), &mut store, &exp.id, "v2", &policy).unwrap();
         assert_eq!(promoted.status, ExperimentStatus::Promoted);
-        assert_eq!(store.known_good.as_ref().unwrap().from_experiment.as_deref(), Some(exp.id.as_str()));
+        assert_eq!(
+            store
+                .known_good
+                .as_ref()
+                .unwrap()
+                .from_experiment
+                .as_deref(),
+            Some(exp.id.as_str())
+        );
 
         // Roll back -> previous KnownGood restored.
         let prev = rollback_experiment(tmp.path(), &mut store).unwrap();
@@ -1431,8 +1477,7 @@ mod tests {
         )
         .unwrap();
         // Evaluate with a Neutral result (no metrics).
-        evaluate_experiment(tmp.path(), &mut store, &exp.id, &[], &[], vec![], &policy)
-            .unwrap();
+        evaluate_experiment(tmp.path(), &mut store, &exp.id, &[], &[], vec![], &policy).unwrap();
         let res = promote_experiment(tmp.path(), &mut store, &exp.id, "v3", &policy);
         assert!(res.is_err(), "neutral/insufficient evidence must be denied");
     }
@@ -1453,7 +1498,13 @@ mod tests {
             .iter()
             .map(|c| result(&c.id, &c.name, c.origin, true, true))
             .collect::<Vec<_>>();
-        let stub = vec![result("c-fixed", "fixed", BenchmarkOrigin::FixedBaseline, true, true)];
+        let stub = vec![result(
+            "c-fixed",
+            "fixed",
+            BenchmarkOrigin::FixedBaseline,
+            true,
+            true,
+        )];
         let merged = run_benchmark_suite(&suite, &base, &stub);
         // The holdout case is missing from candidate results -> candidate_passed=false,
         // but it is immutable and authoritative -> normalized=true.
@@ -1527,7 +1578,13 @@ mod tests {
         let policy = PromotionPolicy::default();
         // Candidate passes its own AI-generated case but regresses a fixed one.
         let results = vec![
-            result("c-fixed", "fixed", BenchmarkOrigin::FixedBaseline, true, false),
+            result(
+                "c-fixed",
+                "fixed",
+                BenchmarkOrigin::FixedBaseline,
+                true,
+                false,
+            ),
             result(
                 "c-ai",
                 "ai exploratory",

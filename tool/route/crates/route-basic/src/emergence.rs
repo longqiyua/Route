@@ -205,10 +205,7 @@ pub struct InnovationRecord {
 /// The gate for promoting a lineage into a long-lived Strategy/Gene. A single
 /// success never becomes a strategy; it needs replication >= threshold AND
 /// cross-task validation OR ablation proving a stable contribution (P16).
-pub fn strategy_gate_ok(
-    record: &InnovationRecord,
-    replication_threshold: u32,
-) -> bool {
+pub fn strategy_gate_ok(record: &InnovationRecord, replication_threshold: u32) -> bool {
     record.replication_count >= replication_threshold
         && (record.cross_task_validated || record.ablation_passed)
 }
@@ -261,10 +258,12 @@ pub fn benchmark_admission(
     if !provenance_ok {
         problems.push("missing or untrusted provenance".to_string());
     }
-    if case.trust == "high" && !match case.origin {
-        BenchmarkOrigin::FixedBaseline | BenchmarkOrigin::Holdout => true,
-        _ => false,
-    } {
+    if case.trust == "high"
+        && !match case.origin {
+            BenchmarkOrigin::FixedBaseline | BenchmarkOrigin::Holdout => true,
+            _ => false,
+        }
+    {
         problems.push("high-trust claimed on a non-fixed/holdout case".to_string());
     }
     problems
@@ -462,11 +461,7 @@ pub fn watchdog_check(
     let healthy = candidate_up && evaluator_intact && original_intact && promotion_record_intact;
     WatchdogResult {
         healthy,
-        reverts_to: if healthy {
-            None
-        } else {
-            previous_known_good
-        },
+        reverts_to: if healthy { None } else { previous_known_good },
         reason: if healthy {
             "candidate route is healthy".to_string()
         } else {
@@ -576,10 +571,7 @@ pub fn require_experimental(store: &EmergenceStore) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Record a blackboard event through the Engine (the only allowed write path).
-pub fn engine_project_event(
-    store: &mut EmergenceStore,
-    ev: BlackboardEvent,
-) -> Result<()> {
+pub fn engine_project_event(store: &mut EmergenceStore, ev: BlackboardEvent) -> Result<()> {
     require_experimental(store)?;
     store.blackboard.append(ev);
     Ok(())
@@ -627,10 +619,7 @@ pub fn update_champion(
         }
         _ => {}
     }
-    let slot = store
-        .champions
-        .iter_mut()
-        .find(|c| c.scope == scope);
+    let slot = store.champions.iter_mut().find(|c| c.scope == scope);
     match slot {
         Some(ch) => {
             if quality_score >= ch.quality_score {
@@ -791,8 +780,14 @@ mod tests {
     // P17: candidate-generated benchmarks are quarantined and self-blocked.
     #[test]
     fn candidate_generated_benchmark_is_self_blocked() {
-        assert!(self_benchmark_blocked(BenchmarkOrigin::CandidateGenerated, true));
-        assert!(!self_benchmark_blocked(BenchmarkOrigin::FixedBaseline, true));
+        assert!(self_benchmark_blocked(
+            BenchmarkOrigin::CandidateGenerated,
+            true
+        ));
+        assert!(!self_benchmark_blocked(
+            BenchmarkOrigin::FixedBaseline,
+            true
+        ));
     }
 
     #[test]
@@ -938,7 +933,11 @@ mod tests {
         let _t: EvolutionTarget = EvolutionTarget::Project;
     }
 
-    fn rec(replication_count: u32, cross_task_validated: bool, ablation_passed: bool) -> InnovationRecord {
+    fn rec(
+        replication_count: u32,
+        cross_task_validated: bool,
+        ablation_passed: bool,
+    ) -> InnovationRecord {
         InnovationRecord {
             id: "r".to_string(),
             model: "m".to_string(),
@@ -970,7 +969,10 @@ mod tests {
     fn ablation_failure_blocks_gene_promotion() {
         // High replication but no cross-task validation and failed ablation.
         let r = rec(5, false, false);
-        assert!(!strategy_gate_ok(&r, 3), "failed ablation must block strategy");
+        assert!(
+            !strategy_gate_ok(&r, 3),
+            "failed ablation must block strategy"
+        );
         // Cross-task validation alone unlocks it.
         let r2 = rec(5, true, false);
         assert!(strategy_gate_ok(&r2, 3));
@@ -1007,7 +1009,13 @@ mod tests {
     #[test]
     fn route_candidate_cannot_tamper_evaluator() {
         // Watchdog catches an injected evaluator change and reverts to KnownGood.
-        let res = watchdog_check(true, /*evaluator_intact=*/ false, true, true, Some("kg-0".to_string()));
+        let res = watchdog_check(
+            true,
+            /*evaluator_intact=*/ false,
+            true,
+            true,
+            Some("kg-0".to_string()),
+        );
         assert!(!res.healthy);
         assert_eq!(res.reverts_to.as_deref(), Some("kg-0"));
     }

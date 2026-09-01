@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::capability::{level_for_kind, Capability, CapabilityKind, CapabilityRegistry};
 use crate::constitutive::{
     write_atomic, ContextHistoryManifest, ContextSnapshot, LearnedMeta, Origin, ReferenceEntry,
     ReferenceRegistry, ReferenceType,
@@ -619,11 +620,32 @@ pub fn apply_learning_proposal(project_root: &Path, proposal_id: &str) -> Result
     .with_origin(Origin::Generated)
     .with_learned_meta(learned_meta)
     .build();
+    let ref_id = entry.id.clone();
 
     // Register in the Reference registry.
     let mut registry = ReferenceRegistry::read(project_root)?;
     registry.upsert(entry);
     registry.write(project_root)?;
+
+    // P3: promote a genuinely-evidenced learned pattern into the capability
+    // registry and, when it is a reusable technique, into `.route/skills/`.
+    // Only fires when the proposal is backed by real system evidence
+    // (a TestPass event) and a high enough confidence — AI self-reports
+    // (AgentResult) never count as evidence here.
+    if let Some(cap) = learned_capability(project_root, &proposal, &ref_id)? {
+        let mut cap_registry = CapabilityRegistry::load(project_root)?;
+        if cap_registry.get(&cap.id).is_none() {
+            cap_registry.set(cap.clone());
+            cap_registry.save(project_root)?;
+        }
+        let skill_report = cap_registry.promote_skills(project_root, Some(&cap.id), false)?;
+        if !skill_report.promoted.is_empty() {
+            proposal.reason.push_str(&format!(
+                " | promoted skill: {}",
+                skill_report.promoted.join(", ")
+            ));
+        }
+    }
 
     // Mark proposal as approved.
     proposal.status = ProposalStatus::Approved;
@@ -657,6 +679,56 @@ pub fn apply_learning_proposal(project_root: &Path, proposal_id: &str) -> Result
     event_store.save(project_root)?;
 
     Ok(proposal)
+}
+
+/// Build the capability derived from a learned proposal, if the proposal is
+/// backed by genuine system evidence (a `TestPass` event) and a confidence
+/// high enough to trust. Returns `None` otherwise — so AI self-reports never
+/// fabricate a capability out of thin air.
+fn learned_capability(
+    project_root: &Path,
+    proposal: &LearningProposal,
+    ref_id: &str,
+) -> Result<Option<Capability>> {
+    if proposal.confidence < 0.6 || !has_real_system_evidence(project_root, proposal)? {
+        return Ok(None);
+    }
+    let (kind, name) = match &proposal.scope {
+        LearnScope::TaskPattern(t) if !t.is_empty() => (CapabilityKind::Instruction, t.clone()),
+        LearnScope::ToolOrHost(t) if !t.is_empty() => (CapabilityKind::Skill, t.clone()),
+        _ => (
+            CapabilityKind::Knowledge,
+            proposal.scope.as_str().to_string(),
+        ),
+    };
+    Ok(Some(Capability {
+        id: format!("cap-learning-{}", &proposal.id[..12]),
+        reference_id: ref_id.to_string(),
+        name,
+        kind: kind.clone(),
+        level: level_for_kind(&kind),
+        entrypoint: None,
+        usage: format!("Learned: {}", proposal.claim),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        permissions: Vec::new(),
+        constraints: vec![format!(
+            "Confidence: {:.2}. Scope: {}. Learned pattern, may be superseded by future evidence.",
+            proposal.confidence,
+            proposal.scope.as_str()
+        )],
+        availability: true,
+    }))
+}
+
+/// True only when at least one supporting event is real system evidence
+/// (`TestPass`). Deliberately excludes `AgentResult` (AI self-report).
+fn has_real_system_evidence(project_root: &Path, proposal: &LearningProposal) -> Result<bool> {
+    let store = ExperienceStore::load(project_root)?;
+    Ok(store
+        .events
+        .iter()
+        .any(|e| proposal.supporting_event_ids.contains(&e.id) && e.kind == EventKind::TestPass))
 }
 
 /// Reject a learning proposal. Records negative evidence so the same
@@ -1524,6 +1596,159 @@ mod tests {
         assert!(
             audit.reference_id.is_some(),
             "audit must have a reference_id"
+        );
+    }
+
+    #[test]
+    fn apply_promotes_only_real_evidence_to_skill() {
+        let (_tmp, root) = init_project();
+        // 3 real TestPass events in a tool-or-host scope → a genuine skill.
+        let mut store = ExperienceStore::load(&root).unwrap();
+        for i in 0..3 {
+            store
+                .record(
+                    &root,
+                    EventKind::TestPass,
+                    &format!("test passed #{}", i + 1),
+                    "evidence",
+                    LearnScope::ToolOrHost("claude".into()),
+                    Some("p3 real evidence"),
+                    vec![],
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+        store.save(&root).unwrap();
+
+        let proposals = analyze_events(&root).unwrap();
+        assert_eq!(proposals.len(), 1);
+        let applied = apply_learning_proposal(&root, &proposals[0].id).unwrap();
+        assert_eq!(applied.status, ProposalStatus::Approved);
+
+        // A Skill capability was registered.
+        let cap_reg = CapabilityRegistry::load(&root).unwrap();
+        let skill_cap = cap_reg
+            .capabilities
+            .iter()
+            .find(|c| c.id.starts_with("cap-learning-") && c.kind == CapabilityKind::Skill);
+        assert!(
+            skill_cap.is_some(),
+            "real TestPass evidence must register a Skill capability"
+        );
+
+        // And a reusable skill file was written to .route/skills/.
+        let skills_dir = CapabilityRegistry::skills_dir(&root);
+        let files = std::fs::read_dir(&skills_dir).unwrap().count();
+        assert!(files >= 1, "expected at least one .route/skills/*.md file");
+    }
+
+    #[test]
+    fn promoted_skill_is_consumable_by_route_study() {
+        // White-box round-trip: a skill promoted from real evidence must be
+        // usable BY route itself. `study_project` reads `.route/skills/` and
+        // surfaces each promoted skill as a first-class `StudySkill` in the
+        // report — proving the enhancement is genuinely self-hosted, not an
+        // orphaned file that nothing on route reads back.
+        let (_tmp, root) = init_project();
+        let mut store = ExperienceStore::load(&root).unwrap();
+        for i in 0..3 {
+            store
+                .record(
+                    &root,
+                    EventKind::TestPass,
+                    &format!("test passed #{}", i + 1),
+                    "evidence",
+                    LearnScope::ToolOrHost("claude".into()),
+                    Some("whitebox round-trip evidence"),
+                    vec![],
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+        store.save(&root).unwrap();
+
+        let proposals = analyze_events(&root).unwrap();
+        assert_eq!(proposals.len(), 1);
+        let applied = apply_learning_proposal(&root, &proposals[0].id).unwrap();
+        assert_eq!(applied.status, ProposalStatus::Approved);
+
+        // Route's own study engine consumes the promoted directory.
+        let report = crate::study::study_project(&root.to_string_lossy()).unwrap();
+        let mut skills_under_route = Vec::new();
+        for skill in &report.skills {
+            // `source` is a relative path rendered with the OS separator;
+            // compare via path components so the check is cross-platform.
+            let source_path = std::path::Path::new(&skill.source);
+            let comps: Vec<_> = source_path.components().collect();
+            let under_skills = comps
+                .get(0)
+                .map(|c| c.as_os_str() == ".route")
+                .unwrap_or(false)
+                && comps
+                    .get(1)
+                    .map(|c| c.as_os_str() == "skills")
+                    .unwrap_or(false);
+            if under_skills {
+                skills_under_route.push(skill.name.clone());
+            }
+        }
+        assert!(
+            !skills_under_route.is_empty(),
+            "route must self-consume at least one promoted skill from .route/skills/"
+        );
+
+        // The promoted file is pure Markdown metadata (a route capability card),
+        // never an executable payload — keeps self-enhancement conservative.
+        let skills_dir = CapabilityRegistry::skills_dir(&root);
+        for entry in std::fs::read_dir(&skills_dir).unwrap().flatten() {
+            let content = std::fs::read_to_string(entry.path()).unwrap();
+            assert!(
+                content.contains("> capability:")
+                    && content.contains("> reference:")
+                    && !content.contains("sudo ")
+                    && !content.contains("rm -rf"),
+                "promoted skill must be a metadata card, not an executable script"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_does_not_promote_ai_self_report() {
+        let (_tmp, root) = init_project();
+        // 3 AgentResult (AI self-report) events: confidence is fine but there
+        // is NO real system evidence, so nothing may be promoted.
+        let mut store = ExperienceStore::load(&root).unwrap();
+        for i in 0..3 {
+            store
+                .record(
+                    &root,
+                    EventKind::AgentResult,
+                    &format!("agent reports #{}", i + 1),
+                    "ai claim",
+                    LearnScope::ToolOrHost("claude".into()),
+                    Some("p3 fake evidence"),
+                    vec![],
+                    None,
+                    Some("ai:claude".to_string()),
+                )
+                .unwrap();
+        }
+        store.save(&root).unwrap();
+
+        let proposals = analyze_events(&root).unwrap();
+        assert_eq!(proposals.len(), 1, "AgentResult still forms a proposal");
+
+        apply_learning_proposal(&root, &proposals[0].id).unwrap();
+
+        let cap_reg = CapabilityRegistry::load(&root).unwrap();
+        assert!(
+            !cap_reg
+                .capabilities
+                .iter()
+                .any(|c| c.id.starts_with("cap-learning-")),
+            "AI self-report must never fabricate a capability"
         );
     }
 }

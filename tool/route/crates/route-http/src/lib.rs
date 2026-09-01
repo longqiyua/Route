@@ -79,6 +79,10 @@ pub fn build_router(state: SharedState) -> Router {
             "/extensions/references",
             get(handlers::extensions::references_handler),
         )
+        .route(
+            "/capabilities/promote-skill",
+            post(handlers::capability::promote_skill_handler),
+        )
         // ---- Permission ----
         .route("/permission", get(handlers::permission::status_handler))
         .route("/permission", post(handlers::permission::set_handler))

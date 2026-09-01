@@ -2998,9 +2998,7 @@ impl AgentPolicy {
         );
         out.push_str(&self.render_hard_rules());
         let mode_str = match self.mode {
-            AgentMode::Single => {
-                "Run as a single agent. Do not attempt to create sub-agents."
-            }
+            AgentMode::Single => "Run as a single agent. Do not attempt to create sub-agents.",
             AgentMode::Adaptive => {
                 "You may execute sequential role phases for complex tasks. \
                  If the harness supports sub-agents, delegate work accordingly. \
@@ -3025,12 +3023,16 @@ impl AgentPolicy {
         }
         out.push_str("- **Tool support**: tool_calls = supported, structured_output = supported\n");
         out.push_str("- **Reasoning**: supported (native chain-of-thought)\n");
-        out.push_str("- **Sub-agents / MCP / Hooks**: host-dependent — Route does not assume availability\n");
+        out.push_str(
+            "- **Sub-agents / MCP / Hooks**: host-dependent — Route does not assume availability\n",
+        );
         out.push_str("\n### Route Safety Contract\n\n");
         out.push_str("BEFORE HIGH-RISK CHANGE: use `route save` or `route checkpoint`\n");
         out.push_str("IF VERIFICATION FAILS: report failure evidence — do not endlessly patch\n");
         out.push_str("IF RECOVERY NEEDED: request RepairPlan — do not manually destroy files\n");
-        out.push_str("IF AI RECOMMENDS RESTORE: AI proposes scope, Route Engine performs restore\n");
+        out.push_str(
+            "IF AI RECOMMENDS RESTORE: AI proposes scope, Route Engine performs restore\n",
+        );
         out.push('\n');
         out
     }

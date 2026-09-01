@@ -1,5 +1,6 @@
 //! Sync engine — orchestrates file synchronization.
 
+use std::io::{Read, Result as IoResult};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -145,16 +146,13 @@ impl SyncEngine {
 
     fn sync_mirror(target: &SyncTarget, transport: &dyn Transport) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
-        let source_files = scan_source(&target.source, &target.ignore_patterns)?;
-        let dest_files: std::collections::HashSet<String> = transport
-            .list_dest(&target.destination)?
-            .into_iter()
-            .collect();
+        let mut source_files = std::collections::HashSet::new();
 
-        // Copy all source files
-        for entry in &source_files {
+        // Copy source files as they are discovered instead of retaining every
+        // absolute path and metadata record for the duration of the sync.
+        visit_source(&target.source, &target.ignore_patterns, |entry| {
             stats.files_scanned += 1;
-            match transport.send_file(entry, &target.destination) {
+            match transport.send_file(&entry, &target.destination) {
                 Ok(()) => {
                     stats.files_copied += 1;
                     stats.bytes_copied += entry.size;
@@ -163,13 +161,13 @@ impl SyncEngine {
                     stats.errors += 1;
                 }
             }
-        }
+            source_files.insert(entry.rel_path);
+        })?;
 
         // Delete files in dest that aren't in source
-        let source_set: std::collections::HashSet<&String> =
-            source_files.iter().map(|e| &e.rel_path).collect();
+        let dest_files = transport.list_dest(&target.destination)?;
         for dest_rel in &dest_files {
-            if !source_set.contains(dest_rel) {
+            if !source_files.contains(dest_rel) {
                 if transport.delete_file(dest_rel, &target.destination).is_ok() {
                     stats.files_deleted += 1;
                 }
@@ -185,19 +183,18 @@ impl SyncEngine {
 
     fn sync_backup(target: &SyncTarget, transport: &dyn Transport) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
-        let source_files = scan_source(&target.source, &target.ignore_patterns)?;
         let dest_files: std::collections::HashSet<String> = transport
             .list_dest(&target.destination)?
             .into_iter()
             .collect();
 
-        for entry in &source_files {
+        visit_source(&target.source, &target.ignore_patterns, |entry| {
             stats.files_scanned += 1;
             let exists = dest_files.contains(&entry.rel_path);
 
             if !exists {
                 // New file — copy directly
-                match transport.send_file(entry, &target.destination) {
+                match transport.send_file(&entry, &target.destination) {
                     Ok(()) => {
                         stats.files_copied += 1;
                         stats.bytes_copied += entry.size;
@@ -233,7 +230,7 @@ impl SyncEngine {
                             stats.files_skipped += 1;
                         }
                         ConflictResolution::Overwrite => {
-                            match transport.send_file(entry, &target.destination) {
+                            match transport.send_file(&entry, &target.destination) {
                                 Ok(()) => {
                                     stats.files_copied += 1;
                                     stats.conflicts_resolved += 1;
@@ -247,7 +244,7 @@ impl SyncEngine {
                     stats.files_skipped += 1;
                 }
             }
-        }
+        })?;
 
         Ok(stats)
     }
@@ -258,7 +255,6 @@ impl SyncEngine {
 
     fn sync_archive(target: &SyncTarget, transport: &dyn Transport) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
-        let source_files = scan_source(&target.source, &target.ignore_patterns)?;
 
         // Create timestamped snapshot folder
         let snapshot_name = chrono::Utc::now()
@@ -266,16 +262,16 @@ impl SyncEngine {
             .to_string();
         let snapshot_dest = target.destination.join(&snapshot_name);
 
-        for entry in &source_files {
+        visit_source(&target.source, &target.ignore_patterns, |entry| {
             stats.files_scanned += 1;
-            match transport.send_file(entry, &snapshot_dest) {
+            match transport.send_file(&entry, &snapshot_dest) {
                 Ok(()) => {
                     stats.files_copied += 1;
                     stats.bytes_copied += entry.size;
                 }
                 Err(_) => stats.errors += 1,
             }
-        }
+        })?;
 
         // Apply retention: remove old snapshots
         Self::apply_retention(target, &snapshot_name)?;
@@ -346,22 +342,27 @@ impl SyncEngine {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Scan a source directory, returning file entries with relative paths.
-fn scan_source(source: &Path, ignore_patterns: &[String]) -> Result<Vec<FileEntry>> {
-    let mut files = Vec::new();
+/// Visit source files one at a time so large trees do not require an in-memory
+/// `FileEntry` for every path before any work can begin.
+fn visit_source<F>(source: &Path, ignore_patterns: &[String], mut visitor: F) -> Result<()>
+where
+    F: FnMut(FileEntry),
+{
     if !source.exists() {
-        return Ok(files);
+        return Ok(());
     }
-    scan_dir(source, source, ignore_patterns, &mut files)?;
-    Ok(files)
+    visit_dir(source, source, ignore_patterns, &mut visitor)
 }
 
-fn scan_dir(
+fn visit_dir<F>(
     root: &Path,
     current: &Path,
     ignore_patterns: &[String],
-    files: &mut Vec<FileEntry>,
-) -> Result<()> {
+    visitor: &mut F,
+) -> Result<()>
+where
+    F: FnMut(FileEntry),
+{
     for entry in std::fs::read_dir(current)? {
         let entry = entry?;
         let path = entry.path();
@@ -379,14 +380,14 @@ fn scan_dir(
         }
 
         if path.is_dir() {
-            scan_dir(root, &path, ignore_patterns, files)?;
+            visit_dir(root, &path, ignore_patterns, visitor)?;
         } else {
             let rel = path
                 .strip_prefix(root)?
                 .to_string_lossy()
                 .replace('\\', "/");
             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-            files.push(FileEntry {
+            visitor(FileEntry {
                 rel_path: rel,
                 source_abs: path,
                 size,
@@ -405,14 +406,35 @@ fn files_differ(a: &Path, b: &Path) -> bool {
             if am.len() != bm.len() {
                 return true;
             }
-            // Compare content
-            match (std::fs::read(a), std::fs::read(b)) {
-                (Ok(a_bytes), Ok(b_bytes)) => a_bytes != b_bytes,
-                _ => true,
-            }
+            compare_file_contents(a, b, am.len()).unwrap_or(true)
         }
         _ => true,
     }
+}
+
+/// Compare equal-length files with bounded memory. The previous implementation
+/// loaded both files completely, making peak memory roughly twice the largest
+/// file size during backup conflict checks.
+fn compare_file_contents(a: &Path, b: &Path, len: u64) -> IoResult<bool> {
+    const COMPARE_BUFFER_SIZE: usize = 64 * 1024;
+
+    let mut a_file = std::fs::File::open(a)?;
+    let mut b_file = std::fs::File::open(b)?;
+    let mut a_buffer = [0_u8; COMPARE_BUFFER_SIZE];
+    let mut b_buffer = [0_u8; COMPARE_BUFFER_SIZE];
+    let mut remaining = len;
+
+    while remaining > 0 {
+        let chunk_len = remaining.min(COMPARE_BUFFER_SIZE as u64) as usize;
+        a_file.read_exact(&mut a_buffer[..chunk_len])?;
+        b_file.read_exact(&mut b_buffer[..chunk_len])?;
+        if a_buffer[..chunk_len] != b_buffer[..chunk_len] {
+            return Ok(true);
+        }
+        remaining -= chunk_len as u64;
+    }
+
+    Ok(false)
 }
 
 fn timestamp_short() -> String {
@@ -528,6 +550,25 @@ mod tests {
                 .starts_with("a.txt.conflict.")
         });
         assert!(has_conflict, "should have a conflict copy");
+    }
+
+    #[test]
+    fn file_comparison_is_chunked_and_exact() {
+        let tmp = TempDir::new().unwrap();
+        let a = tmp.path().join("a.bin");
+        let b = tmp.path().join("b.bin");
+        let mut content = vec![0x5a; 3 * 64 * 1024 + 17];
+
+        std::fs::write(&a, &content).unwrap();
+        std::fs::write(&b, &content).unwrap();
+        assert!(!files_differ(&a, &b));
+
+        // Change a byte after multiple comparison buffers while preserving
+        // the file length, exercising the bounded-memory content path.
+        let last = content.len() - 1;
+        content[last] ^= 0xff;
+        std::fs::write(&b, &content).unwrap();
+        assert!(files_differ(&a, &b));
     }
 
     #[test]

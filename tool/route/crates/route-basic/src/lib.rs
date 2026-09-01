@@ -8,6 +8,7 @@ pub mod adapter;
 pub mod agent_compiler;
 pub mod agent_org;
 pub mod ai_conflict;
+pub mod backup;
 pub mod binding;
 pub mod bootstrap;
 pub mod brain;
@@ -16,6 +17,7 @@ pub mod campaign;
 pub mod capability;
 pub mod constitutive;
 pub mod curator;
+pub mod development;
 pub mod discovery;
 pub mod drift;
 pub mod emergence;
@@ -44,11 +46,14 @@ pub mod pattern;
 pub mod plan;
 pub mod principle;
 pub mod profile;
+pub mod project_identity;
 pub mod repository;
 pub mod roadmap;
 pub mod role_template;
+pub mod route_history;
 pub mod savepoint;
 pub mod self_archive;
+pub mod sop;
 pub mod strategy;
 pub mod study;
 pub mod trajectory;
@@ -88,7 +93,7 @@ pub use brief::{
 };
 pub use capability::{
     capability_dir, capability_registry_path, Capability, CapabilityKind, CapabilityLevel,
-    CapabilityRegistry,
+    CapabilityRegistry, IntegrateReport, PromoteSkillReport,
 };
 pub use constitutive::{
     apply_proposal, archive_current_context, build_context, build_context_explain,
@@ -107,6 +112,16 @@ pub use constitutive::{
 pub use curator::{
     curator_capabilities, render_curator_context, AgentCompiler, CuratorCapabilities, CuratorRole,
     MemoryCurator, ReferenceCurator,
+};
+pub use development::{
+    append_development_event, development_ledger_path, development_state_owner,
+    development_view_is_stale, global_development_revision, query_development_events,
+    register_worker, send_worker_message, shared_development_state, update_worker_presence,
+    worker_descriptors, worker_presences, AppendDevelopmentEventResult, DevelopmentEvent,
+    DevelopmentEventDraft, DevelopmentEventPage, DevelopmentEventPayload, DevelopmentEventType,
+    GitWorkspaceSummary, KnownGoodSummary, SessionSummary, SharedDevelopmentState,
+    WorkerDescriptor, WorkerMessage, WorkerMessageInput, WorkerMessageType, WorkerMetadata,
+    WorkerPresence, WorkerPresenceInput, WorkerStatus,
 };
 pub use discovery::{
     discovery_dir, discovery_proposals_path, format_discovery_proposal, scan_project,
@@ -261,6 +276,10 @@ pub use profile::{
     active_profile_path, builtin_profiles, init_profile_store, profile_path, ProfileStore,
     ProjectProfile,
 };
+pub use project_identity::{
+    attach as attach_project_identity, discover_project_root, ensure_identity, identity_path,
+    load_identity, ProjectIdentity,
+};
 pub use repository::{
     BasicRepository, CommitDiffEntry, CommitOptions, CreateBranchOptions, FileRevision,
     RollbackOptions, SnapshotDiffEntry, VerifyFinding, VerifyOptions, VerifyReport, VerifySeverity,
@@ -269,6 +288,11 @@ pub use repository::{
 pub use roadmap::{Roadmap, RoadmapNode};
 pub use role_template::{
     format_role_template, role_template_dir, role_template_path, RoleTemplate, RoleTemplateStore,
+};
+pub use route_history::{
+    append_route_history, find_route_project_root, load_route_history, route_history_dir,
+    route_history_head_path, route_history_path, verify_route_history, RouteHistoryEvent,
+    RouteHistoryVerification,
 };
 pub use savepoint::{
     create_memory_snapshot, create_savepoint, delete_savepoint, diff_savepoints, execute_restore,

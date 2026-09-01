@@ -485,6 +485,71 @@ pub fn log(limit: usize, branch: Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// Show the engine-owned Route command history. This command is deliberately
+/// read-only: no append, edit, delete, truncate, or backfill action exists.
+pub fn history(limit: usize, verify_only: bool) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let root = route_basic::find_route_project_root(&cwd)
+        .ok_or_else(|| anyhow!("Not in a Route project"))?;
+    let verification = route_basic::verify_route_history(&root);
+    if !verification.valid {
+        anyhow::bail!(
+            "Route history integrity failure: {}",
+            verification
+                .error
+                .unwrap_or_else(|| "unknown integrity error".to_string())
+        );
+    }
+
+    let events_path = route_basic::route_history_path(&root);
+    let head_path = route_basic::route_history_head_path(&root);
+    let events_locked = events_path
+        .metadata()
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false);
+    let head_locked = head_path
+        .metadata()
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false);
+
+    println!("ROUTE HISTORY");
+    println!("  Integrity:  ✓ SHA-256 chain valid");
+    println!("  Entries:    {}", verification.entries);
+    println!(
+        "  Locked:     {}",
+        if verification.entries == 0 || (events_locked && head_locked) {
+            "yes (read-only)"
+        } else {
+            "no"
+        }
+    );
+    if !verification.head_hash.is_empty() {
+        println!("  Head:       {}", &verification.head_hash[..16]);
+    }
+
+    if verify_only {
+        return Ok(());
+    }
+
+    let events = route_basic::load_route_history(&root)?;
+    if events.is_empty() {
+        println!("\n(no Route command history yet)");
+        return Ok(());
+    }
+    println!();
+    for event in events.iter().rev().take(limit) {
+        println!(
+            "#{:04} {}  {}  {}  [{}]",
+            event.sequence,
+            format_ts(event.timestamp),
+            if event.success { "PASS" } else { "FAIL" },
+            event.operation,
+            &event.hash[..12]
+        );
+    }
+    Ok(())
+}
+
 pub fn rollback(snapshot_id: String, reason: Option<String>) -> Result<()> {
     let repo = open_repo()?;
     let full_id = resolve_snapshot_prefix(&repo, &snapshot_id)?;
@@ -3055,6 +3120,26 @@ fn cwd() -> Result<PathBuf> {
 
 fn current_project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Attach the current checkout to a persisted project identity.
+pub fn project_attach(path: String) -> Result<()> {
+    let root = route_basic::discover_project_root(&current_project_root())
+        .unwrap_or_else(current_project_root);
+    let source = PathBuf::from(path);
+    let identity = route_basic::attach_project_identity(&root, &source)?;
+    println!("Attached project identity: {}", identity.project_id);
+    println!("Workspace identity: {}", identity.workspace_id);
+    Ok(())
+}
+
+pub fn project_identity() -> Result<()> {
+    let root = route_basic::discover_project_root(&current_project_root())
+        .unwrap_or_else(current_project_root);
+    let identity = route_basic::ensure_identity(&root)?;
+    println!("Project identity: {}", identity.project_id);
+    println!("Workspace identity: {}", identity.workspace_id);
+    Ok(())
 }
 
 pub fn constitution_show() -> Result<()> {
@@ -6094,6 +6179,66 @@ pub fn self_archive_apply(seq: u64, out: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+/// `route self-archive git-init`: ensure the document-area archive is a
+/// local-only (no remote) git repository. Idempotent.
+pub fn self_archive_git_init() -> Result<()> {
+    let root = route_basic::backup::git_init_archive_no_remote()?;
+    println!("✓ Document-area git backup is ready (LOCAL ONLY, no remote)");
+    println!("  repo: {}", root.display());
+    Ok(())
+}
+
+/// `route self-archive git-commit`: snapshot the whole archive as a local git
+/// commit (history tracking for the document area). No-op when nothing changed.
+pub fn self_archive_git_commit(message: &str) -> Result<()> {
+    match route_basic::backup::git_commit_archive(message)? {
+        Some(sha) => {
+            println!("✓ Archived document area → [{sha}] {message}");
+            println!(
+                "  repo: {}",
+                route_basic::backup::archive_repo_root()?.display()
+            );
+        }
+        None => println!("ℹ No changes in the document area to commit."),
+    }
+    Ok(())
+}
+
+/// `route self-archive git-log`: show the local backup history.
+pub fn self_archive_git_log(limit: usize) -> Result<()> {
+    let log = route_basic::backup::git_log_archive(limit)?;
+    if log.trim().is_empty() {
+        println!(
+            "No backups yet. Run `route self-archive archive` or `route self-archive git-commit`."
+        );
+        return Ok(());
+    }
+    println!("📚 Document-area backup history (local git, no remote):");
+    print!("{}", log);
+    Ok(())
+}
+
+/// `route self-sop`: upgrade Route's own development constraints into a
+/// Standard Operating Procedure from real project memory + standards, then
+/// persist it as a versioned capability in the central (unified) archive.
+pub fn self_sop() -> Result<()> {
+    let root = std::env::current_dir()?;
+    let path = route_basic::sop::generate_and_write(&root)?;
+    println!("✓ SOP generated from project memory + standards.");
+    println!("  written: {}", path.display());
+
+    let seq = route_basic::sop::persist_sop_capability(&root)?;
+    println!(
+        "📦 Persisted as persistent capability → self-archive v{:06}",
+        seq
+    );
+    println!(
+        "  {}, local-only git backup",
+        route_basic::self_archive::self_archive_root()?.display()
+    );
+    Ok(())
+}
+
 /// Emit cross-project self-evolution input, read-only.
 pub fn self_evolve() -> Result<()> {
     let input = route_basic::self_archive::collect_self_evolve_input()?;
@@ -8050,12 +8195,36 @@ pub fn capability_inspect(id: String) -> Result<()> {
     Ok(())
 }
 
+/// `route capability promote-skill [id] [--force]` — promote Skill-kind
+/// capabilities into reusable `.route/skills/*.md` files (idempotent).
+pub fn capability_promote_skill(id: Option<String>, force: bool) -> Result<()> {
+    use route_basic::capability::CapabilityRegistry;
+
+    let cwd = current_project_root();
+    let registry = CapabilityRegistry::load(&cwd)?;
+    let report = registry.promote_skills(&cwd, id.as_deref(), force)?;
+    if report.promoted.is_empty() && report.skipped_existing.is_empty() {
+        println!("(no Skill capabilities to promote)");
+        return Ok(());
+    }
+    for f in &report.promoted {
+        println!("✓ promoted  {}.md", f);
+    }
+    for f in &report.skipped_existing {
+        println!("· skipped   {}.md (already exists — use --force)", f);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Discover commands — route discover [path]
 // ---------------------------------------------------------------------------
 
-/// `route discover [path]` — scan a project for discoverable capabilities.
-pub fn discover(path: Option<String>) -> Result<()> {
+/// `route discover [path] [--promote-skill]` — scan a project for discoverable
+/// capabilities. With `--promote-skill`, also register discovered skills into
+/// the capability registry and promote them to `.route/skills/`.
+pub fn discover(path: Option<String>, promote_skill: bool) -> Result<()> {
+    use route_basic::capability::CapabilityRegistry;
     use route_basic::discovery::{format_discovery_proposal, scan_project, DiscoveryStore};
 
     let cwd = match path {
@@ -8073,6 +8242,25 @@ pub fn discover(path: Option<String>) -> Result<()> {
 
     println!("{}", format_discovery_proposal(&proposal));
     println!("✓ Proposal saved to discovery store");
+
+    if promote_skill {
+        let mut registry = CapabilityRegistry::load(&root)?;
+        let report = registry.integrate_discovery(&root, &proposal)?;
+        println!(
+            "✓ {n} capabilities registered, {p} as reusable skills",
+            n = report.registered.len(),
+            p = report.promoted.len()
+        );
+        for name in &report.registered {
+            println!("  + registered  {name}");
+        }
+        for f in &report.promoted {
+            println!("  + skill       {f}.md");
+        }
+        for f in &report.skipped_existing {
+            println!("  · skill       {f}.md (already exists)");
+        }
+    }
     Ok(())
 }
 

@@ -18,8 +18,8 @@ Route's mental model is inspired by [Git](https://git-scm.com/) (GPL-2.0), but R
 
 ## Git Mode (Planned — Mode 2)
 
-The planned Git integration mode will invoke the user's system `git` binary. Users will be shown explicit risk warnings before enabling that mode. Route itself remains MIT-licensed; Git is subject to its own license when invoked externally.
+The planned Git integration mode will invoke the user's system `git` binary. Users will be shown explicit risk warnings before enabling that mode. Route itself is AGPL-3.0 licensed; Git is subject to its own license when invoked externally.
 
 ## Attribution Requirement
 
-When distributing Route, include this file alongside the MIT `LICENSE`.
+When distributing Route, include this file alongside the AGPL-3.0 `LICENSE`.

@@ -1,5 +1,15 @@
 # Route Architecture
 
+> **HISTORICAL / DESIGN DOCUMENT**
+>
+> This document is not a statement of currently implemented Route behavior.
+> For current behavior see:
+> - [/ROUTE.md](../ROUTE.md)
+> - [/docs/status.md](../docs/status.md)
+>
+> Some concepts here (e.g. "Enhanced RAG Cycle") are design notes, not
+> implemented features. Do not cite this file as authoritative.
+
 > **From Route to Routine.**
 > **One Markdown, give it to your AI, and start using Route.**
 

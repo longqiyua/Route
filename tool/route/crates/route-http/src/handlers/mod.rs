@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod branch;
+pub mod capability;
 pub mod context;
 pub mod conversation;
 pub mod export;

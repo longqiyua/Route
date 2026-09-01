@@ -1,0 +1,16 @@
+# PPAM Remote Pointer
+# PPAM (可插拔文档增强组件) is a standalone document enhancement system.
+# This file is a pointer — the Route repository does NOT contain PPAM code.
+# PPAM lives in its own remote repository. Update the URL below when PPAM
+# is published to its own remote.
+#
+# PPAM is installed locally under the ppam/ subdirectory (git-ignored) to
+# keep its files (1_Configuration/, 2_Request/, .trae/, etc.) isolated from
+# the Route project root.
+#
+# Local PPAM bridge:    crates/route-ppam/ (excluded from Route repo, local-only)
+# Local PPAM install:   ppam/                  (git-ignored, cloned from remote)
+# See: https://github.com/longqiyua/route
+
+PPAM_REMOTE_URL=https://github.com/longqiyua/ppam
+PPAM_LOCAL_PATH=ppam/

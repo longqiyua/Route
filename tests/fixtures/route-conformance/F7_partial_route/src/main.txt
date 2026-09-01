@@ -1,0 +1,3 @@
+service: greet
+contract: greet(name) -> "hello, " + name
+rule: name must be non-empty

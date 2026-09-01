@@ -1249,6 +1249,18 @@ fn tool_registry() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "route_skill_promote",
+            description: "Promote Skill-kind capabilities to reusable `.route/skills/*.md` files. Provide an optional `id` to promote a single capability, or omit it to promote all Skill capabilities. Set `force` to overwrite existing skill files. Idempotent: existing files are skipped unless `force`.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Capability ID to promote (omit to promote all Skill capabilities)." },
+                    "force": { "type": "boolean", "description": "Overwrite existing skill files (default false)." }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
             name: "route_capabilities",
             description: "Query Route's current capabilities. Returns version, repo initialization status, current branch, head snapshot, active session info, available targets, supported features, and integrity status. Call this first when connecting to Route to discover what's available.",
             input_schema: json!({
@@ -2092,6 +2104,28 @@ fn do_capabilities(_args: Value) -> Result<Value> {
             "targets": caps.targets,
             "features": caps.features,
             "integrity": caps.integrity,
+        },
+    }))
+}
+
+fn do_skill_promote(args: Value) -> Result<Value> {
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let root = project_root()?;
+    let registry = route_basic::capability::CapabilityRegistry::load(&root)?;
+    let report = registry.promote_skills(&root, id.as_deref(), force)?;
+
+    Ok(json!({
+        "ok": true,
+        "code": "OK",
+        "message": format!("{} skill(s) promoted", report.promoted.len()),
+        "data": {
+            "promoted": report.promoted,
+            "skipped_existing": report.skipped_existing,
         },
     }))
 }
@@ -3944,6 +3978,7 @@ fn dispatch_tool(name: &str, args: Value) -> Result<Value> {
         "route_learn_accept" => do_learn_accept(args),
         "route_learn_reject" => do_learn_reject(args),
         "route_capabilities" => do_capabilities(args),
+        "route_skill_promote" => do_skill_promote(args),
         // Git mode/restore
         "route_git_mode" => do_git_mode(args),
         "route_git_restore" => do_git_restore(args),
@@ -4485,6 +4520,56 @@ mod tests {
         assert_eq!(
             end.get("session_id").and_then(|v| v.as_str()),
             Some(session_id.as_str())
+        );
+    }
+
+    #[test]
+    fn test_skill_promote() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        let root = test_root();
+
+        // Seed a Skill-kind capability into the registry.
+        use route_basic::capability::{Capability, CapabilityKind, CapabilityLevel};
+        let mut registry = route_basic::capability::CapabilityRegistry::load(root).unwrap();
+        registry.set(Capability {
+            id: "cap-demo".into(),
+            reference_id: "ref-demo".into(),
+            name: "Demo Skill".into(),
+            kind: CapabilityKind::Skill,
+            level: CapabilityLevel::L2,
+            entrypoint: Some("use".into()),
+            usage: "How to use the demo skill.".into(),
+            inputs: vec!["prompt".into()],
+            outputs: vec!["answer".into()],
+            permissions: vec![],
+            constraints: vec![],
+            availability: true,
+        });
+        registry.save(root).unwrap();
+
+        // Promote via the MCP endpoint.
+        let res = do_skill_promote(json!({ "id": "cap-demo" })).expect("skill_promote");
+        assert_eq!(res.get("ok").and_then(|v| v.as_bool()), Some(true));
+        let data = res.get("data").expect("data field");
+        let promoted = data.get("promoted").and_then(|v| v.as_array()).unwrap();
+        assert!(!promoted.is_empty(), "expected at least one promoted skill");
+        assert!(root.join(".route/skills/demo-skill.md").exists());
+
+        // Running again with force=false skips the existing file.
+        let res2 = do_skill_promote(json!({ "id": "cap-demo" })).expect("second promote");
+        let data2 = res2.get("data").expect("data field");
+        assert!(data2
+            .get("promoted")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            data2
+                .get("skipped_existing")
+                .and_then(|v| v.as_array())
+                .unwrap()
+                .len(),
+            1
         );
     }
 
