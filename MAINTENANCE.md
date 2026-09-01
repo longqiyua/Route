@@ -126,6 +126,21 @@ Route 的 crates 按四层互斥分类，每层内部高内聚、层间低耦合
 | **packages/core** | TypeScript 核心库 | Route 核心数据结构的 TypeScript 实现 |
 | **packages/route-py** | Python 包 | `maturin build` 构建，`pip install route-vc` 安装 |
 
+### 3.6 存储与开发历史治理
+
+Route 的开发历史语义由内容身份以及 snapshot / manifest / commit
+关系决定，独立于文件在磁盘上的物理表示。改变压缩方式不得改变对象哈希、
+引用关系或读取语义，也不得借存储优化之名重写历史。
+
+- `Wiki/` 是可增删、可热插拔的外部参考资料，不进入 Basic snapshot。
+- `Release/`、`target/`、`target-*` 以及其他构建输出不是开发历史，扫描时排除。
+- NTFS 透明压缩属于宿主环境的物理空间优化；Route 仍按解压后的逻辑字节读取和
+  计算内容身份，不把压缩属性写入 manifest。
+- Packed Object Storage 仅是未来候选物理后端，当前**未实现**。任何未来方案都必须
+  保持 SHA/内容身份和 manifest/commit 引用不变，支持 loose/packed 迁移期互操作、
+  独立索引、原子建包、崩溃安全迁移、删除 loose object 前验证、可逆回退，并在晋级前
+  提供基准证据。
+
 ---
 
 ## 4. 五接口功能矩阵

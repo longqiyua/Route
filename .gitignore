@@ -1,8 +1,10 @@
 node_modules/
 dist/
 target/
+target-*/
 /Release/
 **/target/
+**/target-*/
 crates/*/target/
 crates/*/web/dist/
 *.rs.bk
@@ -94,5 +96,6 @@ ISM/*
 !ISM/README.private.md
 !ISM/.gitignore
 
-# Downloaded Wikimedia dumps are local datasets, not repository sources.
-/Wiki/**/zhwiki-*-pages-articles-multistream.xml
+# Wiki is a hot-pluggable local reference area, not repository source or
+# development history. Its datasets may be added or removed independently.
+/Wiki/

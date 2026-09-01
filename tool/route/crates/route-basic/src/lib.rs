@@ -281,9 +281,9 @@ pub use project_identity::{
     load_identity, ProjectIdentity,
 };
 pub use repository::{
-    BasicRepository, CommitDiffEntry, CommitOptions, CreateBranchOptions, FileRevision,
-    RollbackOptions, SnapshotDiffEntry, VerifyFinding, VerifyOptions, VerifyReport, VerifySeverity,
-    WorkingFileStatus,
+    BasicRepository, BlobGcReport, CommitDiffEntry, CommitOptions, CreateBranchOptions,
+    FileRevision, RollbackOptions, SnapshotDiffEntry, VerifyFinding, VerifyOptions, VerifyReport,
+    VerifySeverity, WorkingFileStatus,
 };
 pub use roadmap::{Roadmap, RoadmapNode};
 pub use role_template::{

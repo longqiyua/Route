@@ -228,6 +228,15 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Preview or remove unreferenced blobs from Route's object store
+    Gc {
+        /// Actually remove collectible blobs (default is read-only preview)
+        #[arg(long)]
+        apply: bool,
+        /// Output as JSON (machine-readable)
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage project Constitution — immutable development principles
     Constitution {
         #[command(subcommand)]
@@ -2873,6 +2882,7 @@ fn main() -> Result<()> {
             json,
         } => commands::check(full, no_blobs, json),
         Commands::RepairPlan { json } => commands::repair_plan(json),
+        Commands::Gc { apply, json } => commands::gc(apply, json),
         Commands::Constitution { action } => match action {
             ConstitutionAction::Show => commands::constitution_show(),
             ConstitutionAction::Init => commands::constitution_init(),

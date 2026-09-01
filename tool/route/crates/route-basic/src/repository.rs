@@ -1,6 +1,6 @@
 //! BasicRepository — main entry point for basic mode operations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -264,6 +264,20 @@ pub struct VerifyReport {
     pub blobs_checked: usize,
 }
 
+/// Result of inspecting or collecting unreferenced content-addressed blobs.
+///
+/// A blob is collectible only when no manifest in the repository references
+/// its hash. `apply = false` is a read-only preview.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BlobGcReport {
+    pub apply: bool,
+    pub referenced_blobs: usize,
+    pub collectible_blobs: usize,
+    pub collectible_bytes: u64,
+    pub removed_blobs: usize,
+    pub removed_bytes: u64,
+}
+
 /// A single repair operation that can be performed.
 ///
 /// See [`RepairPlan`] and [`BasicRepository::plan_repair`].
@@ -307,6 +321,90 @@ pub struct RepairPlan {
 }
 
 impl BasicRepository {
+    /// Preview or collect blobs that are not referenced by any stored manifest.
+    ///
+    /// The manifest set is the source of truth rather than branch heads, so
+    /// blobs retained by older snapshots remain protected. In apply mode the
+    /// corresponding immutable object files are unlinked while an immediate
+    /// database transaction holds the manifest set stable, then their index
+    /// rows are removed and committed. A crash can at worst leave an
+    /// unreferenced index row whose file is already absent; rerunning GC safely
+    /// converges it. A live manifest never loses a blob.
+    pub fn garbage_collect_blobs(&self, apply: bool) -> Result<BlobGcReport> {
+        let mut conn = self.db.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        let mut referenced = HashSet::new();
+        {
+            let mut stmt = tx.prepare("SELECT content FROM manifests")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let manifest: crate::models::Manifest = serde_json::from_str(&row?)?;
+                referenced.extend(manifest.into_values());
+            }
+        }
+
+        let indexed: Vec<(String, u64)> = {
+            let mut stmt = tx.prepare("SELECT hash, size FROM blobs")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let collectible: Vec<(String, u64)> = indexed
+            .into_iter()
+            .filter(|(hash, _)| !referenced.contains(hash))
+            .collect();
+        let collectible_bytes = collectible.iter().map(|(_, size)| *size).sum();
+
+        if !apply {
+            tx.rollback()?;
+            return Ok(BlobGcReport {
+                apply,
+                referenced_blobs: referenced.len(),
+                collectible_blobs: collectible.len(),
+                collectible_bytes,
+                removed_blobs: 0,
+                removed_bytes: 0,
+            });
+        }
+
+        let mut removed_blobs = 0;
+        let mut removed_bytes = 0;
+        for (hash, size) in &collectible {
+            let path = self.paths.blob_path(hash);
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    removed_blobs += 1;
+                    removed_bytes += size;
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::remove_dir(parent);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(anyhow!(
+                        "cannot remove collectible blob {}: {error}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        for (hash, _) in &collectible {
+            tx.execute("DELETE FROM blobs WHERE hash = ?1", [hash])?;
+        }
+        tx.commit()?;
+
+        Ok(BlobGcReport {
+            apply,
+            referenced_blobs: referenced.len(),
+            collectible_blobs: collectible.len(),
+            collectible_bytes,
+            removed_blobs,
+            removed_bytes,
+        })
+    }
+
     /// Attach an event bus. Once set, the bus cannot be replaced (matches
     /// the typical lifecycle: CLI/GUI constructs the bus once at startup).
     /// Returns `Err` if a bus is already attached.
@@ -3537,6 +3635,41 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let repo = BasicRepository::init(tmp.path()).unwrap();
         (tmp, repo)
+    }
+
+    #[test]
+    fn blob_gc_removes_only_unreferenced_objects() {
+        let (tmp, repo) = setup_repo();
+        std::fs::write(tmp.path().join("kept.txt"), b"kept").unwrap();
+        repo.commit(CommitOptions {
+            message: "keep one blob".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let store = BlobStore::new(repo.paths.clone());
+        let orphan_hash = store.store(b"orphan").unwrap();
+        repo.db
+            .lock()
+            .execute(
+                "INSERT INTO blobs(hash, size, created) VALUES(?1, ?2, ?3)",
+                params![orphan_hash, 6_i64, now_millis()],
+            )
+            .unwrap();
+
+        let preview = repo.garbage_collect_blobs(false).unwrap();
+        assert_eq!(preview.collectible_blobs, 1);
+        assert_eq!(preview.collectible_bytes, 6);
+        assert!(repo.paths.blob_path(&orphan_hash).exists());
+
+        let applied = repo.garbage_collect_blobs(true).unwrap();
+        assert_eq!(applied.removed_blobs, 1);
+        assert_eq!(applied.removed_bytes, 6);
+        assert!(!repo.paths.blob_path(&orphan_hash).exists());
+        assert_eq!(
+            repo.verify(&VerifyOptions::default()).unwrap().status,
+            VerifySeverity::Ok
+        );
     }
 
     #[test]

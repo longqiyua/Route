@@ -1989,6 +1989,27 @@ pub fn repair_plan(json: bool) -> Result<()> {
     Ok(())
 }
 
+/// `route gc` previews unreferenced object-store blobs; `route gc --apply`
+/// removes them while preserving every blob reachable from any snapshot.
+pub fn gc(apply: bool, json: bool) -> Result<()> {
+    let repo = open_repo()?;
+    let report = repo.garbage_collect_blobs(apply)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if apply {
+        println!(
+            "Removed {} unreferenced blobs ({} bytes).",
+            report.removed_blobs, report.removed_bytes
+        );
+    } else {
+        println!(
+            "Would remove {} unreferenced blobs ({} bytes). Run `route gc --apply` to collect them.",
+            report.collectible_blobs, report.collectible_bytes
+        );
+    }
+    Ok(())
+}
+
 // ---------------- Evolution Core commands ----------------
 
 /// `route evolve propose` — record a candidate experiment (candidate-first).

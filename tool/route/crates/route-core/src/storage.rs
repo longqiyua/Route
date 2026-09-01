@@ -328,8 +328,17 @@ impl ProjectScanner {
             extra_ignores: vec![
                 ".route-basic".to_string(),
                 ".route".to_string(),
+                // Hot-pluggable reference datasets and distributable
+                // artifacts are external to source-history snapshots. Their
+                // presence may change independently of Route development.
+                "Wiki".to_string(),
+                "Release".to_string(),
                 "node_modules".to_string(),
                 "target".to_string(),
+                // Isolated Rust builds conventionally use target-<purpose>.
+                // Treat them exactly like target/ so temporary integration
+                // builds cannot become permanent Route snapshot blobs.
+                "target-*".to_string(),
                 "dist".to_string(),
                 "build".to_string(),
                 ".git".to_string(),
@@ -411,7 +420,12 @@ impl ProjectScanner {
                     // walker's behaviour for the patterns we set up in
                     // `new()`.
                     if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                        if self.extra_ignores.iter().any(|pat| pat == name) {
+                        if self.extra_ignores.iter().any(|pat| {
+                            pat == name
+                                || pat
+                                    .strip_suffix('*')
+                                    .is_some_and(|prefix| name.starts_with(prefix))
+                        }) {
                             continue;
                         }
                     }
@@ -619,6 +633,77 @@ mod tests {
         let result = scanner.scan().unwrap();
         assert!(result.files.contains_key("a.txt"));
         assert!(!result.files.contains_key(".route-basic/db.sqlite"));
+    }
+
+    #[test]
+    fn scanner_ignores_standard_and_isolated_rust_targets() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("kept.txt"), b"kept").unwrap();
+        for dir in ["target", "target-rpc-isolated", "target-test-123"] {
+            std::fs::create_dir(tmp.path().join(dir)).unwrap();
+            std::fs::write(tmp.path().join(dir).join("artifact.bin"), b"large").unwrap();
+        }
+
+        for dir in ["Wiki", "Release"] {
+            std::fs::create_dir(tmp.path().join(dir)).unwrap();
+            std::fs::write(tmp.path().join(dir).join("external.bin"), b"external").unwrap();
+        }
+
+        for scanner in [
+            ProjectScanner::new(tmp.path()),
+            ProjectScanner::new(tmp.path()).with_serial_walker(),
+        ] {
+            let result = scanner.scan().unwrap();
+            assert!(result.files.contains_key("kept.txt"));
+            assert!(result.files.keys().all(|path| !path.starts_with("target")));
+            assert!(!result.files.keys().any(|path| path.starts_with("Wiki/")));
+            assert!(!result.files.keys().any(|path| path.starts_with("Release/")));
+        }
+    }
+
+    #[test]
+    fn scanner_normalizes_nested_paths_and_handles_absent_ignored_directories() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("nested")).unwrap();
+        std::fs::write(tmp.path().join("nested").join("kept.txt"), b"kept").unwrap();
+
+        // Wiki, Release, target, and target-* deliberately do not exist. A
+        // project's optional external/cache directories must not be required
+        // for either scanner implementation to produce the same manifest.
+        let parallel = ProjectScanner::new(tmp.path()).scan().unwrap();
+        let serial = ProjectScanner::new(tmp.path())
+            .with_serial_walker()
+            .scan()
+            .unwrap();
+
+        assert_eq!(parallel.files, serial.files);
+        assert_eq!(parallel.files.len(), 1);
+        assert!(parallel.files.contains_key("nested/kept.txt"));
+        assert!(parallel.files.keys().all(|path| !path.contains('\\')));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scanner_hashes_remain_stable_when_ntfs_compression_is_applied() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("kept.txt");
+        std::fs::write(&file, b"logical content remains authoritative").unwrap();
+
+        let before = ProjectScanner::new(tmp.path()).scan().unwrap();
+        let compressed = std::process::Command::new("compact.exe")
+            .args(["/C", "/I", "/Q"])
+            .arg(&file)
+            .status();
+
+        // Compression is an environment capability (for example NTFS), not a
+        // Route requirement. Exercise the invariant whenever the host accepts
+        // the operation, and otherwise leave non-supporting Windows CI usable.
+        if !compressed.is_ok_and(|status| status.success()) {
+            return;
+        }
+
+        let after = ProjectScanner::new(tmp.path()).scan().unwrap();
+        assert_eq!(before.files, after.files);
     }
 
     #[test]
