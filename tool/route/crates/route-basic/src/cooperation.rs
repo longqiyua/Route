@@ -262,6 +262,7 @@ pub struct HumanCooperationGuidance {
 }
 
 fn validate_id(label: &str, value: &str) -> Result<()> {
+    validate_public_metadata(value)?;
     if value.trim().is_empty() || value.len() > 256 {
         bail!("{label} must contain 1..256 characters");
     }
@@ -269,8 +270,33 @@ fn validate_id(label: &str, value: &str) -> Result<()> {
 }
 
 fn validate_text(label: &str, value: &str, max: usize) -> Result<()> {
+    validate_public_metadata(value)?;
     if value.trim().is_empty() || value.len() > max {
         bail!("{label} must contain 1..{max} characters");
+    }
+    Ok(())
+}
+
+/// Shared boundary for locators/names persisted into public project metadata.
+pub fn validate_public_metadata(value: &str) -> Result<()> {
+    let lower = value.to_ascii_lowercase();
+    if [
+        "password=",
+        "token=",
+        "api_key=",
+        "apikey=",
+        "secret=",
+        "authorization:",
+        "-----begin private key",
+        "sk-proj-",
+    ]
+    .iter()
+    .any(|pattern| lower.contains(pattern))
+        || value
+            .split_once("://")
+            .is_some_and(|(_, rest)| rest.split('/').next().unwrap_or_default().contains('@'))
+    {
+        bail!("SECRET_METADATA_REJECTED: remove credentials from the locator/name; no secret was stored");
     }
     Ok(())
 }
@@ -396,7 +422,13 @@ fn file_fingerprint(path: &Path, metadata: &fs::Metadata) -> Result<CooperationF
     let size = metadata.len();
     let modified = modified_millis(metadata);
     if size <= FULL_HASH_LIMIT {
-        let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        let mut bytes = Vec::new();
+        fs::File::open(path)?
+            .take(FULL_HASH_LIMIT + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > FULL_HASH_LIMIT {
+            bail!("RESOURCE_CHANGED: resource grew during bounded inspection; retry refresh");
+        }
         return Ok(CooperationFingerprint {
             algorithm: "SHA256_FULL_V1".into(),
             value: route_core::sha256_hex(&bytes),
@@ -410,11 +442,11 @@ fn file_fingerprint(path: &Path, metadata: &fs::Metadata) -> Result<CooperationF
     file.seek(SeekFrom::End(-(HASH_SAMPLE as i64)))?;
     let mut tail = vec![0_u8; HASH_SAMPLE];
     file.read_exact(&mut tail)?;
-    let mut material = format!("{size}\n").into_bytes();
+    let mut material = format!("{size}\n{:?}\n", metadata.modified().ok()).into_bytes();
     material.extend_from_slice(&sample);
     material.extend_from_slice(&tail);
     Ok(CooperationFingerprint {
-        algorithm: "SHA256_BOUNDED_HEAD_TAIL_V1".into(),
+        algorithm: "SHA256_BOUNDED_HEAD_TAIL_MTIME_V2".into(),
         value: route_core::sha256_hex(&material),
         size_bytes: Some(size),
         modified_at_millis: modified,
@@ -463,7 +495,7 @@ fn resolve_path_command(command: &str) -> Option<PathBuf> {
     None
 }
 
-fn inspect_locator(
+pub fn inspect_locator(
     project_root: &Path,
     locator: &str,
     kind: &CooperationKind,
@@ -474,6 +506,7 @@ fn inspect_locator(
     Option<String>,
 )> {
     let locator = locator.trim();
+    validate_public_metadata(locator)?;
     let input = Path::new(locator);
     if !input.is_absolute() && is_uri(locator) {
         return Ok((
@@ -516,6 +549,22 @@ fn inspect_locator(
             .to_string_lossy()
             .replace('\\', "/")
     };
+    let mut ancestor = PathBuf::new();
+    for part in resolved.components() {
+        ancestor.push(part.as_os_str());
+        if let Ok(meta) = fs::symlink_metadata(&ancestor) {
+            #[cfg(windows)]
+            let linked = {
+                use std::os::windows::fs::MetadataExt;
+                meta.file_attributes() & 0x400 != 0
+            };
+            #[cfg(not(windows))]
+            let linked = meta.file_type().is_symlink();
+            if linked {
+                return Ok((normalized, CooperationAvailability::Unavailable, None, None));
+            }
+        }
+    }
     let metadata = match fs::symlink_metadata(&resolved) {
         Ok(value) => value,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1086,14 +1135,15 @@ pub fn cooperation_discoveries(
 }
 
 pub(crate) fn cooperation_summaries(
-    root: &Path,
+    events: &[crate::development::DevelopmentEvent],
     limit: usize,
 ) -> Result<(
     Vec<CooperationResourceSummary>,
     Vec<CooperationKnowledgeSummary>,
 )> {
-    let resources = cooperation_resources(root)?;
-    let mut knowledge = cooperation_knowledge(root, None)?;
+    let resources = project_cooperation_resources(events);
+    let mut knowledge = project_cooperation_knowledge(events, &resources);
+    let resources: Vec<_> = resources.into_values().collect();
     knowledge.sort_by_key(|item| item.revision);
     let knowledge = knowledge
         .into_iter()
@@ -1540,7 +1590,7 @@ mod tests {
         );
         let resource = cooperation_resource(root.path(), "large").unwrap().unwrap();
         let fingerprint = resource.fingerprint.unwrap();
-        assert_eq!(fingerprint.algorithm, "SHA256_BOUNDED_HEAD_TAIL_V1");
+        assert_eq!(fingerprint.algorithm, "SHA256_BOUNDED_HEAD_TAIL_MTIME_V2");
         record_cooperation_knowledge(
             root.path(),
             knowledge(

@@ -1,7 +1,7 @@
 # Practical readiness and development gates
 
-Audit date: 2026-09-06. Scope: the current uncommitted Reference/Cooperation
-work on `fruit`, based on `4e0e2865`. This is not a release certification or a
+Audit date: 2026-09-06. Current daily-use work on `fruit` is based on
+`cbbb032`; the original audit below was based on `4e0e2865`. This is not a release certification or a
 replacement for the historical feature matrix. No new runtime is proposed.
 
 ## Intended useful outcome
@@ -25,8 +25,8 @@ Model definitions and successful serialization alone do not demonstrate this.
 | P0 | Registry and development locks infer staleness from a 30-second age | Implemented: kernel-owned file locks plus PID/nonce metadata; real Windows child holds beyond 30 seconds and exits abruptly, then recovery succeeds. |
 | P1 | Reference reads acquire a lock that creates the reference directory | Implemented: no lock acquisition/initialization on Reference reads; Cooperation reads do not initialize or rebind identity. |
 | P1 | `material.rs` scans `constraints/`, not Constitution/Protocol/intent | Coverage report implemented: bounded constraints/ppam metadata is PARTIAL; prose and active intent rules are explicitly NOT_PROJECTED, not silently omitted. |
-| P1 | Commons loads and rewrites a complete JSON ledger; directory scanning and locator checks need adversarial bounds | Pending: large-history cost measurement, allocation/read limits, Windows junction/ancestor-link tests, secret-bearing locators and corruption tests. |
-| P1 | New substrate has library tests but no complete CLI/RPC worker handoff | Pending: real process A records, process B reads delta and queries; restart/replay and foreign-project no-write assertions. |
+| P1 | Commons loads and rewrites a complete JSON ledger; directory scanning and locator checks need adversarial bounds | Measured in the daily-use batch: E10K p95 602.381 ms and peak 30.38 MiB after eliminating repeated ledger verification; bounded large-file/directory, junction, credential-marker and corruption process tests pass. |
+| P1 | New substrate has library tests but no complete CLI/RPC worker handoff | Verified in real processes: A records, B reads delta/reuses, C retries; crash/recovery, external change and foreign-project no-write tests pass. |
 
 ## Definition of usable
 
@@ -75,26 +75,31 @@ separately through `DESIGNED`, `LIBRARY_TESTED`, `SURFACE_TESTED`, and
   gaps and the next smallest closure step. No phase PASS, commit/push or release
   claim on the strength of library tests alone.
 
-Current disposition: **development-only substrate; not daily-use certified**.
-The reliability closure is documented in [closure evidence](cooperation-reliability-closure.md).
-Dedicated RPC adapters and the resource-budget/daily-use gates remain separate
-follow-up work; generic event transport coverage does not certify all adapters.
+Current disposition: **the exact local Reference/Cooperation workflows below
+have daily-use process evidence**; this is not production certification of Route
+as a whole. See [daily-use evidence](cooperation-daily-use.md) for commands,
+actual request/response shapes, limitations, benchmark fixtures and regression
+results. Historical [reliability closure](cooperation-reliability-closure.md)
+remains a separate phase.
 
 ## Capability-specific readiness
 
 | Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
 |---|---|---|---|---|
-| Reference journal/restart/CAS | YES | YES, including process crash fixtures | NOT_RUN for a dedicated recovery transport | NOT_RUN |
-| OS lock ownership/recovery | YES | YES, Windows subprocess and malformed metadata tests | Not a transport capability | NOT_RUN |
-| Cooperation evidence and supersession | YES | YES | Generic event RPC: evidence/replay and concurrent supersession tested; not all domain cases | NOT_RUN |
-| Reference read/corruption boundary | YES | YES | Legacy CLI list/show tested in real processes | NOT_RUN |
-| Constraint source coverage report | YES, explicitly partial | YES | NOT_RUN | NOT_RUN |
-| Dedicated Reference/Cooperation RPC adapters | Partial design | Not complete | NOT_RUN, unadvertised | NOT_RUN |
+| Reference registry/journal/recovery | YES | YES | YES, dedicated RPC + CLI | YES, local register/resume/crash/recover/retry/refresh |
+| CooperationResource | YES | YES | YES, dedicated RPC + CLI | YES, local/external bounded resource and foreign-project no-write |
+| CooperationKnowledge | YES | YES | YES, dedicated RPC + CLI; OBSERVED rejection gate | YES for bound DECLARED learning, stale projection and supersession; positive OBSERVED creation through a host is NOT_RUN |
+| MultiWorkerSharedLearning | YES | YES | YES, two distinct worker IDs and actual OS processes | YES for same-project delta/reuse with original provenance |
+| ConstraintProjection | YES, partial coverage only | YES | NOT_RUN for a dedicated transport | NOT_RUN |
+| OS lock ownership | YES | YES, real crash/age tests | Used through domain surfaces | Exercised in local recovery; not a distributed lock |
+| Cross-host validation | Protocol design | No new claim | NOT_RUN | NOT_RUN |
+| Cross-model validation | Host-neutral design | No new claim | NOT_RUN | NOT_RUN |
 
-Claim scope: crash fixtures terminate owned disposable child processes only.
-They are not long-run dogfood or a demonstration that arbitrary harnesses are
-compatible. Full regression totals and current phase disposition belong in
-the closure evidence document, not the historical audit counts below.
+Evidence is bounded: E0/E1K/E10K contain history findings, not 10,000 resources;
+the benchmark project has no populated Git tree. The large resource is 256 MiB
+and remains external. Full per-method metrics and binary/machine identity are
+in [budget results](cooperation-daily-use-budget.json). Whole-ledger read cost
+still scales linearly. At the tested scale no segmented ledger is warranted.
 
 ## Original audit checks (historical; before reliability closure)
 

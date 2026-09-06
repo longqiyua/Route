@@ -23,6 +23,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Shared external resources and qualified knowledge.
+    Cooperation {
+        #[command(subcommand)]
+        action: CooperationAction,
+    },
     /// Route Cooperation Protocol route/1 over stdin/stdout JSON.
     Rpc {
         /// Process one JSON request per input line, sequentially.
@@ -1374,7 +1379,143 @@ enum ProtocolAction {
 }
 
 #[derive(Subcommand)]
+enum CooperationAction {
+    Add {
+        id: String,
+        locator: String,
+        #[arg(long, default_value = "UNKNOWN")]
+        kind: String,
+        #[arg(long)]
+        provenance: String,
+        #[arg(long)]
+        operation_key: String,
+    },
+    List,
+    Show {
+        id: String,
+    },
+    Refresh {
+        id: String,
+        #[arg(long)]
+        operation_key: String,
+    },
+    State,
+    Events {
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+    },
+    Knowledge {
+        #[command(subcommand)]
+        action: CooperationKnowledgeAction,
+    },
+}
+#[derive(Subcommand)]
+enum CooperationKnowledgeAction {
+    Show {
+        #[arg(long)]
+        cooperation_id: Option<String>,
+    },
+    Record {
+        id: String,
+        cooperation_id: String,
+        statement: String,
+        #[arg(long, default_value = "DECLARED")]
+        status: String,
+        #[arg(long)]
+        provenance: String,
+        #[arg(long)]
+        worker: Option<String>,
+        #[arg(long)]
+        fingerprint: Option<String>,
+        #[arg(long)]
+        supersedes: Option<String>,
+        #[arg(long)]
+        capability: Vec<String>,
+        #[arg(long)]
+        evidence: Vec<String>,
+        #[arg(long)]
+        operation_key: String,
+    },
+}
+fn cooperation_command(action: CooperationAction) -> Result<()> {
+    use route_cli::rpc::invoke_local;
+    use serde_json::json;
+    match action {
+        CooperationAction::Add {
+            id,
+            locator,
+            kind,
+            provenance,
+            operation_key,
+        } => invoke_local(
+            "cooperation.register",
+            json!({"cooperation_id":id,"locator":locator,"kind":kind,"provenance":provenance}),
+            Some(operation_key),
+        ),
+        CooperationAction::List => invoke_local("cooperation.list", json!({}), None),
+        CooperationAction::Show { id } => {
+            invoke_local("cooperation.get", json!({"cooperation_id":id}), None)
+        }
+        CooperationAction::Refresh { id, operation_key } => invoke_local(
+            "cooperation.refresh",
+            json!({"cooperation_id":id}),
+            Some(operation_key),
+        ),
+        CooperationAction::State => invoke_local("development.state", json!({}), None),
+        CooperationAction::Events { after } => invoke_local(
+            "development.events.query",
+            json!({"after_revision":after}),
+            None,
+        ),
+        CooperationAction::Knowledge { action } => match action {
+            CooperationKnowledgeAction::Show { cooperation_id } => invoke_local(
+                "cooperation.knowledge.query",
+                json!({"cooperation_id":cooperation_id}),
+                None,
+            ),
+            CooperationKnowledgeAction::Record {
+                id,
+                cooperation_id,
+                statement,
+                status,
+                provenance,
+                worker,
+                fingerprint,
+                supersedes,
+                capability,
+                evidence,
+                operation_key,
+            } => invoke_local(
+                "cooperation.knowledge.record",
+                json!({"knowledge_id":id,"cooperation_id":cooperation_id,"statement":statement,"epistemic_status":status,
+                "provenance":provenance,"actor_worker_id":worker,"resource_fingerprint":fingerprint,"supersedes":supersedes,"capability_refs":capability,"evidence_refs":evidence}),
+                Some(operation_key),
+            ),
+        },
+    }
+}
+
+#[derive(Subcommand)]
 enum ReferenceAction {
+    /// Reconcile an interrupted registry mutation without resetting history.
+    Recover {
+        #[arg(long)]
+        operation_key: String,
+    },
+    /// Register a bounded resource observation using a durable operation key.
+    Register {
+        id: String,
+        locator: String,
+        #[arg(long)]
+        operation_key: String,
+    },
+    /// Reobserve availability/fingerprint (legacy refresh remains proposal-based).
+    Observe {
+        id: String,
+        #[arg(long)]
+        operation_key: String,
+    },
+
     /// Print the full registry (JSON pretty)
     Show,
     /// Register or replace a reference entry
@@ -2641,8 +2782,33 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let history_operation = route_history_operation();
     let cli = Cli::parse();
+    // RPC mutations have domain events and durable receipts. A transport invocation
+    // must not turn read requests (including JSONL) into history mutations.
+    let read_or_domain_audited = matches!(
+        &cli.command,
+        Commands::Rpc { .. }
+            | Commands::Cooperation {
+                action: CooperationAction::List
+                    | CooperationAction::Show { .. }
+                    | CooperationAction::State
+                    | CooperationAction::Events { .. }
+                    | CooperationAction::Knowledge {
+                        action: CooperationKnowledgeAction::Show { .. }
+                    }
+            }
+            | Commands::Reference {
+                action: ReferenceAction::Show
+                    | ReferenceAction::List { .. }
+                    | ReferenceAction::Inspect { .. }
+                    | ReferenceAction::Path
+            }
+    );
+    let history_operation = if read_or_domain_audited {
+        None
+    } else {
+        route_history_operation()
+    };
     let result = match cli.command {
         Commands::Rpc { jsonl } => route_cli::rpc::serve(jsonl),
         Commands::Project { action } => match action {
@@ -2894,7 +3060,27 @@ fn main() -> Result<()> {
             ProtocolAction::Status => commands::protocol_status(),
             ProtocolAction::Path => commands::protocol_path(),
         },
+        Commands::Cooperation { action } => cooperation_command(action),
         Commands::Reference { action } => match action {
+            ReferenceAction::Recover { operation_key } => route_cli::rpc::invoke_local(
+                "reference.recover",
+                serde_json::json!({}),
+                Some(operation_key),
+            ),
+            ReferenceAction::Register {
+                id,
+                locator,
+                operation_key,
+            } => route_cli::rpc::invoke_local(
+                "reference.register",
+                serde_json::json!({"reference_id":id,"locator":locator}),
+                Some(operation_key),
+            ),
+            ReferenceAction::Observe { id, operation_key } => route_cli::rpc::invoke_local(
+                "reference.refresh",
+                serde_json::json!({"reference_id":id}),
+                Some(operation_key),
+            ),
             ReferenceAction::Show => commands::reference_show(),
             ReferenceAction::Add {
                 id,

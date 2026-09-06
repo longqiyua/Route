@@ -58,13 +58,25 @@ process's discovered project root or the call fails `PROJECT_IDENTITY_CONFLICT`.
 | shared development | `development.state`, `development.events.query`, `development.event.record` | project-scoped append-only `DevelopmentEvent` ledger plus read-only projection of authoritative Route/Git state |
 | workers | `worker.list`, `worker.register`, `worker.presence.update`, `worker.message.send` | persistent host/model-neutral worker identity, bounded presence, and project-visible typed messages |
 
+| Reference | `reference.list`, `reference.get`, `reference.register`, `reference.refresh`, `reference.recover` | canonical registry and durable operation journal/CAS/event bridge |
+| Cooperation | `cooperation.list`, `cooperation.get`, `cooperation.register`, `cooperation.refresh` | canonical ledger resource operations |
+| Shared knowledge | `cooperation.knowledge.query`, `cooperation.knowledge.record` | canonical knowledge projection and unified Evidence validation |
+
+The dispatch definition generates capability discovery; each dedicated adapter
+has actual binary transport coverage. See [daily-use commands and evidence](cooperation-daily-use.md).
+Read calls do not initialize/rebind identity or append invocation history.
+Initialize explicitly with `route init`.
+
 `capability advertised => method actually callable`. Task RPC is intentionally
 `NOT_AVAILABLE`: Route has no stable task domain mapping, so no `task.*`
 capability is advertised. Mutations reserve their idempotency key in
 `.route/rpc-idempotency.json` before invoking the domain operation and commit a
-persistent receipt afterward. A `PENDING` reservation is fail-closed as
+persistent receipt afterward. For domains without safe keyed re-entry, a `PENDING` reservation is fail-closed as
 `IDEMPOTENCY_RECOVERY_REQUIRED`, preventing an uncertain retry from creating a
-second mutation. Corrupt or unreadable idempotency state is an explicit error.
+second mutation. Reference and Cooperation dedicated mutations can re-enter their canonical keyed
+operations after a PENDING receipt; Reference journal recovery reconciles the
+domain/event boundary before replay. Corrupt or unreadable idempotency state
+is an explicit error.
 The idempotency receipt file is serialized by a cross-process lock. Development
 mutations additionally carry the scoped protocol idempotency key into the
 project ledger, so a completed retry cannot append the same event twice even

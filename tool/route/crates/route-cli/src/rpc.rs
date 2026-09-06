@@ -13,29 +13,20 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 
 const PROTOCOL: &str = "route/1";
-const METHODS: &[&str] = &[
-    "system.hello",
-    "system.capabilities",
-    "system.status",
-    "project.inspect",
-    "project.status",
-    "intent.create",
-    "intent.get",
-    "intent.list",
-    "intent.close",
-    "evidence.record",
-    "evidence.query",
-    "history.query",
-    "checkpoint.create",
-    "recovery.status",
-    "development.state",
-    "development.events.query",
-    "development.event.record",
-    "worker.list",
-    "worker.register",
-    "worker.presence.update",
-    "worker.message.send",
-];
+// Discovery and dispatch share one definition; an unimplemented name cannot leak.
+macro_rules! route_methods {
+    ($request:ident, $root:ident, $version:ident; $( $($name:literal)|+ => $body:expr ),+ $(,)?) => {
+        const METHODS: &[&str] = &[$($($name),+),+];
+        fn invoke_method($request: Request, $root: PathBuf) -> Value {
+            let $version = env!("CARGO_PKG_VERSION");
+            match $request.method.as_str() {
+                $($($name)|+ => $body,)+
+                _ => error(Some(&$request.request_id), "UNKNOWN_METHOD",
+                    "method is not available in route/1", false, json!({"available_methods": METHODS})),
+            }
+        }
+    };
+}
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -104,8 +95,14 @@ fn validate_context_identity(
         return Ok(());
     }
 
-    let identity = route_basic::ensure_identity(root)
-        .map_err(|e| ("PROJECT_IDENTITY_UNAVAILABLE", e.to_string()))?;
+    let identity = route_basic::load_identity(root)
+        .map_err(|e| ("PROJECT_IDENTITY_UNAVAILABLE", e.to_string()))?
+        .ok_or_else(|| {
+            (
+                "PROJECT_IDENTITY_UNAVAILABLE",
+                "run route init first".into(),
+            )
+        })?;
     for (field, expected) in [
         ("project_id", identity.project_id.as_str()),
         ("workspace_id", identity.workspace_id.as_str()),
@@ -132,7 +129,8 @@ fn validate_context_identity(
 fn project(root: &Path) -> Result<Value> {
     let route_dir = root.join(".route");
     let git = root.join(".git");
-    let identity = route_basic::ensure_identity(root)?;
+    let identity = route_basic::load_identity(root)?
+        .ok_or_else(|| anyhow!("project identity is missing; run route init first; no automatic initialization was performed"))?;
     let sessions = route_basic::session_status(root, None).unwrap_or_default();
     let active = sessions
         .iter()
@@ -216,7 +214,18 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
             )));
         }
         match old.get("status").and_then(Value::as_str) {
-            Some("PENDING") if r.method == "development.event.record" => {
+            Some("PENDING")
+                if matches!(
+                    r.method.as_str(),
+                    "development.event.record"
+                        | "reference.register"
+                        | "reference.refresh"
+                        | "reference.recover"
+                        | "cooperation.register"
+                        | "cooperation.refresh"
+                        | "cooperation.knowledge.record"
+                ) =>
+            {
                 // This domain has a durable operation key under its write lock.
                 // Re-entry either commits once or returns the existing event.
                 return Ok(IdempotencyDecision::Proceed);
@@ -285,6 +294,7 @@ fn is_mutation(method: &str) -> bool {
             | "worker.message.send"
             | "reference.register"
             | "reference.refresh"
+            | "reference.recover"
             | "cooperation.register"
             | "cooperation.refresh"
             | "cooperation.discovery.record"
@@ -521,8 +531,21 @@ fn dispatch(request: Request) -> Value {
             }
         }
     }
-    let version = env!("CARGO_PKG_VERSION");
-    match request.method.as_str() {
+    invoke_method(request, root)
+}
+
+route_methods! { request, root, version;
+        "reference.list" => surface_response(&root, &request, | | surface_reference_list(&root, &request)),
+        "reference.get" => surface_response(&root, &request, | | surface_reference_get(&root, &request)),
+        "reference.register" => surface_response(&root, &request, | | surface_reference_register(&root, &request)),
+        "reference.refresh" => surface_response(&root, &request, | | surface_reference_refresh(&root, &request)),
+        "reference.recover" => surface_response(&root, &request, | | surface_reference_recover(&root, &request)),
+        "cooperation.list" => surface_response(&root, &request, | | surface_cooperation_list(&root, &request)),
+        "cooperation.get" => surface_response(&root, &request, | | surface_cooperation_get(&root, &request)),
+        "cooperation.register" => surface_response(&root, &request, | | surface_cooperation_register(&root, &request)),
+        "cooperation.refresh" => surface_response(&root, &request, | | surface_cooperation_refresh(&root, &request)),
+        "cooperation.knowledge.query" => surface_response(&root, &request, | | surface_cooperation_knowledge_query(&root, &request)),
+        "cooperation.knowledge.record" => surface_response(&root, &request, | | surface_cooperation_knowledge_record(&root, &request)),
         "system.hello" => {
             let offered = request
                 .params
@@ -544,7 +567,7 @@ fn dispatch(request: Request) -> Value {
                 json!({"route_product_version":version,"selected_protocol":PROTOCOL,"route_protocol_versions":[PROTOCOL],"capabilities":METHODS,"feature_flags":{"jsonl_sequential":true,"mutations":true},"runtime":{"transport":"stdio"}}),
                 vec![],
             )
-        }
+        },
         "system.capabilities" => success(
             &request,
             json!({"protocol":PROTOCOL,"capabilities":METHODS,"advertised_methods_callable":true}),
@@ -581,7 +604,7 @@ fn dispatch(request: Request) -> Value {
         "intent.list" => {
             let list = route_basic::session_status(&root, None).unwrap_or_default().into_iter().map(|s| json!({"intent_ref":s.id,"summary":s.task,"status":format!("{:?}",s.status)})).collect::<Vec<_>>();
             success(&request, json!({"intents":list}), vec![])
-        }
+        },
         "intent.get" => {
             let id = match request.params.get("intent_ref").and_then(Value::as_str) {
                 Some(v) => v,
@@ -612,7 +635,7 @@ fn dispatch(request: Request) -> Value {
                     json!({"intent_ref":id}),
                 ),
             }
-        }
+        },
         "intent.create" => {
             let objective = match request.params.get("objective").and_then(Value::as_str) {
                 Some(v) if !v.trim().is_empty() => v,
@@ -658,7 +681,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "intent.close" => {
             let id = match request.params.get("intent_ref").and_then(Value::as_str) {
                 Some(v) => v,
@@ -703,7 +726,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "evidence.record" => {
             let intent = match request.params.get("intent_ref").and_then(Value::as_str) {
                 Some(v) => v,
@@ -762,7 +785,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "evidence.query" => {
             let session = request.params.get("intent_ref").and_then(Value::as_str);
             let store = route_basic::EvidenceStore::load(&root).unwrap_or_default();
@@ -773,7 +796,7 @@ fn dispatch(request: Request) -> Value {
                 .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
                 .collect::<Vec<_>>();
             success(&request, json!({"evidence":values}), vec![])
-        }
+        },
         "history.query" => match route_basic::load_route_history(&root) {
             Ok(events) => {
                 let values = events
@@ -840,7 +863,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "development.state" => {
             let recent_limit = request
                 .params
@@ -869,7 +892,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "development.events.query" => {
             let after_revision = request
                 .params
@@ -891,7 +914,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "development.event.record" => {
             let mut draft = match serde_json::from_value::<route_basic::DevelopmentEventDraft>(
                 request.params.clone(),
@@ -936,7 +959,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "worker.list" => match (
             route_basic::worker_descriptors(&root),
             route_basic::worker_presences(&root),
@@ -996,7 +1019,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "worker.presence.update" => {
             let worker_id = request.params["worker_id"].as_str().unwrap_or_default();
             let mut value = request.params.clone();
@@ -1035,7 +1058,7 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "worker.message.send" => {
             let worker_id = request.params["worker_id"].as_str().unwrap_or_default();
             let mut value = request.params.clone();
@@ -1072,20 +1095,207 @@ fn dispatch(request: Request) -> Value {
                     json!({}),
                 ),
             }
-        }
+        },
         "recovery.status" => success(
             &request,
             json!({"route_state_present":root.join(".route").exists(),"recovery_action_available":false,"status":"READ_ONLY"}),
             vec![],
         ),
-        _ => error(
-            Some(&request.request_id),
-            "UNKNOWN_METHOD",
-            "method is not available in route/1",
-            false,
-            json!({"available_methods":METHODS}),
-        ),
+}
+
+fn surface_response(
+    root: &Path,
+    request: &Request,
+    operation: impl FnOnce() -> Result<Value>,
+) -> Value {
+    match operation() {
+        Ok(value) if is_mutation(&request.method) => {
+            complete_mutation(root, request, value, vec![])
+        }
+        Ok(value) => success(request, value, vec![]),
+        Err(e) => {
+            let message = format!("{e:#}");
+            let lower = message.to_ascii_lowercase();
+            let code = if message.contains("REFERENCE_RECOVERY_REQUIRED") {
+                "REFERENCE_RECOVERY_REQUIRED"
+            } else if message.contains("SECRET_METADATA_REJECTED") {
+                "SECRET_METADATA_REJECTED"
+            } else if lower.contains("evidence") {
+                "EVIDENCE_REQUIRED"
+            } else if lower.contains("stale") || lower.contains("resource_changed") {
+                "RESOURCE_CHANGED"
+            } else if lower.contains("parsing")
+                || lower.contains("corrupt")
+                || lower.contains("hash chain")
+            {
+                "CORRUPTED_STATE"
+            } else {
+                "DOMAIN_REJECTED"
+            };
+            let next = match code {
+                "EVIDENCE_REQUIRED" => " Supply successful System TestPass/CheckPass Evidence bound to project_id, cooperation_id and resource_fingerprint; declarations are not Evidence.",
+                "RESOURCE_CHANGED" => " Refresh the resource, inspect stale knowledge, then record a revalidated replacement.",
+                _ => "",
+            };
+            error(
+                Some(&request.request_id),
+                code,
+                format!("{message}.{next} No automatic reset was performed."),
+                false,
+                json!({}),
+            )
+        }
     }
+}
+fn text_param(r: &Request, name: &str) -> String {
+    r.params[name].as_str().unwrap_or_default().to_owned()
+}
+fn optional_param(r: &Request, name: &str) -> Option<String> {
+    r.params[name].as_str().map(str::to_owned)
+}
+fn strings_param(r: &Request, name: &str) -> Result<Vec<String>> {
+    Ok(serde_json::from_value(
+        r.params.get(name).cloned().unwrap_or_else(|| json!([])),
+    )?)
+}
+fn surface_reference_list(root: &Path, _: &Request) -> Result<Value> {
+    Ok(json!(route_basic::ReferenceRegistry::read(root)?.entries))
+}
+fn surface_reference_get(root: &Path, r: &Request) -> Result<Value> {
+    let registry = route_basic::ReferenceRegistry::read(root)?;
+    Ok(json!(registry
+        .get(&text_param(r, "reference_id"))
+        .ok_or_else(|| anyhow!(
+            "reference not found; use route reference list"
+        ))?))
+}
+fn surface_reference_recover(root: &Path, _: &Request) -> Result<Value> {
+    route_basic::ReferenceRegistry::recover(root)?;
+    Ok(json!({"recovered":true,"reset_performed":false}))
+}
+fn surface_reference_register(root: &Path, r: &Request) -> Result<Value> {
+    reference_mutation(root, r, false)
+}
+fn surface_reference_refresh(root: &Path, r: &Request) -> Result<Value> {
+    reference_mutation(root, r, true)
+}
+fn reference_mutation(root: &Path, r: &Request, refresh: bool) -> Result<Value> {
+    use route_basic::{ReferenceEntry, ReferenceRegistry, ReferenceType};
+    let operation_id = route_core::sha256_hex(domain_deduplication_key(r).as_bytes());
+    // A journal-backed operation may have completed before its transport receipt.
+    // Reconcile first and return the original event revision, never upsert twice.
+    ReferenceRegistry::recover(root)?;
+    if let Some(revision) = ReferenceRegistry::operation_revision(root, &operation_id)? {
+        return Ok(
+            json!({"reference_id":text_param(r,"reference_id"),"operation_id":operation_id,"global_revision":revision}),
+        );
+    }
+    let id = text_param(r, "reference_id");
+    let mut registry = ReferenceRegistry::read(root)?;
+    let mut entry = if refresh {
+        registry
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| anyhow!("reference not found; use route reference list"))?
+    } else {
+        anyhow::ensure!(
+            registry.get(&id).is_none(),
+            "reference already exists; refresh it or choose another id"
+        );
+        ReferenceEntry::builder(
+            &id,
+            ReferenceType::Other,
+            text_param(r, "locator"),
+            text_param(r, "description"),
+        )
+        .build()
+    };
+    route_basic::cooperation::validate_public_metadata(&id)?;
+    route_basic::cooperation::validate_public_metadata(&entry.description)?;
+    let (locator, availability, fingerprint, _) = route_basic::cooperation::inspect_locator(
+        root,
+        &entry.source,
+        &route_basic::CooperationKind("UNKNOWN".into()),
+    )?;
+    entry.source = locator;
+    entry.availability = serde_json::from_value(json!(availability))?;
+    entry.fingerprint = fingerprint.map(|v| v.value);
+    registry.upsert(entry);
+    registry.write_with_operation_id(root, &operation_id)?;
+    Ok(
+        json!({"reference_id":id,"operation_id":operation_id,"global_revision":ReferenceRegistry::operation_revision(root,&operation_id)?}),
+    )
+}
+fn surface_cooperation_list(root: &Path, _: &Request) -> Result<Value> {
+    Ok(json!(route_basic::cooperation_resources(root)?))
+}
+fn surface_cooperation_get(root: &Path, r: &Request) -> Result<Value> {
+    Ok(json!(route_basic::cooperation_resource(
+        root,
+        &text_param(r, "cooperation_id")
+    )?
+    .ok_or_else(|| anyhow!(
+        "cooperation resource not found; use route cooperation list"
+    ))?))
+}
+fn surface_cooperation_register(root: &Path, r: &Request) -> Result<Value> {
+    Ok(json!(route_basic::register_cooperation_resource(
+        root,
+        text_param(r, "cooperation_id"),
+        text_param(r, "locator"),
+        route_basic::CooperationKind(optional_param(r, "kind").unwrap_or_else(|| "UNKNOWN".into())),
+        text_param(r, "provenance"),
+        optional_param(r, "description"),
+        strings_param(r, "declared_capabilities")?,
+        strings_param(r, "related_reference_ids")?,
+        strings_param(r, "related_constraint_ids")?,
+        optional_param(r, "actor_worker_id"),
+        Some(domain_deduplication_key(r))
+    )?))
+}
+fn surface_cooperation_refresh(root: &Path, r: &Request) -> Result<Value> {
+    Ok(json!(route_basic::refresh_cooperation_resource(
+        root,
+        &text_param(r, "cooperation_id"),
+        optional_param(r, "actor_worker_id"),
+        Some(domain_deduplication_key(r))
+    )?))
+}
+fn surface_cooperation_knowledge_query(root: &Path, r: &Request) -> Result<Value> {
+    Ok(json!(route_basic::cooperation_knowledge(
+        root,
+        r.params["cooperation_id"].as_str()
+    )?))
+}
+fn surface_cooperation_knowledge_record(root: &Path, r: &Request) -> Result<Value> {
+    let mut params = r.params.clone();
+    if let Some(object) = params.as_object_mut() {
+        object.remove("actor_worker_id");
+    }
+    if params.get("observed_at").is_none() {
+        params["observed_at"] = json!(0);
+    }
+    let record = serde_json::from_value::<route_basic::CooperationKnowledgeRecord>(params)?;
+    Ok(json!(route_basic::record_cooperation_knowledge(
+        root,
+        record,
+        optional_param(r, "actor_worker_id"),
+        Some(domain_deduplication_key(r))
+    )?))
+}
+
+/// Human CLI commands use precisely the same transport and domain path.
+pub fn invoke_local(method: &str, params: Value, key: Option<String>) -> Result<()> {
+    let response = handle(
+        &json!({"protocol":PROTOCOL,"request_id":"cli","method":method,
+        "context":{},"params":params,"idempotency_key":key})
+        .to_string(),
+    );
+    if response["ok"] != true {
+        return Err(anyhow!("{}", response["error"]));
+    }
+    println!("{}", serde_json::to_string_pretty(&response["result"])?);
+    Ok(())
 }
 
 fn handle(raw: &str) -> Value {
@@ -1158,8 +1368,8 @@ mod tests {
     fn unfinished_substrate_methods_are_not_advertised_or_persisted() {
         let dir = tempdir().unwrap();
         for method in [
-            "reference.register",
-            "cooperation.register",
+            "cooperation.discovery.record",
+            "cooperation.capability.record",
             "constraint.list",
         ] {
             assert!(!METHODS.contains(&method));

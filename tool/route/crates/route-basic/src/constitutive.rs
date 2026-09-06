@@ -1821,6 +1821,20 @@ impl ReferenceRegistry {
         crate::reference_operation::recover_locked(project_root)
     }
 
+    pub fn operation_revision(root: &Path, operation_id: &str) -> Result<Option<u64>> {
+        if crate::project_identity::load_identity(root)?.is_none() {
+            return Ok(None);
+        }
+        let ledger = crate::development::load_ledger_readonly(root)?.0;
+        Ok(ledger.events.iter().find_map(|event| match &event.payload {
+            crate::development::DevelopmentEventPayload::ReferenceRegistryCommitted {
+                operation_id: id,
+                ..
+            } if id == operation_id => Some(event.sequence),
+            _ => None,
+        }))
+    }
+
     fn write_unlocked(&self, project_root: &Path, operation_id: Option<&str>) -> Result<()> {
         let identity = crate::project_identity::ensure_identity(project_root)?;
         self.validate_project_id(&identity.project_id)?;

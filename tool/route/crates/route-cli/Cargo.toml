@@ -36,3 +36,6 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 anyhow.workspace = true
+
+[features]
+test-utils = ["route-basic/test-utils"]

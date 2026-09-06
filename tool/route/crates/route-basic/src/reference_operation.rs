@@ -47,7 +47,7 @@ fn load(root: &Path) -> Result<Option<Operation>> {
 }
 pub(crate) fn check_read(root: &Path) -> Result<()> {
     if load(root)?.is_some_and(|op| !op.committed) {
-        bail!("REFERENCE_RECOVERY_REQUIRED: call ReferenceRegistry::recover before inspection");
+        bail!("REFERENCE_RECOVERY_REQUIRED: run `route reference recover --operation-key NEW_RECOVERY_KEY` in this project, then retry; no reset was performed");
     }
     Ok(())
 }
@@ -173,6 +173,10 @@ pub(crate) fn commit(
 #[cfg(test)]
 thread_local! { static FAILURE: std::cell::RefCell<Option<&'static str>> = const { std::cell::RefCell::new(None) }; }
 fn failpoint(_window: &str) -> Result<()> {
+    #[cfg(feature = "test-utils")]
+    if std::env::var("ROUTE_REFERENCE_FAIL_AT").ok().as_deref() == Some(_window) {
+        std::process::exit(23);
+    }
     #[cfg(test)]
     FAILURE.with(|slot| {
         if slot.borrow().as_deref() == Some(_window) {

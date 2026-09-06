@@ -1,8 +1,8 @@
 # Reference, Constraint, and Cooperation
 
-Status: architecture contract. The integrated domain, `route/1`, CLI, and
-multi-worker conformance gates remain in progress; this document does not
-claim that those surfaces are complete.
+Status: architecture contract with verified local Reference/Cooperation daily-use
+surfaces. See [exact tested scope](cooperation-daily-use.md); this does not
+certify every domain capability, arbitrary hosts or Route as a whole.
 
 ## Semantic ownership
 
@@ -95,7 +95,7 @@ Knowledge keeps epistemic status explicit:
 | Status | Meaning |
 |---|---|
 | `DECLARED` | A Human, resource, or document claims something |
-| `OBSERVED` | A bounded observation, with real Evidence references where available, supports it |
+| `OBSERVED` | Existing successful System Evidence must bind this project, resource and fingerprint |
 | `INFERRED` | A Worker inferred it |
 | `UNKNOWN` | Current information is insufficient |
 
@@ -128,7 +128,8 @@ A worker may start from an older revision, read the incremental event delta,
 and query the same durable knowledge without independently rediscovering it.
 For Cooperation, events contain the domain transitions and current records are
 derived projections; there is no separate Cooperation registry. Reference still
-has a separate registry and its recoverable event bridge is unfinished.
+has a separate registry with a durable operation journal, CAS and keyed event
+bridge; interrupted operations can be reconciled with reference recover.
 Shared-state summaries limit their output, but this is not a guarantee of
 bounded ledger-read cost. See [practical readiness](practical-readiness.md).
 

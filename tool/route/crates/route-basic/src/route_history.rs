@@ -9,7 +9,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -320,53 +319,21 @@ fn invalid(entries: usize, head_hash: String, error: String) -> RouteHistoryVeri
     }
 }
 
-/// Atomic directory creation provides a dependency-free cross-process lock on
-/// all supported filesystems. A stale lock left by a crashed process is
-/// recoverable after 30 seconds.
+/// The shared OS file-lock implementation serializes history append on
+/// supported local filesystems. Kernel ownership, not age, controls recovery.
 struct HistoryAppendLock {
-    path: PathBuf,
+    _guard: crate::ownership_lock::OwnershipLock,
 }
-
 impl HistoryAppendLock {
     fn acquire(history_dir: &Path) -> Result<Self> {
-        const ATTEMPTS: usize = 200;
-        const RETRY_DELAY: Duration = Duration::from_millis(25);
-        const STALE_AFTER: Duration = Duration::from_secs(30);
-
-        let path = history_dir.join(".append-lock");
-        for _ in 0..ATTEMPTS {
-            match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let stale = fs::metadata(&path)
-                        .and_then(|metadata| metadata.modified())
-                        .ok()
-                        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-                        .map(|age| age >= STALE_AFTER)
-                        .unwrap_or(false);
-                    if stale {
-                        let _ = fs::remove_dir(&path);
-                    } else {
-                        std::thread::sleep(RETRY_DELAY);
-                    }
-                }
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("acquiring Route history lock at {}", path.display())
-                    })
-                }
-            }
-        }
-        anyhow::bail!(
-            "timed out waiting for Route history append lock at {}",
-            path.display()
-        )
-    }
-}
-
-impl Drop for HistoryAppendLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        // Never unlink the synchronization path: Windows may retain a
+        // delete-pending directory handle while another writer opens it.
+        // Existing crash-left legacy directories fail closed, not auto-removed.
+        Ok(Self {
+            _guard: crate::ownership_lock::OwnershipLock::acquire(
+                &history_dir.join(".append-lock"),
+            )?,
+        })
     }
 }
 

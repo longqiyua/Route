@@ -835,6 +835,54 @@ pub fn append_development_event(
     })
 }
 
+/// Deterministic benchmark fixture, unavailable in ordinary production builds.
+/// Uses the canonical event hash and verifier; refuses any nonempty ledger.
+#[cfg(feature = "test-utils")]
+pub fn seed_benchmark_events(root: &Path, count: usize) -> Result<()> {
+    anyhow::ensure!(count <= 10_000, "benchmark fixture limit exceeded");
+    let (mut ledger, identity, owner) = load_ledger(root)?;
+    anyhow::ensure!(
+        ledger.events.is_empty(),
+        "benchmark requires an empty ledger"
+    );
+    for index in 0..count {
+        let payload = DevelopmentEventPayload::Finding {
+            summary: format!("bounded benchmark finding {index}"),
+            source_refs: vec![],
+        };
+        let mut event = DevelopmentEvent {
+            event_id: format!("benchmark-{index}"),
+            project_id: identity.project_id.clone(),
+            sequence: index as u64 + 1,
+            timestamp: 0,
+            event_type: payload.event_type(),
+            actor_worker_id: None,
+            execution_session_ref: None,
+            intent_ref: None,
+            task_ref: None,
+            workspace_ref: None,
+            causation_id: None,
+            correlation_id: None,
+            source_refs: vec![],
+            evidence_refs: vec![],
+            payload,
+            deduplication_key: None,
+            previous_hash: ledger.head_hash.clone(),
+            hash: String::new(),
+        };
+        event.hash = event_hash(&event)?;
+        ledger.head_hash = event.hash.clone();
+        ledger.events.push(event);
+    }
+    ledger.verify(&identity.project_id)?;
+    let dir = development_dir(&owner);
+    fs::create_dir_all(&dir)?;
+    crate::constitutive::write_atomic(
+        &dir.join("ledger.json"),
+        &serde_json::to_vec_pretty(&ledger)?,
+    )
+}
+
 pub fn query_development_events(
     root: &Path,
     after_revision: u64,
@@ -843,7 +891,7 @@ pub fn query_development_events(
     if limit == 0 || limit > MAX_EVENTS_PER_QUERY {
         bail!("event query limit must be between 1 and {MAX_EVENTS_PER_QUERY}");
     }
-    let (ledger, identity, _) = load_ledger(root)?;
+    let (ledger, identity, _) = load_ledger_readonly(root)?;
     let global_revision = ledger.revision();
     let events = ledger
         .events
@@ -860,7 +908,7 @@ pub fn query_development_events(
 }
 
 pub fn global_development_revision(root: &Path) -> Result<u64> {
-    Ok(load_ledger(root)?.0.revision())
+    Ok(load_ledger_readonly(root)?.0.revision())
 }
 
 pub fn development_view_is_stale(seen_revision: u64, global_revision: u64) -> bool {
@@ -868,54 +916,62 @@ pub fn development_view_is_stale(seen_revision: u64, global_revision: u64) -> bo
 }
 
 pub fn worker_descriptors(root: &Path) -> Result<Vec<WorkerDescriptor>> {
-    let events = load_ledger(root)?.0.events;
+    Ok(project_worker_descriptors(
+        &load_ledger_readonly(root)?.0.events,
+    ))
+}
+fn project_worker_descriptors(events: &[DevelopmentEvent]) -> Vec<WorkerDescriptor> {
     let mut workers = BTreeMap::<String, WorkerDescriptor>::new();
     for event in events {
-        match event.payload {
+        match &event.payload {
             DevelopmentEventPayload::WorkerRegistered { descriptor } => {
                 workers
                     .entry(descriptor.worker_id.clone())
-                    .or_insert(descriptor);
+                    .or_insert_with(|| descriptor.clone());
             }
             DevelopmentEventPayload::WorkerMetadataUpdated {
                 worker_id,
                 metadata,
             } => {
-                if let Some(worker) = workers.get_mut(&worker_id) {
-                    worker.metadata = metadata;
+                if let Some(worker) = workers.get_mut(worker_id) {
+                    worker.metadata = metadata.clone();
                 }
             }
             _ => {}
         }
     }
-    Ok(workers.into_values().collect())
+    workers.into_values().collect()
 }
 
 pub fn worker_presences(root: &Path) -> Result<Vec<WorkerPresence>> {
-    let events = load_ledger(root)?.0.events;
+    Ok(project_worker_presences(
+        &load_ledger_readonly(root)?.0.events,
+    ))
+}
+fn project_worker_presences(events: &[DevelopmentEvent]) -> Vec<WorkerPresence> {
     let mut presences = BTreeMap::<String, WorkerPresence>::new();
     for event in events {
-        if let DevelopmentEventPayload::WorkerPresenceUpdated { presence } = event.payload {
-            if let Some(worker_id) = event.actor_worker_id {
+        if let DevelopmentEventPayload::WorkerPresenceUpdated { presence } = &event.payload {
+            if let Some(worker_id) = &event.actor_worker_id {
                 presences.insert(
                     worker_id.clone(),
                     WorkerPresence {
-                        worker_id,
-                        status: presence.status,
-                        current_intent_ref: presence.current_intent_ref,
-                        current_task_ref: presence.current_task_ref,
-                        current_session_ref: presence.current_session_ref,
-                        current_workspace_ref: presence.current_workspace_ref,
-                        current_activity_summary: presence.current_activity_summary,
+                        worker_id: worker_id.clone(),
+                        status: presence.status.clone(),
+                        current_intent_ref: presence.current_intent_ref.clone(),
+                        current_task_ref: presence.current_task_ref.clone(),
+                        current_session_ref: presence.current_session_ref.clone(),
+                        current_workspace_ref: presence.current_workspace_ref.clone(),
+                        current_activity_summary: presence.current_activity_summary.clone(),
                         observed_global_revision: presence.observed_global_revision,
                         last_seen: event.timestamp,
-                        last_event_id: event.event_id,
+                        last_event_id: event.event_id.clone(),
                     },
                 );
             }
         }
     }
-    Ok(presences.into_values().collect())
+    presences.into_values().collect()
 }
 
 pub fn register_worker(
@@ -1110,8 +1166,9 @@ pub fn shared_development_state(
     root: &Path,
     recent_limit: usize,
 ) -> Result<SharedDevelopmentState> {
-    let identity = ensure_identity(root)?;
-    let ledger = load_ledger(root)?.0;
+    let identity = load_identity(root)?
+        .ok_or_else(|| anyhow::anyhow!("project identity is missing; run route init first"))?;
+    let ledger = load_ledger_readonly(root)?.0;
     let global_revision = ledger.revision();
     let sessions = SessionStore::load(root)?.sessions;
     let active: Vec<SessionSummary> = sessions
@@ -1143,7 +1200,7 @@ pub fn shared_development_state(
         .rev()
         .collect();
     let (cooperation_resources, recent_cooperation_knowledge) =
-        cooperation::cooperation_summaries(root, recent_limit)?;
+        cooperation::cooperation_summaries(&ledger.events, recent_limit)?;
     Ok(SharedDevelopmentState {
         project_id: identity.project_id,
         workspace_id: identity.workspace_id.clone(),
@@ -1151,8 +1208,8 @@ pub fn shared_development_state(
         active_development_intents: active.clone(),
         active_execution_sessions: active.clone(),
         active_tasks: active,
-        workers: worker_descriptors(root)?,
-        worker_presence: worker_presences(root)?,
+        workers: project_worker_descriptors(&ledger.events),
+        worker_presence: project_worker_presences(&ledger.events),
         latest_evidence: evidence,
         git_workspace: GitWorkspaceSummary {
             workspace_id: identity.workspace_id,
@@ -1208,6 +1265,9 @@ mod tests {
         let page = query_development_events(first.path(), 0, 10).unwrap();
         assert_eq!(page.global_revision, 1);
         assert_eq!(page.events[0].sequence, 1);
+        assert!(query_development_events(second.path(), 0, 10).is_err());
+        assert_eq!(fs::read_dir(second.path()).unwrap().count(), 0);
+        ensure_identity(second.path()).unwrap();
         assert!(query_development_events(second.path(), 0, 10)
             .unwrap()
             .events
