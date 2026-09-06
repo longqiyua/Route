@@ -7,6 +7,12 @@ independent workers a shared, project-scoped development world without
 defining an institution, authority model, reputation system, or social
 simulation.
 
+The ownership contract for project References, canonical Constraints,
+CooperationResources, and revisable CooperationKnowledge is defined in
+[Reference, Constraint, and Cooperation](reference-cooperation.md). Those
+domains connect to this commons through atomic DevelopmentEvents; the ledger
+does not become their second truth store.
+
 ## Ownership boundary
 
 | Concept | Canonical owner | Substrate relationship |
@@ -22,6 +28,10 @@ simulation.
 | Worker | New persistent, host/model-neutral identity | Participating actor; not a model, process, session, workspace, role, or authority |
 | WorkerPresence | Projection from worker lifecycle/presence events | Bounded development metadata, never filesystem/runtime truth |
 | SharedDevelopmentState | Read-only projection | Combines existing Route truth with DevelopmentEvents; owns no competing state |
+| Reference | Existing Reference registry | Information that may inform work; never authority or Evidence automatically |
+| Constraint | Existing authoritative project sources | Read-only constraints projection; no second writable registry |
+| CooperationResource | Projection of typed events in the project ledger | Affordance/resource metadata; registration grants no execution authority |
+| CooperationKnowledge | Projection of knowledge events and supersessions in the project ledger | Shared learning with explicit epistemic status; never Evidence automatically |
 
 ## Persistence impact
 
@@ -47,6 +57,11 @@ to future configurable visibility policy. Logical visibility does not mean
 injecting the full ledger into every prompt: clients query a bounded sequence
 range or `events after revision N`.
 
+The same rule applies to Reference and Cooperation state: global logical
+availability is not full prompt materialization. Shared projections expose
+bounded metadata, IDs, counts, status, and recent changes; exact records and
+content are retrieved on demand.
+
 No schema field accepts raw chain-of-thought. Activity, finding, action, and
 message content is a bounded operational summary. A message, agreement,
 proposal, disagreement, or vote is not Evidence and cannot promote itself.
@@ -68,7 +83,23 @@ Workers
 ```
 
 The future Society SDK and institution evolution belong above Route Core. This
-phase provides only the neutral substrate.
+phase provides only the neutral substrate. The Open Institution Runtime and
+Society SDK are future layers, not current Route Core features. Parliament,
+voting, markets, reputation, economics, generic cooperation execution, and
+cross-project mutation are not implemented or required by this architecture.
+
+Shared cooperation learning follows one invariant:
+
+```text
+ONE WORKER LEARNS
+→ durable CooperationKnowledge
+→ GlobalRevision advances
+→ ALL WORKERS CAN OBSERVE THE LEARNING
+```
+
+Workers consume a bounded revision delta and fetch exact knowledge on demand.
+Neither DevelopmentEvents nor CooperationKnowledge may contain raw
+chain-of-thought.
 
 ## History integration
 

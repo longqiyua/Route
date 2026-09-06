@@ -16,6 +16,7 @@ pub mod brief;
 pub mod campaign;
 pub mod capability;
 pub mod constitutive;
+pub mod cooperation;
 pub mod curator;
 pub mod development;
 pub mod discovery;
@@ -38,15 +39,18 @@ pub mod knowledge_map;
 pub mod learn;
 pub mod loop_detector;
 pub mod maintainer;
+pub mod material;
 pub mod memory;
 pub mod models;
 pub mod next_action;
+pub mod ownership_lock;
 pub mod pack;
 pub mod pattern;
 pub mod plan;
 pub mod principle;
 pub mod profile;
 pub mod project_identity;
+mod reference_operation;
 pub mod repository;
 pub mod roadmap;
 pub mod role_template;
@@ -104,10 +108,19 @@ pub use constitutive::{
     AgentPolicy, AgentRole, ComponentDelta, Constitution, ContextBudget, ContextDiff,
     ContextExplainResult, ContextHistoryManifest, ContextSnapshot, CuratorReport,
     ImportedReference, LearnedMeta, Origin, PartialHistory, ProposalAction, Protocol,
-    ReferenceEntry, ReferenceEntryBuilder, ReferenceProposal, ReferenceProposalStore,
-    ReferenceRegistry, ReferenceSelector, ReferenceSemanticView, ReferenceType, RefreshResult,
-    ScoredReference, SelectionReason, TaskContextResult, WriteOrigin, WritePermissionError,
-    ROUTE_DOT_DIR,
+    ReferenceAvailability, ReferenceEntry, ReferenceEntryBuilder, ReferenceProposal,
+    ReferenceProposalStore, ReferenceRegistry, ReferenceSelector, ReferenceSemanticView,
+    ReferenceType, RefreshResult, ScoredReference, SelectionReason, TaskContextResult, WriteOrigin,
+    WritePermissionError, ROUTE_DOT_DIR,
+};
+pub use cooperation::{
+    cooperation_discoveries, cooperation_knowledge, cooperation_resource, cooperation_resources,
+    record_cooperation_knowledge, refresh_cooperation_resource, register_cooperation_resource,
+    update_cooperation_discovery, CooperationAvailability, CooperationDiscovery,
+    CooperationDiscoveryRecord, CooperationDiscoveryStatus, CooperationFingerprint,
+    CooperationKind, CooperationKnowledge, CooperationKnowledgeRecord, CooperationKnowledgeSummary,
+    CooperationRefreshObservation, CooperationResource, CooperationResourceRegistration,
+    CooperationResourceSummary, EpistemicStatus,
 };
 pub use curator::{
     curator_capabilities, render_curator_context, AgentCompiler, CuratorCapabilities, CuratorRole,
@@ -250,6 +263,10 @@ pub use loop_detector::{format_open_loops, scan_open_loops, OpenLoop, OpenLoopRe
 pub use maintainer::{
     format_maintainer_plan, generate_maintainer_plan, MaintainerPlan, MaintainerStore,
     MaintainerTask,
+};
+pub use material::{
+    discover_constraints, discover_constraints_with_references, get_constraint,
+    ConstraintAuthority, ConstraintView, CONSTRAINTS_DIR,
 };
 pub use memory::{
     history_path, memory_dir, memory_path, MemoryItem, MemoryItemKind, MemoryStore,

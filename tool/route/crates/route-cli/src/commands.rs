@@ -197,7 +197,7 @@ pub fn status(json: bool) -> Result<()> {
             .as_ref()
             .and_then(|b| b.current.as_ref().map(|c| c.items.len()))
             .unwrap_or(0);
-        let registry = ReferenceRegistry::read(&cwd).unwrap_or_default();
+        let registry = ReferenceRegistry::read(&cwd)?;
         let total_refs = registry.entries.len();
         let enabled_refs = registry.entries.iter().filter(|e| e.enabled).count();
         let active_strategy = StrategyStore::load(&cwd)
@@ -378,7 +378,7 @@ pub fn status(json: bool) -> Result<()> {
     println!("  Brain items:     {}", brain_count);
 
     use route_basic::ReferenceRegistry;
-    let registry = ReferenceRegistry::read(&cwd).unwrap_or_default();
+    let registry = ReferenceRegistry::read(&cwd)?;
     let total_refs = registry.entries.len();
     let enabled_refs = registry.entries.iter().filter(|e| e.enabled).count();
     println!(
@@ -2073,7 +2073,7 @@ pub fn evolve_propose(
         },
     ];
     for ref_id in &reference_ids {
-        if let Some(reference) = load_reference(&cwd, ref_id) {
+        if let Some(reference) = load_reference(&cwd, ref_id)? {
             cases.push(derive_benchmark_from_reference(
                 &reference,
                 &format!("anchor-{}", ref_id),
@@ -3276,10 +3276,7 @@ pub fn protocol_path() -> Result<()> {
 pub fn reference_show() -> Result<()> {
     use route_basic::ReferenceRegistry;
     let cwd = current_project_root();
-    let registry = match ReferenceRegistry::read(&cwd) {
-        Ok(r) => r,
-        Err(_) => ReferenceRegistry::default(),
-    };
+    let registry = ReferenceRegistry::read(&cwd)?;
     let json = serde_json::to_string_pretty(&registry)?;
     println!("{}", json);
     Ok(())
@@ -3302,10 +3299,7 @@ pub fn reference_add(
 ) -> Result<()> {
     use route_basic::{ReferenceEntry, ReferenceRegistry, ReferenceType};
     let cwd = current_project_root();
-    let mut registry = match ReferenceRegistry::read(&cwd) {
-        Ok(r) => r,
-        Err(_) => ReferenceRegistry::default(),
-    };
+    let mut registry = ReferenceRegistry::read(&cwd)?;
     let t: ReferenceType = type_
         .parse()
         .map_err(|e: String| anyhow!("Invalid reference type '{}': {}", type_, e))?;
@@ -3368,10 +3362,7 @@ pub fn reference_remove(id: String, force: bool) -> Result<()> {
 pub fn reference_list(type_filter: Option<String>, show_disabled: bool) -> Result<()> {
     use route_basic::ReferenceRegistry;
     let cwd = current_project_root();
-    let registry = match ReferenceRegistry::read(&cwd) {
-        Ok(r) => r,
-        Err(_) => ReferenceRegistry::default(),
-    };
+    let registry = ReferenceRegistry::read(&cwd)?;
     let filter: Option<String> = type_filter.map(|s| s.to_ascii_lowercase());
     let mut entries: Vec<_> = registry
         .entries
@@ -4629,7 +4620,7 @@ pub fn agent_plan(
     };
 
     // Read references
-    let reg = ReferenceRegistry::read(&cwd).unwrap_or_default();
+    let reg = ReferenceRegistry::read(&cwd)?;
     let references: Vec<_> = reg.entries.iter().filter(|e| e.enabled).cloned().collect();
 
     // Get context hash
@@ -6542,7 +6533,7 @@ pub fn study_apply(candidate_id: String) -> Result<()> {
     }
 
     let cwd = std::env::current_dir()?;
-    let mut reg = ReferenceRegistry::read(&cwd).unwrap_or_default();
+    let mut reg = ReferenceRegistry::read(&cwd)?;
 
     let type_ = if candidate.source.ends_with(".md") || candidate.source.ends_with(".mdx") {
         ReferenceType::Document
@@ -7183,7 +7174,7 @@ pub fn pattern_apply(id: String) -> Result<()> {
     .with_last_checked(now_ts)
     .build();
 
-    let mut reg = route_basic::ReferenceRegistry::read(&root).unwrap_or_default();
+    let mut reg = route_basic::ReferenceRegistry::read(&root)?;
     reg.upsert(entry);
     reg.write(&root)?;
 
@@ -8994,7 +8985,8 @@ pub fn health(explain: bool) -> Result<()> {
     }
 
     // Check disabled references
-    if let Ok(registry) = route_basic::constitutive::ReferenceRegistry::read(&root) {
+    {
+        let registry = route_basic::constitutive::ReferenceRegistry::read(&root)?;
         let disabled: Vec<_> = registry.entries.iter().filter(|e| !e.enabled).collect();
         if !disabled.is_empty() {
             reference_drift.push(format!("{} disabled references", disabled.len()));

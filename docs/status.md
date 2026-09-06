@@ -6,6 +6,11 @@
 
 ## Version Metadata Note
 
+Current Reference/Cooperation working-tree readiness is tracked separately in
+[Practical readiness and development gates](practical-readiness.md). The new
+substrate is development-only; historical PASS entries below do not certify
+its transport integration, crash recovery, or resource budgets.
+
 **V0.6 Beta is the current product milestone.** Crate/package version metadata
 remains unchanged (`1.0.0`) during this closure round. This is an intentional,
 temporary distinction pending the user's decision at the final Release Gate —
@@ -37,6 +42,8 @@ it is **not** a silently-applied fix. See
 | Verification (System evidence only) | **Stable** | Only TestPass/Commit/CheckPass accepted for `latest_verified`. |
 | Constitution / Protocol | **Stable** | Three-layer context, versioned. |
 | Reference registry | **Beta** | Import from markdown, skill, git, CLI help. |
+| Reference + Constraint integration | **Partial** | Ownership contract documented: Reference is information and Constraint is authority exposed through a read-only projection over existing canonical sources. Complete project-scoped domain and `route/1` conformance are not yet claimed. |
+| CooperationResource + CooperationKnowledge | **Partial** | Architecture and bounded shared-learning semantics are documented in [reference-cooperation.md](reference-cooperation.md). Complete persistence, CLI/RPC surfaces, multi-worker dogfood, and robustness gates remain in progress. No execution authority is implied. |
 | Apply targets (`claude`/`codex`/`generic`) | **Beta** | Generates host context files. |
 | `deepseek` apply target | **Beta** | Writes `.route/generated/deepseek-context.md`. |
 | Task-scoped context (`context --task`) | **Beta** | Deterministic lexical reference selection. |
@@ -58,6 +65,7 @@ it is **not** a silently-applied fix. See
 | Cross-platform (non-Windows) | **Partial** | Windows is the primary platform; others experimental. |
 | Native Harness / Cordis bridge | **Planned** | Not implemented. `FUTURE`. |
 | Shared work graph | **Planned** | Not implemented. The DevelopmentEvent ledger is an ordered commons, not a dependency graph or scheduler. |
+| Open Institution Runtime / Society SDK | **Planned** | Future layers above Route Core. Parliament, voting, markets, reputation, economics, institution evolution, and cross-project mutation are not implemented or mandatory Route architecture. |
 | Packed Object Storage | **Planned** | `FUTURE` / `NOT_IMPLEMENTED`. Candidate physical backend for large loose-object stores; it must preserve content identity and history references, support indexed interoperable migration, atomic/crash-safe creation, verify-before-delete, reversible rollout, and benchmark evidence. |
 | Boom frontier cognition | **Planned** | Now canonically a **Mode of Yuich** (independent private repo `longqiyua/Yuich`); historical spec in [boom.md](boom.md) (VNEXT: §29 SLL-I + §30 SLL-II + §31 Design Closure frozen + §32 ISM). Optional, hot-pluggable; no engine surface, no runtime. **MRS** mapped onto existing engine (`evolve`/`learn`/`task`) in [mrs.md](mrs.md); First Real Boom Cycle = OBSERVED_PASS (gate denied neutral candidate). |
 | Yuich — Persistent Artificial Subject | **Planned** | Protocol-only spec in the independent private repo `longqiyua/Yuich`: Subject/Prime/Memory/SelfModel/Learning + Cognition (ISM, Operators, BoomMode) + Capabilities (`yuich.route`/life/research/creative) + ModelGateway + ToolGateway. Tool × Capability duality: Route = external tool; `yuich.route` = internal capability; neither depends on the other. Dogfoods A–J NOT_RUN. |

@@ -318,7 +318,8 @@ pub fn guardian_scan(project_root: &Path) -> Result<GuardianScanResult> {
     }
 
     // 2. Check stale references
-    if let Ok(registry) = crate::constitutive::ReferenceRegistry::read(project_root) {
+    {
+        let registry = crate::constitutive::ReferenceRegistry::read(project_root)?;
         // Check for references with empty source or disabled
         let disabled: Vec<_> = registry.entries.iter().filter(|e| !e.enabled).collect();
         if !disabled.is_empty() {

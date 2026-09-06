@@ -506,19 +506,7 @@ impl BasicRepository {
             })?;
         }
         {
-            // ReferenceRegistry::write does not have an ensure_exists
-            // wrapper, so emulate one: only write when the file is
-            // missing. `write_atomic` is used internally.
-            use crate::constitutive::{registry_path, ReferenceRegistry};
-            let p = registry_path(proj_root);
-            if !p.exists() {
-                let empty = ReferenceRegistry::new();
-                empty.write(proj_root).map_err(|e| {
-                    anyhow::Error::new(route_core::RouteError::CorruptedMetadata(format!(
-                        "cannot bootstrap empty reference registry during init: {e}"
-                    )))
-                })?;
-            }
+            crate::constitutive::ReferenceRegistry::ensure_exists(proj_root)?;
         }
 
         Ok(Self {

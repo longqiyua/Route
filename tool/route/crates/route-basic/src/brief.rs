@@ -135,7 +135,8 @@ pub fn generate_brief(project_root: &Path, task: Option<&str>) -> Result<Project
     }
 
     // Load references
-    if let Ok(registry) = crate::constitutive::ReferenceRegistry::read(project_root) {
+    {
+        let registry = crate::constitutive::ReferenceRegistry::read(project_root)?;
         for e in &registry.entries {
             if e.enabled {
                 refs.push(format!("{} ({})", e.name, e.id));

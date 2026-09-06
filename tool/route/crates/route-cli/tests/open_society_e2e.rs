@@ -50,6 +50,195 @@ fn rpc(root: &Path, input: String) -> Value {
 }
 
 #[test]
+fn cooperation_generic_rpc_evidence_gate_and_pending_replay() {
+    use route_basic::cooperation::*;
+    use route_basic::execution::{EvidenceKind, EvidenceSource, EvidenceStore};
+    let project = tempdir().unwrap();
+    let root = project.path();
+    std::fs::write(root.join("fixture.txt"), b"safe fixture").unwrap();
+    register_cooperation_resource(
+        root,
+        "resource".into(),
+        "fixture.txt".into(),
+        CooperationKind::new("DOCUMENT").unwrap(),
+        "fixture".into(),
+        None,
+        vec![],
+        vec![],
+        vec![],
+        None,
+        Some("resource".into()),
+    )
+    .unwrap();
+    let resource = cooperation_resource(root, "resource").unwrap().unwrap();
+    let fingerprint = resource.fingerprint.unwrap().value;
+    let mut record = CooperationKnowledgeRecord {
+        knowledge_id: "observed".into(),
+        cooperation_id: "resource".into(),
+        statement: "Fixture check passed".into(),
+        capability_refs: vec!["fixture.read".into()],
+        epistemic_status: EpistemicStatus::Observed,
+        provenance: "test system".into(),
+        source_refs: vec![],
+        evidence_refs: vec!["message-is-not-evidence".into()],
+        observed_at: 1,
+        resource_fingerprint: Some(fingerprint.clone()),
+        supersedes: None,
+    };
+    let rejected = rpc(
+        root,
+        request(
+            "bad",
+            "development.event.record",
+            json!({"payload": route_basic::DevelopmentEventPayload::CooperationKnowledgeRecorded { record: record.clone() }}),
+            Some("bad"),
+        ),
+    );
+    assert_eq!(rejected["error"]["code"], "DEVELOPMENT_EVENT_REJECTED");
+    assert!(cooperation_knowledge(root, None).unwrap().is_empty());
+    let mut evidence = EvidenceStore::load(root).unwrap();
+    record.evidence_refs = vec![evidence.record(
+        "fixture",
+        EvidenceKind::CheckPass,
+        EvidenceSource::System,
+        "fixture-hash".into(),
+        std::collections::HashMap::from([
+            ("project_id".into(), resource.project_id),
+            ("cooperation_id".into(), "resource".into()),
+            ("resource_fingerprint".into(), fingerprint),
+        ]),
+    )];
+    evidence.save(root).unwrap();
+    let params = json!({"payload": route_basic::DevelopmentEventPayload::CooperationKnowledgeRecorded { record }});
+    let first = rpc(
+        root,
+        request(
+            "first",
+            "development.event.record",
+            params.clone(),
+            Some("valid"),
+        ),
+    );
+    assert_eq!(first["ok"], true, "{first}");
+    let receipts = root.join(".route/rpc-idempotency.json");
+    let mut stored: Value = serde_json::from_slice(&std::fs::read(&receipts).unwrap()).unwrap();
+    stored["route/1:development.event.record:valid"]["status"] = json!("PENDING");
+    stored["route/1:development.event.record:valid"]
+        .as_object_mut()
+        .unwrap()
+        .remove("response");
+    std::fs::write(&receipts, serde_json::to_vec(&stored).unwrap()).unwrap();
+    let replay = rpc(
+        root,
+        request("retry", "development.event.record", params, Some("valid")),
+    );
+    assert_eq!(replay["ok"], true, "{replay}");
+    assert_eq!(replay["result"]["replay"], true);
+    assert_eq!(
+        first["result"]["event"]["event_id"],
+        replay["result"]["event"]["event_id"]
+    );
+    assert_eq!(cooperation_knowledge(root, None).unwrap().len(), 1);
+}
+
+#[test]
+fn legacy_reference_cli_preserves_corrupt_registry() {
+    let project = tempdir().unwrap();
+    let path = project.path().join(".route/reference/registry.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for bytes in ["", "{", "not-json"] {
+        std::fs::write(&path, bytes).unwrap();
+        for command in ["list", "show"] {
+            let output = Command::new(env!("CARGO_BIN_EXE_route"))
+                .args(["reference", command])
+                .current_dir(project.path())
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("registry"),
+                "must reach the registry error, not fail argument parsing"
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
+fn legacy_reference_reads_on_fresh_project_create_no_state() {
+    let project = tempdir().unwrap();
+    for command in ["list", "show"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_route"))
+            .args(["reference", command])
+            .current_dir(project.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read_dir(project.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn independent_process_supersession_has_exactly_one_winner() {
+    use route_basic::cooperation::*;
+    let project = tempdir().unwrap();
+    let root = project.path();
+    register_cooperation_resource(
+        root,
+        "resource".into(),
+        "opaque:fixture".into(),
+        CooperationKind::new("UNKNOWN").unwrap(),
+        "fixture".into(),
+        None,
+        vec![],
+        vec![],
+        vec![],
+        None,
+        Some("resource".into()),
+    )
+    .unwrap();
+    let original = CooperationKnowledgeRecord {
+        knowledge_id: "old".into(),
+        cooperation_id: "resource".into(),
+        statement: "Declared fixture".into(),
+        capability_refs: vec![],
+        epistemic_status: EpistemicStatus::Declared,
+        provenance: "fixture".into(),
+        source_refs: vec![],
+        evidence_refs: vec![],
+        observed_at: 1,
+        resource_fingerprint: None,
+        supersedes: None,
+    };
+    record_cooperation_knowledge(root, original.clone(), None, Some("old".into())).unwrap();
+    let children: Vec<_> = (0..2).map(|i| {
+        let mut record = original.clone();
+        record.knowledge_id = format!("new-{i}");
+        record.supersedes = Some("old".into());
+        let body = request(&format!("request-{i}"), "development.event.record", json!({"payload":route_basic::DevelopmentEventPayload::CooperationKnowledgeRecorded { record }}), Some(&format!("key-{i}")));
+        spawn_rpc(root, &body)
+    }).collect();
+    let replies: Vec<_> = children.into_iter().map(finish_rpc).collect();
+    assert_eq!(
+        replies.iter().filter(|reply| reply["ok"] == true).count(),
+        1,
+        "{replies:?}"
+    );
+    assert_eq!(
+        replies
+            .iter()
+            .filter(|reply| reply["error"]["code"] == "DEVELOPMENT_EVENT_REJECTED")
+            .count(),
+        1
+    );
+    assert_eq!(cooperation_knowledge(root, None).unwrap().len(), 2);
+}
+
+#[test]
 fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
     let project = tempdir().unwrap();
     route_basic::ensure_identity(project.path()).unwrap();

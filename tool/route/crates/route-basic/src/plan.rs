@@ -87,7 +87,7 @@ pub fn plan_task(
     let agent_policy = read_agent_policy(project_root)?;
 
     // Collect reference entries for the compiler
-    let registry = ReferenceRegistry::read(project_root).unwrap_or_default();
+    let registry = ReferenceRegistry::read(project_root)?;
     let references: Vec<ReferenceEntry> = if let Some(ref ss) = strategy_snapshot {
         registry
             .entries
@@ -363,7 +363,7 @@ fn gather_reference_ids(
     project_root: &Path,
     strategy: Option<&StrategySnapshot>,
 ) -> Result<Vec<String>> {
-    let registry = ReferenceRegistry::read(project_root).unwrap_or_default();
+    let registry = ReferenceRegistry::read(project_root)?;
 
     let ids: Vec<String> = if let Some(ss) = strategy {
         // Use strategy's enabled refs

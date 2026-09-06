@@ -91,7 +91,8 @@ pub fn scan_drift(project_root: &Path) -> Result<DriftScanResult> {
     }
 
     // 3. Check for disabled references
-    if let Ok(registry) = crate::constitutive::ReferenceRegistry::read(project_root) {
+    {
+        let registry = crate::constitutive::ReferenceRegistry::read(project_root)?;
         for entry in &registry.entries {
             if !entry.enabled {
                 items.push(DriftItem {

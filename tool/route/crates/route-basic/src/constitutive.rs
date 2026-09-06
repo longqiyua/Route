@@ -18,6 +18,7 @@
 //! them at this layer — that is the responsibility of downstream
 //! integrations (MCP, CLI wrappers, future agents).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -395,8 +396,16 @@ impl Default for Protocol {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReferenceType {
+    /// A single local or externally-addressed file.
+    File,
     /// A document (Markdown, PDF, HTML, ...).
     Document,
+    /// A directory locator. Registration never recursively ingests it.
+    Directory,
+    /// A generic URI whose more specific kind is not known.
+    Uri,
+    /// A known resource that does not fit another current kind.
+    Other,
     /// A source-code repository (local path or git URL).
     Repo,
     /// An AI skill description file or skill pointer.
@@ -427,7 +436,11 @@ pub enum ReferenceType {
 impl ReferenceType {
     pub fn as_str(self) -> &'static str {
         match self {
+            ReferenceType::File => "file",
             ReferenceType::Document => "document",
+            ReferenceType::Directory => "directory",
+            ReferenceType::Uri => "uri",
+            ReferenceType::Other => "other",
             ReferenceType::Repo => "repo",
             ReferenceType::Skill => "skill",
             ReferenceType::Cli => "cli",
@@ -447,7 +460,11 @@ impl std::str::FromStr for ReferenceType {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
+            "file" => Ok(ReferenceType::File),
             "document" | "doc" => Ok(ReferenceType::Document),
+            "directory" | "dir" => Ok(ReferenceType::Directory),
+            "uri" | "url" => Ok(ReferenceType::Uri),
+            "other" => Ok(ReferenceType::Other),
             "repo" | "repository" => Ok(ReferenceType::Repo),
             "skill" => Ok(ReferenceType::Skill),
             "cli" | "command" | "cmd" => Ok(ReferenceType::Cli),
@@ -459,7 +476,7 @@ impl std::str::FromStr for ReferenceType {
             "unknown" | "" => Ok(ReferenceType::Unknown),
             "experience" | "learned" => Ok(ReferenceType::Experience),
             other => Err(format!(
-                "unknown reference type '{}': valid types are document, repo, skill, cli, executable, mcp, api, workflow, prompt, unknown",
+                "unknown reference type '{}': valid types are file, document, directory, uri, other, repo, skill, cli, executable, mcp, api, workflow, prompt, unknown",
                 other
             )),
         }
@@ -509,12 +526,20 @@ impl Origin {
 pub struct ReferenceEntry {
     /// Stable id, e.g. `doc-architecture` or `mcp-route`.
     pub id: String,
+    /// Stable Route project identity owning this entry. Legacy entries omit it
+    /// and are bound on their next successful registry write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     /// Entry type.
     #[serde(rename = "type")]
     pub type_: ReferenceType,
     /// Where the entry lives: local path, git URL, HTTP URL, command name.
     #[serde(default)]
     pub source: String,
+    /// Current locator availability. This is descriptive state, never
+    /// Evidence and never authority.
+    #[serde(default)]
+    pub availability: ReferenceAvailability,
     /// Optional sub-path or alias within the source (e.g. a chapter
     /// inside a document, or a specific subcommand of a CLI).
     #[serde(default)]
@@ -530,6 +555,13 @@ pub struct ReferenceEntry {
     pub constraints: String,
     /// Unix-millis when this entry was added.
     pub created_at: i64,
+    /// Monotonic metadata revision within this registry entry.
+    #[serde(default = "default_reference_revision")]
+    pub revision: u64,
+    /// Unix-millis of the latest metadata update. Zero means unknown for a
+    /// legacy entry.
+    #[serde(default)]
+    pub updated_at: i64,
     /// Optional free-form tags (e.g. `["rust", "testing"]`).
     #[serde(default)]
     pub tags: Vec<String>,
@@ -550,6 +582,9 @@ pub struct ReferenceEntry {
     /// whether a re-import would actually change anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
+    /// Optional bounded fingerprint of the located resource or its metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
     /// Unix-millis when the source was last re-validated against the
     /// origin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -576,11 +611,39 @@ pub struct ReferenceEntry {
     /// Optional entrypoint path or command (e.g. "main.py", "index.js").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
+    /// Small extensible metadata only. Registry read/write rejects values over
+    /// the defensive limits below instead of materialising resource content.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+    /// Canonical constraint ids documented by this reference. This relation
+    /// never promotes the reference itself to Constraint authority.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_constraint_ids: Vec<String>,
 }
 
 fn default_enabled() -> bool {
     true
 }
+
+fn default_reference_revision() -> u64 {
+    1
+}
+
+/// Availability is deliberately independent from `enabled`: an unavailable
+/// entry can remain registered, and an available entry can remain disabled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReferenceAvailability {
+    Available,
+    Missing,
+    Unavailable,
+    #[default]
+    Unknown,
+}
+
+const MAX_REFERENCE_METADATA_ENTRIES: usize = 32;
+const MAX_REFERENCE_METADATA_KEY_CHARS: usize = 64;
+const MAX_REFERENCE_METADATA_VALUE_CHARS: usize = 512;
 
 /// Structured metadata for learned experience references.
 ///
@@ -613,18 +676,23 @@ pub struct LearnedMeta {
 /// every single optional field themselves.
 pub struct ReferenceEntryBuilder {
     id: String,
+    project_id: Option<String>,
     type_: ReferenceType,
     source: String,
+    availability: ReferenceAvailability,
     path: Option<String>,
     description: String,
     capabilities: String,
     constraints: String,
     created_at: Option<i64>,
+    revision: u64,
+    updated_at: Option<i64>,
     tags: Vec<String>,
     origin: Option<Origin>,
     import_origin: Option<String>,
     imported_at: Option<i64>,
     content_hash: Option<String>,
+    fingerprint: Option<String>,
     last_checked: Option<i64>,
     learned_meta: Option<LearnedMeta>,
     enabled: Option<bool>,
@@ -632,6 +700,8 @@ pub struct ReferenceEntryBuilder {
     project_scope: Option<String>,
     trust: Option<String>,
     entrypoint: Option<String>,
+    metadata: BTreeMap<String, String>,
+    related_constraint_ids: Vec<String>,
 }
 
 impl ReferenceEntry {
@@ -644,18 +714,23 @@ impl ReferenceEntry {
     ) -> ReferenceEntryBuilder {
         ReferenceEntryBuilder {
             id: id.into(),
+            project_id: None,
             type_,
             source: source.into(),
+            availability: ReferenceAvailability::Unknown,
             path: None,
             description: description.into(),
             capabilities: String::new(),
             constraints: String::new(),
             created_at: None,
+            revision: 1,
+            updated_at: None,
             tags: Vec::new(),
             origin: None,
             import_origin: None,
             imported_at: None,
             content_hash: None,
+            fingerprint: None,
             last_checked: None,
             learned_meta: None,
             enabled: None,
@@ -663,11 +738,21 @@ impl ReferenceEntry {
             project_scope: None,
             trust: None,
             entrypoint: None,
+            metadata: BTreeMap::new(),
+            related_constraint_ids: Vec::new(),
         }
     }
 }
 
 impl ReferenceEntryBuilder {
+    pub fn with_project_id(mut self, project_id: impl Into<String>) -> Self {
+        self.project_id = Some(project_id.into());
+        self
+    }
+    pub fn with_availability(mut self, availability: ReferenceAvailability) -> Self {
+        self.availability = availability;
+        self
+    }
     pub fn with_opt_path(mut self, path: Option<String>) -> Self {
         self.path = path;
         self
@@ -692,6 +777,14 @@ impl ReferenceEntryBuilder {
         self.created_at = Some(ts);
         self
     }
+    pub fn with_revision(mut self, revision: u64) -> Self {
+        self.revision = revision.max(1);
+        self
+    }
+    pub fn with_updated_at(mut self, ts: i64) -> Self {
+        self.updated_at = Some(ts);
+        self
+    }
     pub fn with_origin(mut self, origin: Origin) -> Self {
         self.origin = Some(origin);
         self
@@ -706,6 +799,10 @@ impl ReferenceEntryBuilder {
     }
     pub fn with_content_hash(mut self, s: impl Into<String>) -> Self {
         self.content_hash = Some(s.into());
+        self
+    }
+    pub fn with_fingerprint(mut self, fingerprint: impl Into<String>) -> Self {
+        self.fingerprint = Some(fingerprint.into());
         self
     }
     pub fn with_last_checked(mut self, ts: i64) -> Self {
@@ -736,21 +833,38 @@ impl ReferenceEntryBuilder {
         self.entrypoint = Some(entrypoint.into());
         self
     }
+    pub fn with_metadata(mut self, metadata: BTreeMap<String, String>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+    pub fn with_related_constraint_ids(mut self, ids: Vec<String>) -> Self {
+        self.related_constraint_ids = ids;
+        self
+    }
     pub fn build(self) -> ReferenceEntry {
+        let created_at = self.created_at.unwrap_or_else(route_core::now_millis);
+        let mut related_constraint_ids = self.related_constraint_ids;
+        related_constraint_ids.sort();
+        related_constraint_ids.dedup();
         ReferenceEntry {
             id: self.id,
+            project_id: self.project_id,
             type_: self.type_,
             source: self.source,
+            availability: self.availability,
             path: self.path,
             description: self.description,
             capabilities: self.capabilities,
             constraints: self.constraints,
-            created_at: self.created_at.unwrap_or_else(route_core::now_millis),
+            created_at,
+            revision: self.revision.max(1),
+            updated_at: self.updated_at.unwrap_or(created_at),
             tags: self.tags,
             origin: self.origin.unwrap_or_default(),
             import_origin: self.import_origin,
             imported_at: self.imported_at,
             content_hash: self.content_hash,
+            fingerprint: self.fingerprint,
             last_checked: self.last_checked,
             learned_meta: self.learned_meta,
             enabled: self.enabled.unwrap_or(true),
@@ -758,6 +872,8 @@ impl ReferenceEntryBuilder {
             project_scope: self.project_scope,
             trust: self.trust,
             entrypoint: self.entrypoint,
+            metadata: self.metadata,
+            related_constraint_ids,
         }
     }
 }
@@ -1614,11 +1730,23 @@ pub fn build_context_explain(
 /// The registry is simply a version envelope + a list of entries.
 /// It is persisted on disk as JSON so external tooling can read it
 /// directly without going through this module.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceRegistry {
+    #[serde(skip)]
+    loaded_hash: std::cell::RefCell<Option<String>>,
     pub version: u32,
+    /// Stable owner identity. `None` is accepted only for legacy JSON and is
+    /// bound to the current project on the next successful write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub entries: Vec<ReferenceEntry>,
+}
+
+impl Default for ReferenceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReferenceRegistry {
@@ -1626,7 +1754,9 @@ impl ReferenceRegistry {
 
     pub fn new() -> Self {
         Self {
+            loaded_hash: std::cell::RefCell::new(None),
             version: Self::CURRENT_VERSION,
+            project_id: None,
             entries: Vec::new(),
         }
     }
@@ -1640,35 +1770,106 @@ impl ReferenceRegistry {
     /// Load the registry from `{project}/.route/reference/registry.json`.
     /// If the file is missing, returns an empty registry.
     pub fn read(project_root: &Path) -> Result<Self> {
+        Self::read_unlocked(&reference_owner(project_root)?)
+    }
+
+    fn read_unlocked(project_root: &Path) -> Result<Self> {
+        crate::reference_operation::check_read(project_root)?;
         let p = registry_path(project_root);
         if !p.exists() {
-            return Ok(Self::new());
+            let mut registry = Self::new();
+            registry.project_id = crate::project_identity::load_identity(project_root)?
+                .map(|identity| identity.project_id);
+            return Ok(registry);
         }
         let raw = std::fs::read_to_string(&p)
             .with_context(|| format!("reading reference registry from {}", p.display()))?;
         if raw.trim().is_empty() {
-            return Ok(Self::new());
+            anyhow::bail!("reference registry is empty or truncated: {}", p.display());
         }
         let r: Self = serde_json::from_str(&raw)
             .with_context(|| format!("parsing reference registry JSON at {}", p.display()))?;
+        r.loaded_hash
+            .replace(Some(route_core::sha256_hex(raw.as_bytes())));
+        r.validate_bounds()?;
+        if let Some(identity) = crate::project_identity::load_identity(project_root)? {
+            r.validate_project_id(&identity.project_id)?;
+        }
+        crate::reference_operation::check_read(project_root)?;
         Ok(r)
     }
 
     /// Atomically write the registry (JSON pretty-printed).
     pub fn write(&self, project_root: &Path) -> Result<()> {
+        let owner = reference_owner(project_root)?;
+        let project_root = owner.as_path();
+        let _lock = ReferenceRegistryLock::acquire(project_root)?;
+        self.write_unlocked(project_root, None)
+    }
+
+    pub fn write_with_operation_id(&self, project_root: &Path, operation_id: &str) -> Result<()> {
+        let owner = reference_owner(project_root)?;
+        let project_root = owner.as_path();
+        let _lock = ReferenceRegistryLock::acquire(project_root)?;
+        self.write_unlocked(project_root, Some(operation_id))
+    }
+
+    pub fn recover(project_root: &Path) -> Result<()> {
+        let owner = reference_owner(project_root)?;
+        let project_root = owner.as_path();
+        let _lock = ReferenceRegistryLock::acquire(project_root)?;
+        crate::reference_operation::recover_locked(project_root)
+    }
+
+    fn write_unlocked(&self, project_root: &Path, operation_id: Option<&str>) -> Result<()> {
+        let identity = crate::project_identity::ensure_identity(project_root)?;
+        self.validate_project_id(&identity.project_id)?;
+        let mut scoped = self.clone();
+        scoped.version = Self::CURRENT_VERSION;
+        scoped.project_id = Some(identity.project_id.clone());
+        for entry in &mut scoped.entries {
+            if entry.project_id.is_none() {
+                entry.project_id = Some(identity.project_id.clone());
+            }
+        }
+        scoped.validate_bounds()?;
         std::fs::create_dir_all(reference_dir(project_root))?;
-        let p = registry_path(project_root);
-        let json = serde_json::to_vec_pretty(self)?;
-        write_atomic(&p, &json)
-            .with_context(|| format!("writing reference registry to {}", p.display()))?;
+        let json = serde_json::to_vec_pretty(&scoped)?;
+        let hash = crate::reference_operation::commit(
+            project_root,
+            self.loaded_hash.borrow().as_deref(),
+            &json,
+            operation_id,
+        )?;
+        self.loaded_hash.replace(Some(hash));
         Ok(())
+    }
+
+    /// Perform one cross-process-safe read-modify-write transaction against
+    /// the canonical registry. The closure is never called when existing JSON
+    /// is corrupt or belongs to another project.
+    pub fn update<T, F>(project_root: &Path, update: F) -> Result<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T>,
+    {
+        let owner = reference_owner(project_root)?;
+        let project_root = owner.as_path();
+        let _lock = ReferenceRegistryLock::acquire(project_root)?;
+        crate::reference_operation::recover_locked(project_root)?;
+        let mut registry = Self::read_unlocked(project_root)?;
+        let output = update(&mut registry)?;
+        registry.write_unlocked(project_root, None)?;
+        Ok(output)
     }
 
     /// Create the registry on disk only if it does not exist yet. Used by
     /// `route init` so repeated runs are pure-noop idempotent.
     pub fn ensure_exists(project_root: &Path) -> Result<()> {
+        let owner = reference_owner(project_root)?;
+        let project_root = owner.as_path();
         let p = registry_path(project_root);
         if p.exists() {
+            Self::read(project_root)?;
             return Ok(());
         }
         Self::new().write(project_root)
@@ -1688,12 +1889,23 @@ impl ReferenceRegistry {
     /// Add or replace an entry by id. Returns `true` if the entry was
     /// newly inserted, `false` if an existing entry was replaced.
     pub fn upsert(&mut self, entry: ReferenceEntry) -> bool {
+        let mut entry = entry;
+        if entry.project_id.is_none() {
+            entry.project_id = self.project_id.clone();
+        }
         match self.index_of(&entry.id) {
             Some(i) => {
+                entry.created_at = self.entries[i].created_at;
+                entry.revision = self.entries[i].revision.max(1) + 1;
+                entry.updated_at = route_core::now_millis();
                 self.entries[i] = entry;
                 false
             }
             None => {
+                entry.revision = entry.revision.max(1);
+                if entry.updated_at == 0 {
+                    entry.updated_at = entry.created_at;
+                }
                 self.entries.push(entry);
                 true
             }
@@ -1742,6 +1954,71 @@ impl ReferenceRegistry {
     /// List entries filtered by type.
     pub fn filter_by_type(&self, t: ReferenceType) -> impl Iterator<Item = &ReferenceEntry> {
         self.entries.iter().filter(move |e| e.type_ == t)
+    }
+
+    fn validate_project_id(&self, expected: &str) -> Result<()> {
+        if self.project_id.as_deref().is_some_and(|id| id != expected) {
+            anyhow::bail!("reference registry project identity mismatch");
+        }
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.project_id.as_deref().is_some_and(|id| id != expected))
+        {
+            anyhow::bail!("reference entry project identity mismatch");
+        }
+        Ok(())
+    }
+
+    fn validate_bounds(&self) -> Result<()> {
+        if self.version != Self::CURRENT_VERSION {
+            anyhow::bail!("unsupported Reference registry version");
+        }
+        let mut identifiers = std::collections::BTreeSet::new();
+        for entry in &self.entries {
+            if entry.id.trim().is_empty() || !identifiers.insert(&entry.id) {
+                anyhow::bail!("invalid or duplicate Reference identity");
+            }
+            if entry.metadata.len() > MAX_REFERENCE_METADATA_ENTRIES {
+                anyhow::bail!("reference '{}' metadata has too many entries", entry.id);
+            }
+            for (key, value) in &entry.metadata {
+                if key.chars().count() > MAX_REFERENCE_METADATA_KEY_CHARS
+                    || value.chars().count() > MAX_REFERENCE_METADATA_VALUE_CHARS
+                {
+                    anyhow::bail!("reference '{}' metadata exceeds bounded limits", entry.id);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn reference_owner(root: &Path) -> Result<PathBuf> {
+    if let Some(identity) = crate::project_identity::load_identity(root)? {
+        if let Some(source) = identity.attached_from {
+            let owner = PathBuf::from(source);
+            let persisted = crate::project_identity::load_identity(&owner)?
+                .ok_or_else(|| anyhow::anyhow!("Reference owner identity is missing"))?;
+            if persisted.project_id != identity.project_id {
+                anyhow::bail!("Reference owner project mismatch");
+            }
+            return Ok(owner);
+        }
+    }
+    Ok(root.to_path_buf())
+}
+
+struct ReferenceRegistryLock {
+    _guard: crate::ownership_lock::OwnershipLock,
+}
+impl ReferenceRegistryLock {
+    fn acquire(root: &Path) -> Result<Self> {
+        let dir = reference_dir(root);
+        std::fs::create_dir_all(&dir)?;
+        Ok(Self {
+            _guard: crate::ownership_lock::OwnershipLock::acquire(&dir.join(".registry-lock"))?,
+        })
     }
 }
 
@@ -2321,7 +2598,7 @@ impl ContextSnapshot {
     pub fn collect(project_root: &Path) -> Result<Self> {
         let constitution = Constitution::read(project_root).unwrap_or_default();
         let protocol = Protocol::read(project_root).unwrap_or_default();
-        let registry = ReferenceRegistry::read(project_root).unwrap_or_default();
+        let registry = ReferenceRegistry::read(project_root)?;
 
         let mut entries_sem: Vec<ReferenceSemanticView> = registry
             .entries
@@ -3376,9 +3653,10 @@ pub(crate) fn write_atomic(target: &Path, bytes: &[u8]) -> Result<()> {
     ));
     let _ = std::fs::remove_file(&tmp);
     std::fs::write(&tmp, bytes).with_context(|| format!("writing temp file {}", tmp.display()))?;
-    if let Ok(f) = std::fs::File::open(&tmp) {
-        let _ = f.sync_all();
-    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&tmp)?
+        .sync_all()?;
     std::fs::rename(&tmp, target).with_context(|| {
         format!(
             "renaming temp file {} -> {}",
@@ -4221,7 +4499,7 @@ pub fn curator_refresh(
         // if persist=true.
         if persist {
             // Write registry first (for last_checked), then proposals.
-            let _ = registry.write(project_root);
+            registry.write(project_root)?;
         }
 
         out.push(RefreshResult {
@@ -4441,6 +4719,137 @@ mod tests {
         let reg = ReferenceRegistry::read(tmp.path()).unwrap();
         assert_eq!(reg.version, ReferenceRegistry::CURRENT_VERSION);
         assert!(reg.entries.is_empty());
+    }
+
+    #[test]
+    fn registry_stale_library_writer_cannot_lose_another_writers_work() {
+        let tmp = TempDir::new().unwrap();
+        ReferenceRegistry::ensure_exists(tmp.path()).unwrap();
+        let mut first = ReferenceRegistry::read(tmp.path()).unwrap();
+        let mut stale = ReferenceRegistry::read(tmp.path()).unwrap();
+        first.upsert(
+            ReferenceEntry::builder("first", ReferenceType::Document, "one", "one").build(),
+        );
+        first.write(tmp.path()).unwrap();
+        stale.upsert(
+            ReferenceEntry::builder("stale", ReferenceType::Document, "two", "two").build(),
+        );
+        assert!(stale.write(tmp.path()).is_err());
+        let current = ReferenceRegistry::read(tmp.path()).unwrap();
+        assert!(current.get("first").is_some());
+        assert!(current.get("stale").is_none());
+    }
+
+    #[test]
+    fn registry_existing_empty_or_truncated_fails_closed() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(reference_dir(tmp.path())).unwrap();
+        for damaged in ["", "  \n", "{\"version\":1,"] {
+            std::fs::write(registry_path(tmp.path()), damaged).unwrap();
+            assert!(ReferenceRegistry::read(tmp.path()).is_err());
+            assert!(ReferenceRegistry::ensure_exists(tmp.path()).is_err());
+            assert!(ContextSnapshot::collect(tmp.path()).is_err());
+            assert!(crate::plan::plan_task(tmp.path(), "fixture", None).is_err());
+            assert!(crate::brief::generate_brief(tmp.path(), None).is_err());
+            assert!(crate::drift::scan_drift(tmp.path()).is_err());
+            assert!(crate::guardian::guardian_scan(tmp.path()).is_err());
+            assert!(crate::memory::ProjectMemory::refresh(tmp.path(), None).is_err());
+            assert!(crate::evolution::load_reference(tmp.path(), "fixture").is_err());
+            assert_eq!(
+                std::fs::read_to_string(registry_path(tmp.path())).unwrap(),
+                damaged
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_reference_json_loads_with_safe_defaults_and_binds_on_write() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(reference_dir(tmp.path())).unwrap();
+        std::fs::write(
+            registry_path(tmp.path()),
+            r#"{
+  "version": 1,
+  "entries": [{
+    "id": "legacy-doc", "type": "document", "source": "README.md",
+    "path": null, "description": "legacy", "capabilities": "read",
+    "constraints": "informative only", "created_at": 42, "tags": []
+  }]
+}"#,
+        )
+        .unwrap();
+
+        let legacy = ReferenceRegistry::read(tmp.path()).unwrap();
+        let entry = legacy.get("legacy-doc").unwrap();
+        assert_eq!(entry.project_id, None);
+        assert_eq!(entry.availability, ReferenceAvailability::Unknown);
+        assert_eq!(entry.revision, 1);
+        assert_eq!(entry.updated_at, 0);
+        assert!(entry.metadata.is_empty());
+        assert!(entry.related_constraint_ids.is_empty());
+
+        legacy.write(tmp.path()).unwrap();
+        let rebound = ReferenceRegistry::read(tmp.path()).unwrap();
+        let owner = crate::project_identity::load_identity(tmp.path())
+            .unwrap()
+            .unwrap()
+            .project_id;
+        assert_eq!(rebound.project_id.as_deref(), Some(owner.as_str()));
+        assert_eq!(
+            rebound.get("legacy-doc").unwrap().project_id.as_deref(),
+            Some(owner.as_str())
+        );
+    }
+
+    #[test]
+    fn copied_reference_registry_fails_closed_on_project_identity_mismatch() {
+        let source = TempDir::new().unwrap();
+        let destination = TempDir::new().unwrap();
+        let mut registry = ReferenceRegistry::new();
+        registry
+            .upsert(ReferenceEntry::builder("ref-a", ReferenceType::File, "a.txt", "a").build());
+        registry.write(source.path()).unwrap();
+        crate::project_identity::ensure_identity(destination.path()).unwrap();
+        std::fs::create_dir_all(reference_dir(destination.path())).unwrap();
+        std::fs::copy(
+            registry_path(source.path()),
+            registry_path(destination.path()),
+        )
+        .unwrap();
+
+        let error = ReferenceRegistry::read(destination.path()).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("reference registry project identity mismatch"));
+    }
+
+    #[test]
+    fn reference_upsert_advances_revision_and_metadata_is_bounded() {
+        let tmp = TempDir::new().unwrap();
+        let mut registry = ReferenceRegistry::new();
+        registry.upsert(
+            ReferenceEntry::builder("ref-a", ReferenceType::Uri, "https://example.test", "a")
+                .with_availability(ReferenceAvailability::Available)
+                .with_fingerprint("sha256:abc")
+                .with_created_at(10)
+                .build(),
+        );
+        registry.upsert(
+            ReferenceEntry::builder("ref-a", ReferenceType::Other, "opaque:x", "updated").build(),
+        );
+        let entry = registry.get("ref-a").unwrap();
+        assert_eq!(entry.created_at, 10);
+        assert_eq!(entry.revision, 2);
+
+        let mut oversized = BTreeMap::new();
+        oversized.insert("preview".to_string(), "x".repeat(513));
+        registry.upsert(
+            ReferenceEntry::builder("ref-b", ReferenceType::Directory, "large", "large")
+                .with_metadata(oversized)
+                .build(),
+        );
+        assert!(registry.write(tmp.path()).is_err());
+        assert!(!registry_path(tmp.path()).exists());
     }
 
     #[test]

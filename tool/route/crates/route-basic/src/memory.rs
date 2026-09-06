@@ -436,7 +436,8 @@ impl ProjectMemory {
         }
 
         // --- Scan reference registry ---
-        if let Ok(registry) = crate::constitutive::ReferenceRegistry::read(project_root) {
+        {
+            let registry = crate::constitutive::ReferenceRegistry::read(project_root)?;
             for entry in &registry.entries {
                 let item = MemoryItem {
                     id: next_id(),

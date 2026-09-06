@@ -979,7 +979,6 @@ pub struct Evidence {
 /// Persistent store for execution evidence.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EvidenceStore {
-    #[serde(default)]
     pub evidence: Vec<Evidence>,
 }
 
@@ -992,10 +991,17 @@ impl EvidenceStore {
         }
         let raw = std::fs::read_to_string(&p)
             .with_context(|| format!("reading evidence from {}", p.display()))?;
-        if raw.trim().is_empty() {
-            return Ok(Self::default());
+        let store: Self = serde_json::from_str(&raw)
+            .with_context(|| format!("invalid evidence store at {}", p.display()))?;
+        let mut ids = std::collections::BTreeSet::new();
+        if store
+            .evidence
+            .iter()
+            .any(|item| item.id.is_empty() || !ids.insert(&item.id))
+        {
+            anyhow::bail!("invalid or duplicate Evidence identity");
         }
-        Ok(serde_json::from_str(&raw).unwrap_or_default())
+        Ok(store)
     }
 
     /// Persist evidence atomically.

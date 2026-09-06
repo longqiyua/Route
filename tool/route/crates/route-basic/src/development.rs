@@ -9,16 +9,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::cooperation;
+use crate::cooperation::*;
 use crate::execution::{Evidence, EvidenceStore, ExecutionSession, SessionStatus, SessionStore};
 use crate::game_save::KnownGoodTracker;
 use crate::project_identity::{ensure_identity, load_identity, ProjectIdentity};
 
-const LEDGER_SCHEMA: u8 = 1;
+const LEGACY_LEDGER_SCHEMA: u8 = 1;
+const LEDGER_SCHEMA: u8 = 2;
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const MAX_SUMMARY: usize = 2_000;
 const MAX_MESSAGE: usize = 4_000;
@@ -38,6 +40,12 @@ pub enum DevelopmentEventType {
     EvidenceReference,
     ProjectStateObservation,
     HumanIntervention,
+    CooperationResource,
+    CooperationKnowledge,
+    CooperationDiscovery,
+    Reference,
+    CooperationCapability,
+    HumanCooperationGuidance,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -215,6 +223,40 @@ pub enum DevelopmentEventPayload {
     HumanIntervention {
         summary: String,
     },
+    CooperationResourceRegistered {
+        registration: CooperationResourceRegistration,
+    },
+    CooperationResourceRefreshed {
+        observation: CooperationRefreshObservation,
+    },
+    CooperationKnowledgeRecorded {
+        record: CooperationKnowledgeRecord,
+    },
+    CooperationDiscoveryUpdated {
+        record: CooperationDiscoveryRecord,
+    },
+    ReferenceRegistered {
+        observation: ReferenceCommonsObservation,
+    },
+    ReferenceRegistryCommitted {
+        operation_id: String,
+        registry_hash: String,
+    },
+    ReferenceRefreshed {
+        observation: ReferenceCommonsObservation,
+    },
+    ReferenceChanged {
+        observation: ReferenceCommonsObservation,
+    },
+    ReferenceMissing {
+        observation: ReferenceCommonsObservation,
+    },
+    CooperationCapabilityObserved {
+        record: CooperationKnowledgeRecord,
+    },
+    HumanCooperationGuidance {
+        guidance: HumanCooperationGuidance,
+    },
 }
 
 impl DevelopmentEventPayload {
@@ -230,6 +272,21 @@ impl DevelopmentEventPayload {
             Self::EvidenceReferenced { .. } => DevelopmentEventType::EvidenceReference,
             Self::ProjectStateObserved { .. } => DevelopmentEventType::ProjectStateObservation,
             Self::HumanIntervention { .. } => DevelopmentEventType::HumanIntervention,
+            Self::CooperationResourceRegistered { .. }
+            | Self::CooperationResourceRefreshed { .. } => {
+                DevelopmentEventType::CooperationResource
+            }
+            Self::CooperationKnowledgeRecorded { .. } => DevelopmentEventType::CooperationKnowledge,
+            Self::CooperationDiscoveryUpdated { .. } => DevelopmentEventType::CooperationDiscovery,
+            Self::ReferenceRegistered { .. }
+            | Self::ReferenceRegistryCommitted { .. }
+            | Self::ReferenceRefreshed { .. }
+            | Self::ReferenceChanged { .. }
+            | Self::ReferenceMissing { .. } => DevelopmentEventType::Reference,
+            Self::CooperationCapabilityObserved { .. } => {
+                DevelopmentEventType::CooperationCapability
+            }
+            Self::HumanCooperationGuidance { .. } => DevelopmentEventType::HumanCooperationGuidance,
         }
     }
 }
@@ -312,11 +369,11 @@ pub struct DevelopmentEventPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct DevelopmentLedger {
+pub(crate) struct DevelopmentLedger {
     schema: u8,
     project_id: String,
     head_hash: String,
-    events: Vec<DevelopmentEvent>,
+    pub(crate) events: Vec<DevelopmentEvent>,
 }
 
 impl DevelopmentLedger {
@@ -334,7 +391,7 @@ impl DevelopmentLedger {
     }
 
     fn verify(&self, expected_project_id: &str) -> Result<()> {
-        if self.schema != LEDGER_SCHEMA {
+        if !matches!(self.schema, LEGACY_LEDGER_SCHEMA | LEDGER_SCHEMA) {
             bail!("unsupported development ledger schema {}", self.schema);
         }
         if self.project_id != expected_project_id {
@@ -446,8 +503,33 @@ pub fn development_ledger_path(root: &Path) -> Result<PathBuf> {
     Ok(development_dir(&owner).join("ledger.json"))
 }
 
-fn load_ledger(root: &Path) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
+pub(crate) fn load_ledger(root: &Path) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
     let (owner, identity) = development_state_owner(root)?;
+    load_ledger_at(owner, identity)
+}
+
+pub(crate) fn load_ledger_readonly(
+    root: &Path,
+) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
+    let identity =
+        load_identity(root)?.ok_or_else(|| anyhow::anyhow!("project identity is missing"))?;
+    let owner = identity
+        .attached_from
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.to_owned());
+    let owner_identity = load_identity(&owner)?
+        .ok_or_else(|| anyhow::anyhow!("ledger owner identity is missing"))?;
+    if owner_identity.project_id != identity.project_id {
+        bail!("ledger owner project mismatch");
+    }
+    load_ledger_at(owner, identity)
+}
+
+fn load_ledger_at(
+    owner: PathBuf,
+    identity: ProjectIdentity,
+) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
     let path = development_dir(&owner).join("ledger.json");
     if !path.exists() {
         return Ok((
@@ -543,6 +625,39 @@ fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
             validate_text("development action", action, 128)?;
             validate_text("development summary", summary, MAX_SUMMARY)?;
         }
+        DevelopmentEventPayload::CooperationResourceRegistered { registration } => {
+            cooperation::validate_registration(registration)?;
+        }
+        DevelopmentEventPayload::CooperationResourceRefreshed { observation } => {
+            cooperation::validate_refresh(observation)?;
+        }
+        DevelopmentEventPayload::CooperationKnowledgeRecorded { record } => {
+            cooperation::validate_knowledge(record)?;
+        }
+        DevelopmentEventPayload::CooperationDiscoveryUpdated { record } => {
+            cooperation::validate_discovery(record)?;
+        }
+        DevelopmentEventPayload::ReferenceRegistered { observation }
+        | DevelopmentEventPayload::ReferenceRefreshed { observation }
+        | DevelopmentEventPayload::ReferenceChanged { observation }
+        | DevelopmentEventPayload::ReferenceMissing { observation } => {
+            cooperation::validate_reference_observation(observation)?;
+        }
+        DevelopmentEventPayload::ReferenceRegistryCommitted {
+            operation_id,
+            registry_hash,
+        } => {
+            validate_identifier("Reference operation", operation_id)?;
+            if registry_hash.len() != 64 {
+                bail!("invalid Reference registry hash");
+            }
+        }
+        DevelopmentEventPayload::CooperationCapabilityObserved { record } => {
+            cooperation::validate_capability_observation(record)?;
+        }
+        DevelopmentEventPayload::HumanCooperationGuidance { guidance } => {
+            cooperation::validate_human_guidance(guidance)?;
+        }
     }
     Ok(())
 }
@@ -553,6 +668,23 @@ fn same_semantics(event: &DevelopmentEvent, draft: &DevelopmentEventDraft) -> bo
             DevelopmentEventPayload::WorkerRegistered { descriptor: left },
             DevelopmentEventPayload::WorkerRegistered { descriptor: right },
         ) => left.worker_id == right.worker_id && left.metadata == right.metadata,
+        (
+            DevelopmentEventPayload::CooperationResourceRegistered { registration: left },
+            DevelopmentEventPayload::CooperationResourceRegistered {
+                registration: right,
+            },
+        ) => {
+            // These three fields are sampled outcomes, not caller intent.
+            let mut right = right.clone();
+            right.availability = left.availability.clone();
+            right.fingerprint = left.fingerprint.clone();
+            right.discovered_project_id = left.discovered_project_id.clone();
+            left == &right
+        }
+        (
+            DevelopmentEventPayload::CooperationResourceRefreshed { observation: left },
+            DevelopmentEventPayload::CooperationResourceRefreshed { observation: right },
+        ) => left.cooperation_id == right.cooperation_id,
         (left, right) => left == right,
     };
     draft
@@ -576,6 +708,7 @@ pub fn append_development_event(
     mut draft: DevelopmentEventDraft,
 ) -> Result<AppendDevelopmentEventResult> {
     validate_payload(&draft.payload)?;
+
     for value in [
         draft.event_id.as_deref(),
         draft.actor_worker_id.as_deref(),
@@ -639,6 +772,7 @@ pub fn append_development_event(
         }
     }
 
+    cooperation::validate_transition(&owner, &identity.project_id, &ledger.events, &draft.payload)?;
     if let DevelopmentEventPayload::WorkerRegistered { descriptor } = &draft.payload {
         let already_registered = ledger.events.iter().any(|event| {
             matches!(
@@ -685,6 +819,10 @@ pub fn append_development_event(
     event.hash = event_hash(&event)?;
     ledger.head_hash = event.hash.clone();
     ledger.events.push(event.clone());
+    // Schema 2 adds typed cooperation payloads. Existing schema-1 events keep
+    // their exact bytes and hashes; the envelope upgrades only when a new
+    // event is successfully committed.
+    ledger.schema = LEDGER_SCHEMA;
     ledger.verify(&identity.project_id)?;
     crate::constitutive::write_atomic(
         &dir.join("ledger.json"),
@@ -951,6 +1089,8 @@ pub struct SharedDevelopmentState {
     pub git_workspace: GitWorkspaceSummary,
     pub known_good: KnownGoodSummary,
     pub recent_events: Vec<DevelopmentEvent>,
+    pub cooperation_resources: Vec<CooperationResourceSummary>,
+    pub recent_cooperation_knowledge: Vec<CooperationKnowledgeSummary>,
 }
 
 fn git_value(root: &Path, args: &[&str]) -> Option<String> {
@@ -1002,6 +1142,8 @@ pub fn shared_development_state(
         .into_iter()
         .rev()
         .collect();
+    let (cooperation_resources, recent_cooperation_knowledge) =
+        cooperation::cooperation_summaries(root, recent_limit)?;
     Ok(SharedDevelopmentState {
         project_id: identity.project_id,
         workspace_id: identity.workspace_id.clone(),
@@ -1022,44 +1164,19 @@ pub fn shared_development_state(
         },
         known_good,
         recent_events,
+        cooperation_resources,
+        recent_cooperation_knowledge,
     })
 }
 
 struct DevelopmentAppendLock {
-    path: PathBuf,
+    _guard: crate::ownership_lock::OwnershipLock,
 }
-
 impl DevelopmentAppendLock {
     fn acquire(dir: &Path) -> Result<Self> {
-        const ATTEMPTS: usize = 400;
-        const DELAY: Duration = Duration::from_millis(25);
-        const STALE_AFTER: Duration = Duration::from_secs(30);
-        let path = dir.join(".append-lock");
-        for _ in 0..ATTEMPTS {
-            match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let stale = fs::metadata(&path)
-                        .and_then(|metadata| metadata.modified())
-                        .ok()
-                        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-                        .is_some_and(|age| age >= STALE_AFTER);
-                    if stale {
-                        let _ = fs::remove_dir(&path);
-                    } else {
-                        std::thread::sleep(DELAY);
-                    }
-                }
-                Err(error) => return Err(error).context("acquiring development ledger lock"),
-            }
-        }
-        bail!("timed out waiting for development ledger lock")
-    }
-}
-
-impl Drop for DevelopmentAppendLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        Ok(Self {
+            _guard: crate::ownership_lock::OwnershipLock::acquire(&dir.join(".append-lock"))?,
+        })
     }
 }
 
@@ -1265,5 +1382,30 @@ mod tests {
         assert!(!serialized.contains("chain_of_thought"));
         let unknown = r#"{"status":"IDLE","observed_global_revision":0,"raw_reasoning":"x"}"#;
         assert!(serde_json::from_str::<WorkerPresenceInput>(unknown).is_err());
+    }
+
+    #[test]
+    fn schema_one_ledger_is_readable_and_upgrades_without_rewriting_events() {
+        let root = tempdir().unwrap();
+        register_worker(root.path(), Some("w".into()), metadata("p", "m"), None).unwrap();
+        let path = development_ledger_path(root.path()).unwrap();
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let original_event = document["events"][0].clone();
+        document["schema"] = serde_json::json!(LEGACY_LEDGER_SCHEMA);
+        crate::constitutive::write_atomic(&path, &serde_json::to_vec_pretty(&document).unwrap())
+            .unwrap();
+        assert_eq!(
+            query_development_events(root.path(), 0, 10)
+                .unwrap()
+                .events
+                .len(),
+            1
+        );
+        register_worker(root.path(), Some("w2".into()), metadata("p", "m"), None).unwrap();
+        let upgraded: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(upgraded["schema"], LEDGER_SCHEMA);
+        assert_eq!(upgraded["events"][0], original_event);
     }
 }

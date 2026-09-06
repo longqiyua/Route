@@ -11,8 +11,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, SystemTime};
 
 const PROTOCOL: &str = "route/1";
 const METHODS: &[&str] = &[
@@ -94,7 +92,41 @@ fn root_from_context(context: &Value) -> std::result::Result<PathBuf, (&'static 
             ));
         }
     }
+    validate_context_identity(&root, context)?;
     Ok(root)
+}
+
+fn validate_context_identity(
+    root: &Path,
+    context: &Value,
+) -> std::result::Result<(), (&'static str, String)> {
+    if context.get("project_id").is_none() && context.get("workspace_id").is_none() {
+        return Ok(());
+    }
+
+    let identity = route_basic::ensure_identity(root)
+        .map_err(|e| ("PROJECT_IDENTITY_UNAVAILABLE", e.to_string()))?;
+    for (field, expected) in [
+        ("project_id", identity.project_id.as_str()),
+        ("workspace_id", identity.workspace_id.as_str()),
+    ] {
+        let Some(value) = context.get(field) else {
+            continue;
+        };
+        let Some(supplied) = value.as_str() else {
+            return Err((
+                "PROJECT_IDENTITY_CONFLICT",
+                format!("{field} must be a string matching this Route process project"),
+            ));
+        };
+        if supplied != expected {
+            return Err((
+                "PROJECT_IDENTITY_CONFLICT",
+                format!("{field} conflicts with this Route process project"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn project(root: &Path) -> Result<Value> {
@@ -120,38 +152,16 @@ fn idem_path(root: &Path) -> PathBuf {
 }
 
 struct IdempotencyLock {
-    path: PathBuf,
+    _guard: route_basic::ownership_lock::OwnershipLock,
 }
-
 impl IdempotencyLock {
     fn acquire(root: &Path) -> Result<Self> {
-        let path = root.join(".route").join(".rpc-idempotency-lock");
         fs::create_dir_all(root.join(".route"))?;
-        for _ in 0..500 {
-            match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let stale = fs::metadata(&path)
-                        .and_then(|metadata| metadata.modified())
-                        .ok()
-                        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-                        .is_some_and(|age| age > Duration::from_secs(30));
-                    if stale {
-                        let _ = fs::remove_dir(&path);
-                    } else {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(anyhow!("idempotency state lock timed out"))
-    }
-}
-
-impl Drop for IdempotencyLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        Ok(Self {
+            _guard: route_basic::ownership_lock::OwnershipLock::acquire(
+                &root.join(".route/.rpc-idempotency-lock"),
+            )?,
+        })
     }
 }
 
@@ -169,22 +179,7 @@ fn write_idem(root: &Path, all: &BTreeMap<String, Value>) -> Result<()> {
     std::fs::create_dir_all(root.join(".route"))?;
     let path = idem_path(root);
     let bytes = serde_json::to_vec_pretty(all)?;
-    // A per-process unique temporary name prevents a stale temp file from
-    // being mistaken for the current transaction after a crash.
-    let temp = root
-        .join(".route")
-        .join(format!("rpc-idempotency.json.tmp.{}", std::process::id()));
-    std::fs::write(&temp, &bytes)?;
-    match std::fs::rename(&temp, &path) {
-        Ok(()) => Ok(()),
-        Err(first) if path.exists() => {
-            // Windows does not replace an existing destination with rename.
-            // Remove only this exact state file, then complete the replace.
-            std::fs::remove_file(&path)?;
-            std::fs::rename(&temp, &path).map_err(|_| first.into())
-        }
-        Err(e) => Err(e.into()),
-    }
+    route_basic::ownership_lock::atomic_replace(&path, &bytes)
 }
 
 fn fingerprint(r: &Request) -> String {
@@ -221,6 +216,11 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
             )));
         }
         match old.get("status").and_then(Value::as_str) {
+            Some("PENDING") if r.method == "development.event.record" => {
+                // This domain has a durable operation key under its write lock.
+                // Re-entry either commits once or returns the existing event.
+                return Ok(IdempotencyDecision::Proceed);
+            }
             Some("PENDING") => {
                 return Ok(IdempotencyDecision::Replay(error(
                     Some(&r.request_id),
@@ -283,6 +283,13 @@ fn is_mutation(method: &str) -> bool {
             | "worker.register"
             | "worker.presence.update"
             | "worker.message.send"
+            | "reference.register"
+            | "reference.refresh"
+            | "cooperation.register"
+            | "cooperation.refresh"
+            | "cooperation.discovery.record"
+            | "cooperation.knowledge.record"
+            | "cooperation.capability.record"
     )
 }
 
@@ -338,6 +345,45 @@ fn validate_mutation_request(request: &Request) -> Option<Value> {
         {
             Some(invalid("intent_ref is required"))
         }
+        "reference.register"
+            if missing_string(&request.params, "reference_id")
+                || missing_string(&request.params, "locator") =>
+        {
+            Some(invalid("reference_id and locator are required"))
+        }
+        "reference.refresh" if missing_string(&request.params, "reference_id") => {
+            Some(invalid("reference_id is required"))
+        }
+        "cooperation.register"
+            if missing_string(&request.params, "cooperation_id")
+                || missing_string(&request.params, "locator") =>
+        {
+            Some(invalid("cooperation_id and locator are required"))
+        }
+        "cooperation.refresh" if missing_string(&request.params, "cooperation_id") => {
+            Some(invalid("cooperation_id is required"))
+        }
+        "cooperation.discovery.record"
+            if missing_string(&request.params, "discovery_id")
+                || missing_string(&request.params, "cooperation_id") =>
+        {
+            Some(invalid("discovery_id and cooperation_id are required"))
+        }
+        "cooperation.knowledge.record"
+            if missing_string(&request.params, "knowledge_id")
+                || missing_string(&request.params, "cooperation_id") =>
+        {
+            Some(invalid("knowledge_id and cooperation_id are required"))
+        }
+        "cooperation.capability.record"
+            if missing_string(&request.params, "knowledge_id")
+                || missing_string(&request.params, "cooperation_id")
+                || missing_string(&request.params, "capability") =>
+        {
+            Some(invalid(
+                "knowledge_id, cooperation_id and capability are required",
+            ))
+        }
         "intent.close"
             if request
                 .params
@@ -387,6 +433,14 @@ fn validate_mutation_request(request: &Request) -> Option<Value> {
     }
 }
 
+fn missing_string(value: &Value, field: &str) -> bool {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .is_none_or(|text| text.trim().is_empty())
+}
+
+// Reference/Cooperation adapters remain unavailable until their transport gates pass.
 fn dispatch(request: Request) -> Value {
     if request.protocol != PROTOCOL {
         return error(
@@ -413,6 +467,17 @@ fn dispatch(request: Request) -> Value {
             "context and params must be objects",
             false,
             json!({}),
+        );
+    }
+    // Reject unimplemented methods before resolving state or reserving a
+    // durable idempotency receipt. Capability discovery is a callable contract.
+    if !METHODS.contains(&request.method.as_str()) {
+        return error(
+            Some(&request.request_id),
+            "UNKNOWN_METHOD",
+            "method is not available in route/1",
+            false,
+            json!({"available_methods": METHODS}),
         );
     }
     let root = match root_from_context(&request.context) {
@@ -1090,6 +1155,25 @@ mod tests {
     }
 
     #[test]
+    fn unfinished_substrate_methods_are_not_advertised_or_persisted() {
+        let dir = tempdir().unwrap();
+        for method in [
+            "reference.register",
+            "cooperation.register",
+            "constraint.list",
+        ] {
+            assert!(!METHODS.contains(&method));
+            let raw = json!({"protocol":"route/1", "request_id":"unsupported",
+                "method":method, "context":{"root_locator":dir.path()},
+                "params":{}, "idempotency_key":"must-not-reserve"})
+            .to_string();
+            let response = handle(&raw);
+            assert_eq!(response["error"]["code"], "UNKNOWN_METHOD");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
     fn explicit_project_conflict_fails_closed() {
         let bad = std::env::temp_dir().join("route-rpc-no-such-project");
         let raw = json!({"protocol":"route/1","request_id":"conflict","method":"project.inspect",
@@ -1101,6 +1185,32 @@ mod tests {
             v["error"]["code"].as_str(),
             Some("PROJECT_NOT_FOUND") | Some("PROJECT_IDENTITY_CONFLICT")
         ));
+    }
+
+    #[test]
+    fn explicit_project_and_workspace_identity_match_persisted_identity() {
+        let dir = tempdir().unwrap();
+        let identity = route_basic::ensure_identity(dir.path()).unwrap();
+        let context = json!({
+            "project_id": identity.project_id,
+            "workspace_id": identity.workspace_id,
+        });
+
+        assert!(validate_context_identity(dir.path(), &context).is_ok());
+    }
+
+    #[test]
+    fn explicit_project_or_workspace_identity_conflict_fails_closed() {
+        let dir = tempdir().unwrap();
+        let identity = route_basic::ensure_identity(dir.path()).unwrap();
+        for context in [
+            json!({"project_id":"different-project"}),
+            json!({"workspace_id":"different-workspace"}),
+            json!({"project_id":identity.project_id,"workspace_id":42}),
+        ] {
+            let error = validate_context_identity(dir.path(), &context).unwrap_err();
+            assert_eq!(error.0, "PROJECT_IDENTITY_CONFLICT");
+        }
     }
 
     fn mutation_request(method: &str, key: &str, params: Value) -> Request {

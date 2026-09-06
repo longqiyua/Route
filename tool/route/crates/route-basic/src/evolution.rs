@@ -1038,10 +1038,8 @@ pub fn derive_benchmark_from_reference(
 }
 
 /// Load a reference by id from the registry (external anchor lookup).
-pub fn load_reference(project_root: &Path, id: &str) -> Option<ReferenceEntry> {
-    ReferenceRegistry::read(project_root)
-        .ok()
-        .and_then(|r| r.get(id).cloned())
+pub fn load_reference(project_root: &Path, id: &str) -> Result<Option<ReferenceEntry>> {
+    Ok(ReferenceRegistry::read(project_root)?.get(id).cloned())
 }
 
 // ---------------------------------------------------------------------------
@@ -1517,28 +1515,19 @@ mod tests {
     struct ReferenceEntryBuilderForTest;
     impl ReferenceEntryBuilderForTest {
         fn build() -> ReferenceEntry {
-            ReferenceEntry {
-                id: "ref-audio-1".to_string(),
-                type_: crate::constitutive::ReferenceType::Document,
-                source: "file:///audio/norms.md".to_string(),
-                path: None,
-                description: "audio metadata norms".to_string(),
-                capabilities: String::new(),
-                constraints: "never corrupt mp3 tags".to_string(),
-                created_at: route_core::now_millis(),
-                tags: vec!["audio".to_string()],
-                origin: crate::constitutive::Origin::UserCreated,
-                import_origin: None,
-                imported_at: None,
-                content_hash: None,
-                last_checked: None,
-                learned_meta: None,
-                enabled: true,
-                name: "audio-norms".to_string(),
-                project_scope: Some("audio".to_string()),
-                trust: Some("high".to_string()),
-                entrypoint: None,
-            }
+            ReferenceEntry::builder(
+                "ref-audio-1",
+                crate::constitutive::ReferenceType::Document,
+                "file:///audio/norms.md",
+                "audio metadata norms",
+            )
+            .with_constraints("never corrupt mp3 tags")
+            .with_tags(vec!["audio".to_string()])
+            .with_origin(crate::constitutive::Origin::UserCreated)
+            .with_name("audio-norms")
+            .with_project_scope("audio")
+            .with_trust("high")
+            .build()
         }
     }
 
