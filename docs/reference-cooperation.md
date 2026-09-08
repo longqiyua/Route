@@ -140,15 +140,20 @@ Route Core
   → development primitives
 
 Open Institution Runtime
-  → future programmable organizational runtime
+  → bounded declarative runtime (see open-institution-runtime.md)
 
 Society SDK
-  → future Human/AI-authored institutions
+  → minimal JSON/Rust author contract; future external code adapters
 ```
 
 This substrate does **not** implement Parliament, voting, reputation, a task
-market, agent economics, Institution Runtime, Society SDK, institution
+market, agent economics, autonomous institution
 self-evolution, worker self-modification, generic cooperation execution,
 unrestricted shell access, or cross-project mutation. Parliament and markets
 may someday be reference institutions above Route Core; neither is mandatory
 Route architecture.
+
+The subsequent [Open Institution Runtime](open-institution-runtime.md) implements
+an optional bounded declarative layer and minimal author interface above these
+unchanged Reference/Cooperation primitives. It does not implement the future
+social systems listed above.

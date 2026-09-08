@@ -140,6 +140,19 @@ requests and contexts fail closed, unknown methods are structured errors, and
 no request can fabricate evidence or overwrite history. `route/1` has no
 Yuich dependency, no Yuich RouteHandle, no local Yuich API, no MCP adapter,
 no HTTP transport, no component discovery, and no daemon. It also does not
-implement parliament, markets, reputation, institution runtime, social
-simulation, or worker self-modification; those are possible consumers above
-Route Core, not part of this substrate.
+implement parliament, markets, reputation, social simulation, or worker
+self-modification; those are possible consumers above Route Core.
+
+## Open institution surfaces
+
+The [bounded institution runtime](open-institution-runtime.md) uses the same
+dispatch-generated advertisement, stdio/JSONL transport and persistent
+idempotency receipts. Implemented methods are institution.list, institution.get,
+institution.inspect, institution.register, institution.activate,
+institution.deactivate, institution.bindings, institution.invoke and
+institution.replay. Registration/activation/deactivation/invocation are
+mutations; the rest are read-only and receipt-free. Typed lifecycle/effect
+records are nested atomically inside existing INSTITUTION DevelopmentEvents.
+Package capability requests never confer grants. Local host/operator access
+owns bindings; this is not authenticated remote Human authorization.
+Only declarative evaluation is implemented; no arbitrary package execution.

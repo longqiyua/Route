@@ -101,6 +101,29 @@ and remains external. Full per-method metrics and binary/machine identity are
 in [budget results](cooperation-daily-use-budget.json). Whole-ledger read cost
 still scales linearly. At the tested scale no segmented ledger is warranted.
 
+## Open Institution Runtime I (bounded local workflow)
+
+The [institution contract and evidence](open-institution-runtime.md) apply only
+to explicit declarative CLI/route/1 invocation, not autonomous society.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| InstitutionPackage | YES | Immutable identity/hash, corruption, external source | Register/inspect/list/get through real processes | YES, custom package remains external |
+| InstitutionBinding | YES | Explicit grants, CAS, isolation | Concurrent activation, durable keyed retries | YES, restart/deactivation/v1-v2-v1 |
+| InstitutionHooks | YES | Stale revision/no-effect/denial | Real FINDING delivered with bounded context | YES for explicit delivery, no daemon |
+| InstitutionEffects | YES | Typed validation, missing/unknown authority | Safe proposal, invalid/privileged target rejection | YES for suggestions/requests, no domain execution |
+| InstitutionReplay | YES | Deterministic and bounded | CLI + JSONL, hash/mtime/byte no-write checks | YES, selected version over 1000-event fixture |
+| InstitutionComposition | YES | Same ledger snapshot and deterministic ordering | Two active packages with separate conflicting effects | YES, no voting or overwrite |
+| CustomInstitution | YES | IDs are data, not core enums | Disposable user-review v1/v2, two Workers | YES, local custom/restart/rollback workflow |
+| Autonomous Society / self-modification | FUTURE only | NOT_RUN | NOT_RUN | NOT_RUN |
+
+The measured five-institution invoke p95 is 249.55 ms with 20.20 MiB peak
+working set on a 1000-event fixture. Replay of one selected version across 1000
+events has p95 <=227.62 ms, peak <=29.72 MiB and zero durable growth.
+See [exact measurement](open-institution-runtime-budget.json); five samples
+per row are a bounded check, not a production SLA. Explicit invocations append
+history/receipts, including when zero institutions are active.
+
 ## Original audit checks (historical; before reliability closure)
 
 - `cargo test -p route-basic --lib`: exit 0, 380 passed, including blank

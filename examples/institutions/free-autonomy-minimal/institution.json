@@ -1,0 +1,28 @@
+{
+  "institution_id": "free-autonomy-minimal",
+  "name": "Free autonomy minimal observer",
+  "description": "An optional example, not Route policy or a permanent master Worker.",
+  "version": "1.0.0",
+  "provenance": "Route reference example; operator activation required",
+  "implementation_kind": "DECLARATIVE_V1",
+  "supported_hooks": ["ON_EVENT", "ON_WORK_AVAILABLE"],
+  "requested_capabilities": ["OBSERVE", "COMMUNICATE", "PROPOSE"],
+  "compatibility": ["route/1"],
+  "configuration": {"policy": "suggestions-only"},
+  "configuration_schema": {"policy": "string"},
+  "rules": [
+    {
+      "hook": "ON_EVENT",
+      "event_type": "FINDING",
+      "effects": [
+        {"family": "MESSAGE", "summary": "A finding is available in the shared event history; independent Workers may inspect it."},
+        {"family": "RECOMMEND", "summary": "Workers may act independently within their own authority.", "conflict_key": "coordination", "value": "independent"}
+      ]
+    },
+    {
+      "hook": "ON_WORK_AVAILABLE",
+      "require_available_work": true,
+      "effects": [{"family": "SUGGEST_ALLOCATION", "summary": "Workers may offer help on an existing active work reference; this does not assign or authorize work."}]
+    }
+  ]
+}

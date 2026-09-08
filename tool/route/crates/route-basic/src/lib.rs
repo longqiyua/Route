@@ -35,6 +35,9 @@ pub mod health;
 pub mod idea;
 pub mod impact;
 pub mod index;
+pub mod institution;
+#[cfg(test)]
+mod institution_tests;
 pub mod knowledge_map;
 pub mod learn;
 pub mod loop_detector;

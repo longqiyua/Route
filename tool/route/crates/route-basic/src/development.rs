@@ -30,6 +30,7 @@ const MAX_EVENTS_PER_QUERY: usize = 1_000;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DevelopmentEventType {
+    Institution,
     WorkerLifecycle,
     WorkerMetadata,
     WorkerPresence,
@@ -185,6 +186,9 @@ pub struct WorkerMessageInput {
     rename_all = "SCREAMING_SNAKE_CASE"
 )]
 pub enum DevelopmentEventPayload {
+    Institution {
+        transaction: crate::institution::InstitutionTransaction,
+    },
     WorkerRegistered {
         descriptor: WorkerDescriptor,
     },
@@ -262,6 +266,7 @@ pub enum DevelopmentEventPayload {
 impl DevelopmentEventPayload {
     pub fn event_type(&self) -> DevelopmentEventType {
         match self {
+            Self::Institution { .. } => DevelopmentEventType::Institution,
             Self::WorkerRegistered { .. } => DevelopmentEventType::WorkerLifecycle,
             Self::WorkerMetadataUpdated { .. } => DevelopmentEventType::WorkerMetadata,
             Self::WorkerPresenceUpdated { .. } => DevelopmentEventType::WorkerPresence,
@@ -590,6 +595,11 @@ fn validate_metadata(metadata: &WorkerMetadata) -> Result<()> {
 
 fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
     match payload {
+        DevelopmentEventPayload::Institution { transaction } => {
+            if transaction.request_hash.len() != 64 {
+                bail!("invalid institution request hash");
+            }
+        }
         DevelopmentEventPayload::WorkerRegistered { descriptor } => {
             validate_identifier("worker_id", &descriptor.worker_id)?;
             validate_metadata(&descriptor.metadata)?;
@@ -665,6 +675,10 @@ fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
 fn same_semantics(event: &DevelopmentEvent, draft: &DevelopmentEventDraft) -> bool {
     let same_payload = match (&event.payload, &draft.payload) {
         (
+            DevelopmentEventPayload::Institution { transaction: a },
+            DevelopmentEventPayload::Institution { transaction: b },
+        ) => a.request_hash == b.request_hash,
+        (
             DevelopmentEventPayload::WorkerRegistered { descriptor: left },
             DevelopmentEventPayload::WorkerRegistered { descriptor: right },
         ) => left.worker_id == right.worker_id && left.metadata == right.metadata,
@@ -704,6 +718,26 @@ fn same_semantics(event: &DevelopmentEvent, draft: &DevelopmentEventDraft) -> bo
 }
 
 pub fn append_development_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if matches!(&draft.payload, DevelopmentEventPayload::Institution { .. }) {
+        bail!("AUTHORITY_DENIED: institution transitions require the dedicated operator/runtime boundary");
+    }
+    append_event_inner(root, draft)
+}
+pub(crate) fn append_institution_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if !matches!(&draft.payload, DevelopmentEventPayload::Institution { .. })
+        || draft.actor_worker_id.is_some()
+    {
+        bail!("AUTHORITY_DENIED: institutions cannot impersonate Workers or write arbitrary domain events");
+    }
+    append_event_inner(root, draft)
+}
+fn append_event_inner(
     root: &Path,
     mut draft: DevelopmentEventDraft,
 ) -> Result<AppendDevelopmentEventResult> {
@@ -773,6 +807,14 @@ pub fn append_development_event(
     }
 
     cooperation::validate_transition(&owner, &identity.project_id, &ledger.events, &draft.payload)?;
+    if let DevelopmentEventPayload::Institution { transaction } = &draft.payload {
+        crate::institution::validate_transition(
+            &owner,
+            &identity.project_id,
+            &ledger.events,
+            transaction,
+        )?;
+    }
     if let DevelopmentEventPayload::WorkerRegistered { descriptor } = &draft.payload {
         let already_registered = ledger.events.iter().any(|event| {
             matches!(
@@ -948,7 +990,7 @@ pub fn worker_presences(root: &Path) -> Result<Vec<WorkerPresence>> {
         &load_ledger_readonly(root)?.0.events,
     ))
 }
-fn project_worker_presences(events: &[DevelopmentEvent]) -> Vec<WorkerPresence> {
+pub(crate) fn project_worker_presences(events: &[DevelopmentEvent]) -> Vec<WorkerPresence> {
     let mut presences = BTreeMap::<String, WorkerPresence>::new();
     for event in events {
         if let DevelopmentEventPayload::WorkerPresenceUpdated { presence } = &event.payload {

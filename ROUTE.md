@@ -742,6 +742,18 @@ never runs agents):
 
 See [docs/cli.md](docs/cli.md) for the full command reference.
 
+## Open Institution Runtime (bounded declarative workflow)
+
+Route provides the substrate, not the society. The optional project-scoped
+[Institution Runtime](docs/open-institution-runtime.md) adds immutable package
+versions, explicit operator-owned bindings, six generic hooks, typed effects,
+deterministic composition and read-only replay on the existing development
+ledger. It does not add a Worker, Task system, event bus or state database.
+Requested capabilities are not authority; institution outputs are not Evidence
+or authorized actions. Only safe declarative packages execute today, through
+explicit CLI/route/1 invocation. Parliament, markets and autonomous
+self-modification remain unimplemented, not mandatory core policy.
+
 ## 22. Documents Map
 
 | File | Purpose |
@@ -750,7 +762,8 @@ See [docs/cli.md](docs/cli.md) for the full command reference.
 | [ROUTE.md](ROUTE.md) | This file — canonical human + agent guide (agent-native protocol) |
 | [docs/protocol.md](docs/protocol.md) | Vendor-neutral Route protocol reference |
 | [docs/route-cooperation-protocol.md](docs/route-cooperation-protocol.md) | Canonical host-neutral `route/1` machine protocol and stdio transport |
-| [docs/open-development-substrate.md](docs/open-development-substrate.md) | Project event ledger, revision, Worker identity, presence, message/evidence boundary, and future institution layering |
+| [docs/open-development-substrate.md](docs/open-development-substrate.md) | Project event ledger, revision, Worker identity, presence, message/evidence boundary, and institution ownership boundaries |
+| [docs/open-institution-runtime.md](docs/open-institution-runtime.md) | Institution author contract, CLI/RPC, bounds, authority and verified workflow |
 | [docs/agents.md](docs/agents.md) | **Agent-native reference: AgentSpec, atomic capabilities, tripartite, permissions, steward (V0.8)** |
 | [docs/memory.md](docs/memory.md) | **Memory model: project/architecture/user memory, ROUTE_HOME, scopes, context compilation (V0.8)** |
 | [docs/concepts.md](docs/concepts.md) | Core concepts explained |

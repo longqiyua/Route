@@ -74,7 +74,7 @@ summaries when the shared-state projection is built.
 Route Core
   Project / State / DevelopmentEvent / Evidence / Git / History primitives
         |
-        +-- future Open Institution Runtime (not implemented here)
+        +-- Open Institution Runtime (bounded declarative adapter)
                 |
                 +-- parliament / market / swarm / hierarchy / custom
 
@@ -82,9 +82,9 @@ Workers
   Claude / Codex / DeepSeek / Gemini / Human / scripts / other hosts
 ```
 
-The future Society SDK and institution evolution belong above Route Core. This
-phase provides only the neutral substrate. The Open Institution Runtime and
-Society SDK are future layers, not current Route Core features. Parliament,
+The [Open Institution Runtime](open-institution-runtime.md) and minimal author
+interface are subsequent optional layers above this neutral substrate.
+Autonomous institution evolution remains future work. Parliament,
 voting, markets, reputation, economics, generic cooperation execution, and
 cross-project mutation are not implemented or required by this architecture.
 

@@ -2,6 +2,7 @@
 
 mod commands;
 mod git_commands;
+mod institution_commands;
 mod plugin_commands;
 mod sync_commands;
 
@@ -23,6 +24,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Explicit project institution packages, bindings, effects and read-only replay.
+    Institution {
+        #[command(subcommand)]
+        action: institution_commands::Action,
+    },
     /// Shared external resources and qualified knowledge.
     Cooperation {
         #[command(subcommand)]
@@ -2788,6 +2794,7 @@ fn main() -> Result<()> {
     let read_or_domain_audited = matches!(
         &cli.command,
         Commands::Rpc { .. }
+            | Commands::Institution { .. }
             | Commands::Cooperation {
                 action: CooperationAction::List
                     | CooperationAction::Show { .. }
@@ -2810,6 +2817,7 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::Institution { action } => institution_commands::run(action),
         Commands::Rpc { jsonl } => route_cli::rpc::serve(jsonl),
         Commands::Project { action } => match action {
             ProjectAction::Attach { path } => commands::project_attach(path),

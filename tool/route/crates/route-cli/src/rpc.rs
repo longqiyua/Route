@@ -223,6 +223,10 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                         | "reference.recover"
                         | "cooperation.register"
                         | "cooperation.refresh"
+                        | "institution.register"
+                        | "institution.activate"
+                        | "institution.deactivate"
+                        | "institution.invoke"
                         | "cooperation.knowledge.record"
                 ) =>
             {
@@ -284,7 +288,11 @@ fn persist_idem(root: &Path, r: &Request, response: &Value) -> Result<()> {
 fn is_mutation(method: &str) -> bool {
     matches!(
         method,
-        "intent.create"
+        "institution.register"
+            | "institution.activate"
+            | "institution.deactivate"
+            | "institution.invoke"
+            | "intent.create"
             | "intent.close"
             | "evidence.record"
             | "checkpoint.create"
@@ -535,6 +543,15 @@ fn dispatch(request: Request) -> Value {
 }
 
 route_methods! { request, root, version;
+        "institution.list" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.get" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.inspect" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.register" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.activate" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.deactivate" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.bindings" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.invoke" => surface_response(&root,&request,|| institution_surface(&root,&request)),
+        "institution.replay" => surface_response(&root,&request,|| institution_surface(&root,&request)),
         "reference.list" => surface_response(&root, &request, | | surface_reference_list(&root, &request)),
         "reference.get" => surface_response(&root, &request, | | surface_reference_get(&root, &request)),
         "reference.register" => surface_response(&root, &request, | | surface_reference_register(&root, &request)),
@@ -1103,6 +1120,44 @@ route_methods! { request, root, version;
         ),
 }
 
+fn institution_surface(root: &Path, request: &Request) -> Result<Value> {
+    use route_basic::institution;
+    match request.method.as_str() {
+        "institution.list" => Ok(json!(institution::versions(root)?)),
+        "institution.bindings" => Ok(json!(institution::bindings(root)?)),
+        "institution.get" => Ok(json!(institution::get(
+            root,
+            &text_param(request, "institution_id"),
+            &text_param(request, "version")
+        )?)),
+        "institution.inspect" => {
+            let (definition, package) =
+                institution::inspect_package(root, &text_param(request, "source_locator"))?;
+            Ok(json!({"definition":definition,"package":package}))
+        }
+        "institution.replay" => Ok(json!(institution::replay(
+            root,
+            &text_param(request, "institution_id"),
+            &text_param(request, "version"),
+            request.params["after_revision"].as_u64().unwrap_or(0),
+            request.params["limit"].as_u64().unwrap_or(100) as usize
+        )?)),
+        method => {
+            let operation = method
+                .strip_prefix("institution.")
+                .ok_or_else(|| anyhow!("unsupported institution operation"))?;
+            let mut params = request.params.clone();
+            params["operation"] = json!(operation);
+            let command = serde_json::from_value::<institution::InstitutionCommand>(params)?;
+            let key = format!(
+                "institution-{}",
+                route_core::sha256_hex(domain_deduplication_key(request).as_bytes())
+            );
+            Ok(json!(institution::execute(root, command, &key)?))
+        }
+    }
+}
+
 fn surface_response(
     root: &Path,
     request: &Request,
@@ -1116,6 +1171,31 @@ fn surface_response(
         Err(e) => {
             let message = format!("{e:#}");
             let lower = message.to_ascii_lowercase();
+            if request.method.starts_with("institution.") {
+                let code = [
+                    "STALE_CONTEXT",
+                    "BINDING_CONFLICT",
+                    "VERSION_CONFLICT",
+                    "VERSION_MISMATCH",
+                    "PROJECT_IDENTITY_CONFLICT",
+                    "AUTHORITY_DENIED",
+                    "IDEMPOTENCY_CONFLICT",
+                    "INVALID_PACKAGE",
+                    "PACKAGE_LIMIT",
+                    "BINDING_LIMIT",
+                    "REPLAY_LIMIT",
+                    "UNKNOWN_EVENT",
+                    "UNKNOWN_WORKER",
+                    "INSTITUTION_UNAVAILABLE",
+                    "RAW_REASONING_REJECTED",
+                    "SECRET_METADATA_REJECTED",
+                ]
+                .into_iter()
+                .find(|code| message.contains(code));
+                if let Some(code) = code {
+                    return error(Some(&request.request_id), code, message, false, json!({}));
+                }
+            }
             let code = if message.contains("REFERENCE_RECOVERY_REQUIRED") {
                 "REFERENCE_RECOVERY_REQUIRED"
             } else if message.contains("SECRET_METADATA_REJECTED") {
