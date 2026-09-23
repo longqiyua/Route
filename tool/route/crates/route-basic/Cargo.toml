@@ -21,6 +21,7 @@ rusqlite.workspace = true
 ulid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
+getrandom = "0.2"
 zip.workspace = true
 
 [dev-dependencies]

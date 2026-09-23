@@ -1,3 +1,5 @@
+#[path = "support/principal.rs"]
+mod principal_host;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -18,8 +20,8 @@ fn request(id: &str, method: &str, params: Value, key: Option<&str>) -> String {
 }
 
 fn spawn_rpc(root: &Path, input: &str) -> Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-        .arg("rpc")
+    let req: Value = serde_json::from_str(input).unwrap();
+    let mut child = principal_host::command(root, req["method"].as_str().unwrap(), &req["params"])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -122,8 +124,12 @@ fn cooperation_generic_rpc_evidence_gate_and_pending_replay() {
     assert_eq!(first["ok"], true, "{first}");
     let receipts = root.join(".route/rpc-idempotency.json");
     let mut stored: Value = serde_json::from_slice(&std::fs::read(&receipts).unwrap()).unwrap();
-    stored["route/1:development.event.record:valid"]["status"] = json!("PENDING");
-    stored["route/1:development.event.record:valid"]
+    let receipt_key = format!(
+        "route/1:development.event.record:principal-{}",
+        route_core::sha256_hex(b"operator:valid")
+    );
+    stored[&receipt_key]["status"] = json!("PENDING");
+    stored[&receipt_key]
         .as_object_mut()
         .unwrap()
         .remove("response");
@@ -281,7 +287,7 @@ fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
             Some("message-b-a"),
         ),
     );
-    assert_eq!(message["result"]["global_revision"], 3);
+    assert_eq!(message["result"]["global_revision"], 4);
 
     let observed_by_a = rpc(
         project.path(),
@@ -292,13 +298,13 @@ fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
             None,
         ),
     );
-    assert_eq!(observed_by_a["result"]["global_revision"], 3);
+    assert_eq!(observed_by_a["result"]["global_revision"], 4);
     assert_eq!(
         observed_by_a["result"]["events"].as_array().unwrap().len(),
-        2
+        3
     );
     assert_eq!(
-        observed_by_a["result"]["events"][1]["payload"]["kind"],
+        observed_by_a["result"]["events"][2]["payload"]["kind"],
         "WORKER_MESSAGE"
     );
 
@@ -311,29 +317,29 @@ fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
                 "worker_id":"worker-a",
                 "status":"ACTIVE",
                 "current_activity_summary":"reviewing worker-b message",
-                "observed_global_revision":3
+                "observed_global_revision":4
             }),
             Some("presence-a"),
         ),
     );
-    assert_eq!(presence["result"]["global_revision"], 4);
+    assert_eq!(presence["result"]["global_revision"], 6);
 
     let observed_by_b = rpc(
         project.path(),
         request(
             "query-b",
             "development.events.query",
-            json!({"after_revision":3,"limit":20}),
+            json!({"after_revision":4,"limit":20}),
             None,
         ),
     );
-    assert_eq!(observed_by_b["result"]["global_revision"], 4);
+    assert_eq!(observed_by_b["result"]["global_revision"], 6);
     assert_eq!(
         observed_by_b["result"]["events"].as_array().unwrap().len(),
-        1
+        2
     );
     assert_eq!(
-        observed_by_b["result"]["events"][0]["payload"]["kind"],
+        observed_by_b["result"]["events"][1]["payload"]["kind"],
         "WORKER_PRESENCE_UPDATED"
     );
 
@@ -346,7 +352,7 @@ fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
                 "worker_id":"worker-a",
                 "status":"ACTIVE",
                 "current_activity_summary":"reviewing worker-b message",
-                "observed_global_revision":3
+                "observed_global_revision":4
             }),
             Some("presence-a"),
         ),
@@ -363,7 +369,7 @@ fn independent_processes_exchange_revisions_messages_and_replay_receipts() {
             None,
         ),
     );
-    assert_eq!(state["result"]["state"]["global_revision"], 4);
+    assert_eq!(state["result"]["state"]["global_revision"], 6);
     assert_eq!(state["result"]["stale"], true);
     assert_eq!(state["result"]["state"]["latest_evidence"], json!([]));
 }

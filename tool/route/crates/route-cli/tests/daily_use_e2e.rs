@@ -1,4 +1,6 @@
-//! All workflow mutations cross a real executable boundary. Fixtures never edit Route state.
+#[path = "support/principal.rs"]
+mod principal_host;
+// Workflow mutations and caller binding cross real executable boundaries.
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -23,8 +25,7 @@ fn cli(root: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 fn call(root: &Path, method: &str, params: Value, key: Option<&str>) -> Value {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-        .arg("rpc")
+    let mut child = principal_host::command(root, method, &params)
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -111,7 +112,7 @@ fn real_process_normal_resume_world_change_workers_and_100_reads() {
             "ref",
         ],
     );
-    let registration = json!({"cooperation_id":"resource","locator":"resource.txt","kind":"DOCUMENT","provenance":"worker-a","actor_worker_id":"worker-a"});
+    let registration = json!({"cooperation_id":"resource","locator":"resource.txt","kind":"DOCUMENT","provenance":"worker-a"});
     ok(
         root,
         "cooperation.register",
@@ -523,7 +524,7 @@ fn each_dedicated_mutation_has_durable_replay_and_changed_parameter_rejection() 
     // JSONL uses the same real dispatch and cannot acquire writes for telemetry.
     let before = snapshot(root);
     let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-        .args(["rpc", "--jsonl"])
+        .args(["rpc", "--operator", "--jsonl"])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -680,7 +681,7 @@ fn resource_budget_real_binary() {
             for _ in 0..20 {
                 let start = Instant::now();
                 let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-                    .arg("rpc")
+                    .args(["rpc", "--operator"])
                     .current_dir(root)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())

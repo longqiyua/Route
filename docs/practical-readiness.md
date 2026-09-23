@@ -124,6 +124,21 @@ See [exact measurement](open-institution-runtime-budget.json); five samples
 per row are a bounded check, not a production SLA. Explicit invocations append
 history/receipts, including when zero institutions are active.
 
+## Worker Principal Binding I (trusted-local interface)
+
+[Binding acceptance and host guide](worker-principal-binding.md): PASS. Persistent,
+revocable Worker contexts, explicit Operator separation and principal-derived event
+actors are library- and real-process-tested. A–J attacks, restart, concurrent issue,
+PENDING recovery, JSONL revocation and credential non-disclosure pass. Workspace:
+617 passed, 2 existing fixture ignores. Default RPC mutation authority intentionally
+changed: Worker binding or explicit Operator launch is required. Old unscoped
+receipts require explicit reconciliation, not silent replay under a new identity.
+
+This closes only the identity blocker in the
+[autonomous audit](autonomous-society-audit.md). Autonomous A/B/C, exclusive work
+claims and cross-model dogfood remain NOT_RUN. Same-OS-user hostile-process isolation
+and remote authenticated transport are not implemented.
+
 ## Original audit checks (historical; before reliability closure)
 
 - `cargo test -p route-basic --lib`: exit 0, 380 passed, including blank

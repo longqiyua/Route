@@ -1,4 +1,6 @@
-//! Custom packages and all production mutations use independent Route processes.
+#[path = "support/principal.rs"]
+mod principal_host;
+// Custom packages and all production mutations use independent Route processes.
 
 #[cfg(all(windows, feature = "test-utils"))]
 #[test]
@@ -164,8 +166,7 @@ fn cli(root: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 fn spawn(root: &Path, method: &str, params: Value, key: Option<&str>) -> std::process::Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-        .arg("rpc")
+    let mut child = principal_host::command(root, method, &params)
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -576,7 +577,7 @@ fn mutation_replay_conflicts_concurrent_activation_and_read_only_jsonl() {
     );
     let before = snapshot(root);
     let mut child = Command::new(env!("CARGO_BIN_EXE_route"))
-        .args(["rpc", "--jsonl"])
+        .args(["rpc", "--operator", "--jsonl"])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -14,6 +14,17 @@ response on stdout) and `route rpc --jsonl` (one request/response per line,
 sequentially). Stdout contains protocol JSON only. Diagnostics belong to
 stderr. This creates no server, port, background process, or authority bypass.
 
+Authentication change: bare `route rpc` is read-only. Trusted administrative hosts
+use `--operator`; Worker hosts supply an inherited `ROUTE_WORKER_CREDENTIAL` bound
+to a project/Worker, never a payload credential. Worker credentials take priority
+over `--operator`. Actor identity is derived, not selected by request JSON. See
+[Worker principal binding](worker-principal-binding.md) for bootstrap, grants,
+revocation, legacy-receipt recovery and the trusted-local threat model.
+
+Binding methods: `worker.binding.list` (sanitized metadata),
+`worker.binding.issue` and `worker.binding.revoke` (Operator only). A credential
+grants only declared Worker operations; advertised methods are not permissions.
+
 ## Envelopes
 
 Every request has mandatory `protocol`, `request_id`, and `method`; `context`

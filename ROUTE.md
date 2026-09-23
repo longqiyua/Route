@@ -649,6 +649,12 @@ model, provider, process, session, role, and workspace; presence is bounded
 development metadata rather than runtime truth. Worker messages are visible
 coordination records and are never Evidence.
 
+Supported Worker mutations require a project-scoped host-issued binding. Actor
+provenance is derived from a trusted caller context; a payload Worker ID is not
+authentication. Operator administration is explicit and separate. See
+[Worker principal binding](docs/worker-principal-binding.md) for migration and
+trusted-local security limits; this does not claim hostile same-OS-user isolation.
+
 The shared-state view projects existing Intent/ExecutionSession, Evidence,
 Git, KnownGood, worker, presence, and recent-event truth. It does not create a
 second owner for those domains. See

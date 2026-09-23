@@ -4,6 +4,7 @@ mod commands;
 mod git_commands;
 mod institution_commands;
 mod plugin_commands;
+mod principal_commands;
 mod sync_commands;
 
 use anyhow::Result;
@@ -24,6 +25,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Trusted-host Worker binding bootstrap and diagnostics; never prints credentials.
+    WorkerBinding {
+        #[command(subcommand)]
+        action: principal_commands::Action,
+    },
     /// Explicit project institution packages, bindings, effects and read-only replay.
     Institution {
         #[command(subcommand)]
@@ -36,6 +42,9 @@ enum Commands {
     },
     /// Route Cooperation Protocol route/1 over stdin/stdout JSON.
     Rpc {
+        /// Explicit trusted local operator interface. Never forward this authority to a Worker.
+        #[arg(long)]
+        operator: bool,
         /// Process one JSON request per input line, sequentially.
         #[arg(long)]
         jsonl: bool,
@@ -2789,11 +2798,17 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+    if std::env::var_os("ROUTE_WORKER_CREDENTIAL").is_some()
+        && !matches!(&cli.command, Commands::Rpc { .. })
+    {
+        anyhow::bail!("WORKER_INTERFACE_REQUIRED: authenticated Workers use route rpc; administrative CLI commands are not Worker authority");
+    }
     // RPC mutations have domain events and durable receipts. A transport invocation
     // must not turn read requests (including JSONL) into history mutations.
     let read_or_domain_audited = matches!(
         &cli.command,
         Commands::Rpc { .. }
+            | Commands::WorkerBinding { .. }
             | Commands::Institution { .. }
             | Commands::Cooperation {
                 action: CooperationAction::List
@@ -2817,8 +2832,9 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::WorkerBinding { action } => principal_commands::run(action),
         Commands::Institution { action } => institution_commands::run(action),
-        Commands::Rpc { jsonl } => route_cli::rpc::serve(jsonl),
+        Commands::Rpc { jsonl, operator } => route_cli::rpc::serve(jsonl, operator),
         Commands::Project { action } => match action {
             ProjectAction::Attach { path } => commands::project_attach(path),
             ProjectAction::Identity => commands::project_identity(),

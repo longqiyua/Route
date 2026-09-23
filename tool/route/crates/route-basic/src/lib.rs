@@ -50,6 +50,7 @@ pub mod ownership_lock;
 pub mod pack;
 pub mod pattern;
 pub mod plan;
+pub mod principal;
 pub mod principle;
 pub mod profile;
 pub mod project_identity;

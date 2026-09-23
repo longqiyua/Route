@@ -218,11 +218,15 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                 if matches!(
                     r.method.as_str(),
                     "development.event.record"
+                        | "worker.message.send"
+                        | "worker.presence.update"
                         | "reference.register"
                         | "reference.refresh"
                         | "reference.recover"
                         | "cooperation.register"
                         | "cooperation.refresh"
+                        | "worker.binding.issue"
+                        | "worker.binding.revoke"
                         | "institution.register"
                         | "institution.activate"
                         | "institution.deactivate"
@@ -288,7 +292,9 @@ fn persist_idem(root: &Path, r: &Request, response: &Value) -> Result<()> {
 fn is_mutation(method: &str) -> bool {
     matches!(
         method,
-        "institution.register"
+        "worker.binding.issue"
+            | "worker.binding.revoke"
+            | "institution.register"
             | "institution.activate"
             | "institution.deactivate"
             | "institution.invoke"
@@ -459,7 +465,7 @@ fn missing_string(value: &Value, field: &str) -> bool {
 }
 
 // Reference/Cooperation adapters remain unavailable until their transport gates pass.
-fn dispatch(request: Request) -> Value {
+fn dispatch(mut request: Request, operator: bool) -> Value {
     if request.protocol != PROTOCOL {
         return error(
             Some(&request.request_id),
@@ -504,6 +510,96 @@ fn dispatch(request: Request) -> Value {
             return error(Some(&request.request_id), code, message, false, json!({}))
         }
     };
+    let caller = match std::env::var("ROUTE_WORKER_CREDENTIAL") {
+        Ok(credential) => {
+            match route_basic::principal::CallerContext::authenticate(&root, &credential) {
+                Ok(caller) => caller,
+                Err(_) => {
+                    return error(
+                        Some(&request.request_id),
+                        "AUTHENTICATION_DENIED",
+                        "Worker binding invalid, revoked or foreign",
+                        false,
+                        json!({}),
+                    )
+                }
+            }
+        }
+        Err(std::env::VarError::NotPresent) if operator => {
+            route_basic::principal::CallerContext::trusted_operator()
+        }
+        Err(std::env::VarError::NotPresent) => route_basic::principal::CallerContext::anonymous(),
+        Err(_) => {
+            return error(
+                Some(&request.request_id),
+                "AUTHENTICATION_DENIED",
+                "Invalid credential environment",
+                false,
+                json!({}),
+            )
+        }
+    };
+    for field in [
+        "principal",
+        "caller",
+        "credential",
+        "token",
+        "worker_id",
+        "operator",
+        "caller_scope",
+        "input_fingerprint",
+    ] {
+        if request.context.get(field).is_some() {
+            return error(
+                Some(&request.request_id),
+                "CALLER_CONTEXT_FORBIDDEN",
+                "Caller identity cannot be supplied in request context",
+                false,
+                json!({}),
+            );
+        }
+    }
+    request.context["caller_scope"] = json!(caller.scope());
+    request.context["input_fingerprint"] = json!(route_core::sha256_hex(
+        &serde_json::to_vec(&request.params).unwrap_or_default()
+    ));
+    if let Err(e) = caller.authorize(
+        &root,
+        &request.method,
+        &mut request.params,
+        is_mutation(&request.method),
+    ) {
+        return error(
+            Some(&request.request_id),
+            "AUTHORITY_DENIED",
+            e.to_string(),
+            false,
+            json!({}),
+        );
+    }
+    if let Some(key) = &request.idempotency_key {
+        // Do not reinterpret pre-binding receipts under a new principal namespace.
+        // Keep history untouched and require explicit reconciliation instead.
+        if is_mutation(&request.method) {
+            let legacy = format!("{}:{}:{key}", request.protocol, request.method);
+            match load_idem(&root) {
+                Ok(all) if all.contains_key(&legacy) => return error(
+                    Some(&request.request_id), "LEGACY_IDEMPOTENCY_RECOVERY_REQUIRED",
+                    "A pre-binding receipt exists; inspect its outcome before using a new operation key",
+                    false, json!({}),
+                ),
+                Err(_) => return error(
+                    Some(&request.request_id), "IDEMPOTENCY_STATE_UNREADABLE",
+                    "idempotency state unavailable", false, json!({}),
+                ),
+                _ => {}
+            }
+        }
+        request.idempotency_key = Some(format!(
+            "principal-{}",
+            route_core::sha256_hex(format!("{}:{key}", caller.scope()).as_bytes())
+        ));
+    }
     if is_mutation(&request.method) {
         if let Some(invalid) = validate_mutation_request(&request) {
             return invalid;
@@ -539,10 +635,31 @@ fn dispatch(request: Request) -> Value {
             }
         }
     }
+    if caller.worker_id().is_some() && is_mutation(&request.method) {
+        return surface_response(&root, &request, || {
+            Ok(json!(route_basic::principal::worker_action(
+                &root,
+                &caller,
+                &request.method,
+                request.params.clone(),
+                &domain_deduplication_key(&request)
+            )?))
+        });
+    }
     invoke_method(request, root)
 }
 
 route_methods! { request, root, version;
+        "worker.binding.list" => surface_response(&root,&request,|| {
+            let list=route_basic::principal::bindings(&root)?.into_iter().map(|b|json!({"binding_id":b.binding_id,"worker_id":b.worker_id,"project_id":b.project_id,"issued_by":b.issued_by,"created_at":b.created_at,"status":b.status,"grants":b.grants})).collect::<Vec<_>>();
+            Ok(json!(list))
+        }),
+        "worker.binding.issue" => surface_response(&root,&request,|| {
+            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record"])))?;
+            Ok(json!(route_basic::principal::issue(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"worker_id"),&text_param(&request,"credential_hash"),grants,&domain_deduplication_key(&request))?))
+        }),
+        "worker.binding.revoke" => surface_response(&root,&request,|| Ok(json!(route_basic::principal::revoke(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"binding_id"),&domain_deduplication_key(&request))?))),
+
         "institution.list" => surface_response(&root,&request,|| institution_surface(&root,&request)),
         "institution.get" => surface_response(&root,&request,|| institution_surface(&root,&request)),
         "institution.inspect" => surface_response(&root,&request,|| institution_surface(&root,&request)),
@@ -1018,14 +1135,19 @@ route_methods! { request, root, version;
                     )
                 }
             };
-            match route_basic::register_worker(
+            match route_basic::principal::register_worker(
                 &root,
+                &route_basic::principal::CallerContext::trusted_operator(),
                 worker_id,
                 metadata,
-                Some(domain_deduplication_key(&request)),
+                &domain_deduplication_key(&request),
             ) {
                 Ok(appended) => {
-                    let worker_ref = appended.event.actor_worker_id.clone().unwrap_or_default();
+                    let worker_ref = match &appended.event.payload {
+                        route_basic::DevelopmentEventPayload::WorkerRegistered { descriptor } => descriptor.worker_id.clone(),
+                        route_basic::DevelopmentEventPayload::WorkerMetadataUpdated { worker_id, .. } => worker_id.clone(),
+                        _ => unreachable!("registration returns a Worker lifecycle event"),
+                    };
                     complete_mutation(&root, &request, json!(appended), vec![worker_ref])
                 }
                 Err(error_value) => error(
@@ -1037,82 +1159,8 @@ route_methods! { request, root, version;
                 ),
             }
         },
-        "worker.presence.update" => {
-            let worker_id = request.params["worker_id"].as_str().unwrap_or_default();
-            let mut value = request.params.clone();
-            value
-                .as_object_mut()
-                .map(|object| object.remove("worker_id"));
-            let presence = match serde_json::from_value::<route_basic::WorkerPresenceInput>(value) {
-                Ok(value) => value,
-                Err(error_value) => {
-                    return error(
-                        Some(&request.request_id),
-                        "INVALID_PARAMS",
-                        error_value.to_string(),
-                        false,
-                        json!({}),
-                    )
-                }
-            };
-            match route_basic::update_worker_presence(
-                &root,
-                worker_id,
-                presence,
-                Some(domain_deduplication_key(&request)),
-            ) {
-                Ok(appended) => complete_mutation(
-                    &root,
-                    &request,
-                    json!(appended),
-                    vec![worker_id.to_string()],
-                ),
-                Err(error_value) => error(
-                    Some(&request.request_id),
-                    "WORKER_PRESENCE_REJECTED",
-                    error_value.to_string(),
-                    false,
-                    json!({}),
-                ),
-            }
-        },
-        "worker.message.send" => {
-            let worker_id = request.params["worker_id"].as_str().unwrap_or_default();
-            let mut value = request.params.clone();
-            value
-                .as_object_mut()
-                .map(|object| object.remove("worker_id"));
-            let message = match serde_json::from_value::<route_basic::WorkerMessageInput>(value) {
-                Ok(value) => value,
-                Err(error_value) => {
-                    return error(
-                        Some(&request.request_id),
-                        "INVALID_PARAMS",
-                        error_value.to_string(),
-                        false,
-                        json!({}),
-                    )
-                }
-            };
-            match route_basic::send_worker_message(
-                &root,
-                worker_id,
-                message,
-                Some(domain_deduplication_key(&request)),
-            ) {
-                Ok(appended) => {
-                    let event_ref = appended.event.event_id.clone();
-                    complete_mutation(&root, &request, json!(appended), vec![event_ref])
-                }
-                Err(error_value) => error(
-                    Some(&request.request_id),
-                    "WORKER_MESSAGE_REJECTED",
-                    error_value.to_string(),
-                    false,
-                    json!({}),
-                ),
-            }
-        },
+        "worker.presence.update" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
+        "worker.message.send" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
         "recovery.status" => success(
             &request,
             json!({"route_state_present":root.join(".route").exists(),"recovery_action_available":false,"status":"READ_ONLY"}),
@@ -1366,10 +1414,11 @@ fn surface_cooperation_knowledge_record(root: &Path, r: &Request) -> Result<Valu
 
 /// Human CLI commands use precisely the same transport and domain path.
 pub fn invoke_local(method: &str, params: Value, key: Option<String>) -> Result<()> {
-    let response = handle(
+    let response = handle_mode(
         &json!({"protocol":PROTOCOL,"request_id":"cli","method":method,
         "context":{},"params":params,"idempotency_key":key})
         .to_string(),
+        true,
     );
     if response["ok"] != true {
         return Err(anyhow!("{}", response["error"]));
@@ -1378,14 +1427,34 @@ pub fn invoke_local(method: &str, params: Value, key: Option<String>) -> Result<
     Ok(())
 }
 
+#[cfg(test)]
 fn handle(raw: &str) -> Value {
+    handle_mode(raw, true)
+}
+
+fn handle_mode(raw: &str, operator: bool) -> Value {
+    if let Ok(secret) = std::env::var("ROUTE_WORKER_CREDENTIAL") {
+        if !secret.is_empty()
+            && (raw.contains(&secret)
+                || serde_json::from_str::<Value>(raw)
+                    .is_ok_and(|v| v.to_string().contains(&secret)))
+        {
+            return error(
+                None,
+                "CREDENTIAL_IN_PAYLOAD",
+                "Authentication credentials must stay outside request data",
+                false,
+                json!({}),
+            );
+        }
+    }
     match serde_json::from_str::<Request>(raw) {
         Ok(r)
             if !r.request_id.trim().is_empty()
                 && !r.method.trim().is_empty()
                 && !r.protocol.trim().is_empty() =>
         {
-            dispatch(r)
+            dispatch(r, operator)
         }
         Ok(_) => error(
             None,
@@ -1578,7 +1647,7 @@ mod tests {
     }
 }
 
-pub fn serve(jsonl: bool) -> Result<()> {
+pub fn serve(jsonl: bool, operator: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     if jsonl {
@@ -1587,13 +1656,21 @@ pub fn serve(jsonl: bool) -> Result<()> {
             if line.trim().is_empty() {
                 continue;
             }
-            writeln!(out, "{}", serde_json::to_string(&handle(&line))?)?;
+            writeln!(
+                out,
+                "{}",
+                serde_json::to_string(&handle_mode(&line, operator))?
+            )?;
             out.flush()?;
         }
     } else {
         let mut raw = String::new();
         io::stdin().read_to_string(&mut raw)?;
-        writeln!(out, "{}", serde_json::to_string(&handle(&raw))?)?;
+        writeln!(
+            out,
+            "{}",
+            serde_json::to_string(&handle_mode(&raw, operator))?
+        )?;
     }
     Ok(())
 }

@@ -30,6 +30,7 @@ const MAX_EVENTS_PER_QUERY: usize = 1_000;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DevelopmentEventType {
+    WorkerBinding,
     Institution,
     WorkerLifecycle,
     WorkerMetadata,
@@ -186,6 +187,9 @@ pub struct WorkerMessageInput {
     rename_all = "SCREAMING_SNAKE_CASE"
 )]
 pub enum DevelopmentEventPayload {
+    WorkerBinding {
+        transaction: crate::principal::BindingTransaction,
+    },
     Institution {
         transaction: crate::institution::InstitutionTransaction,
     },
@@ -266,6 +270,7 @@ pub enum DevelopmentEventPayload {
 impl DevelopmentEventPayload {
     pub fn event_type(&self) -> DevelopmentEventType {
         match self {
+            Self::WorkerBinding { .. } => DevelopmentEventType::WorkerBinding,
             Self::Institution { .. } => DevelopmentEventType::Institution,
             Self::WorkerRegistered { .. } => DevelopmentEventType::WorkerLifecycle,
             Self::WorkerMetadataUpdated { .. } => DevelopmentEventType::WorkerMetadata,
@@ -595,6 +600,11 @@ fn validate_metadata(metadata: &WorkerMetadata) -> Result<()> {
 
 fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
     match payload {
+        DevelopmentEventPayload::WorkerBinding { transaction } => {
+            if transaction.request_hash.len() != 64 {
+                bail!("invalid binding transaction");
+            }
+        }
         DevelopmentEventPayload::Institution { transaction } => {
             if transaction.request_hash.len() != 64 {
                 bail!("invalid institution request hash");
@@ -675,6 +685,18 @@ fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
 fn same_semantics(event: &DevelopmentEvent, draft: &DevelopmentEventDraft) -> bool {
     let same_payload = match (&event.payload, &draft.payload) {
         (
+            DevelopmentEventPayload::WorkerMessage { message: a },
+            DevelopmentEventPayload::WorkerMessage { message: b },
+        ) => {
+            let mut normalized = b.clone();
+            normalized.timestamp = a.timestamp;
+            a == &normalized
+        }
+        (
+            DevelopmentEventPayload::WorkerBinding { transaction: a },
+            DevelopmentEventPayload::WorkerBinding { transaction: b },
+        ) => a.request_hash == b.request_hash,
+        (
             DevelopmentEventPayload::Institution { transaction: a },
             DevelopmentEventPayload::Institution { transaction: b },
         ) => a.request_hash == b.request_hash,
@@ -721,10 +743,13 @@ pub fn append_development_event(
     root: &Path,
     draft: DevelopmentEventDraft,
 ) -> Result<AppendDevelopmentEventResult> {
-    if matches!(&draft.payload, DevelopmentEventPayload::Institution { .. }) {
+    if matches!(
+        &draft.payload,
+        DevelopmentEventPayload::Institution { .. } | DevelopmentEventPayload::WorkerBinding { .. }
+    ) {
         bail!("AUTHORITY_DENIED: institution transitions require the dedicated operator/runtime boundary");
     }
-    append_event_inner(root, draft)
+    append_event_inner(root, draft, None)
 }
 pub(crate) fn append_institution_event(
     root: &Path,
@@ -735,11 +760,30 @@ pub(crate) fn append_institution_event(
     {
         bail!("AUTHORITY_DENIED: institutions cannot impersonate Workers or write arbitrary domain events");
     }
-    append_event_inner(root, draft)
+    append_event_inner(root, draft, None)
+}
+pub(crate) fn append_binding_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if !matches!(draft.payload, DevelopmentEventPayload::WorkerBinding { .. })
+        || draft.actor_worker_id.is_some()
+    {
+        bail!("AUTHORITY_DENIED");
+    }
+    append_event_inner(root, draft, None)
+}
+pub(crate) fn append_authenticated_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+    caller: &crate::principal::CallerContext,
+) -> Result<AppendDevelopmentEventResult> {
+    append_event_inner(root, draft, Some(caller))
 }
 fn append_event_inner(
     root: &Path,
     mut draft: DevelopmentEventDraft,
+    caller: Option<&crate::principal::CallerContext>,
 ) -> Result<AppendDevelopmentEventResult> {
     validate_payload(&draft.payload)?;
 
@@ -767,6 +811,9 @@ fn append_event_inner(
     let (mut ledger, current_identity, _) = load_ledger(root)?;
     if current_identity.project_id != identity.project_id {
         bail!("project identity changed while acquiring development ledger lock");
+    }
+    if let Some(caller) = caller {
+        crate::principal::validate_caller(&ledger.events, &identity.project_id, caller, &draft)?;
     }
 
     if draft.workspace_ref.is_none() {
@@ -807,6 +854,9 @@ fn append_event_inner(
     }
 
     cooperation::validate_transition(&owner, &identity.project_id, &ledger.events, &draft.payload)?;
+    if let DevelopmentEventPayload::WorkerBinding { transaction } = &draft.payload {
+        crate::principal::validate_transition(&ledger.events, &identity.project_id, transaction)?;
+    }
     if let DevelopmentEventPayload::Institution { transaction } = &draft.payload {
         crate::institution::validate_transition(
             &owner,

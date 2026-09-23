@@ -30,6 +30,12 @@ Source remains external. A new implementation/config requires a new version;
 old versions are immutable ledger records pointing to their original source.
 Missing/changed old source means unavailable/version mismatch, not silent substitution.
 
+Worker Principal Binding I update: RPC mutations now require explicit `--operator`
+or a supported Worker binding. Institution mutation is Operator-only; inherited
+Worker credentials cannot be upgraded by the flag. Activation/deactivation actor
+labels are normalized to `local-operator`; a requester Worker reference is not an
+authenticated Worker actor. See [binding security contract](worker-principal-binding.md).
+
 Explicit local operator activation records project ID, exact version/hash,
 grants, order and operator attribution. Local CLI/stdio access is the existing
 trusted host boundary, not authenticated remote Human identity. Package data
