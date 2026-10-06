@@ -24,6 +24,7 @@ pub mod drift;
 pub mod emergence;
 pub mod evolution;
 pub mod execution;
+pub mod execution_contract;
 pub mod experiment;
 pub mod export;
 pub mod fail_inject;

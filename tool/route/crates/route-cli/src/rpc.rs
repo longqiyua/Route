@@ -218,6 +218,15 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                 if matches!(
                     r.method.as_str(),
                     "development.event.record"
+                        | "workflow.create"
+                        | "workflow.step.start"
+                        | "workflow.step.complete"
+                        | "workflow.step.fail"
+                        | "workflow.step.skip"
+                        | "workflow.plan_delta.propose"
+                        | "workflow.plan_delta.accept"
+                        | "workflow.plan_delta.reject"
+                        | "workflow.complete.request"
                         | "work.create_child"
                         | "work.claim"
                         | "work.release"
@@ -298,7 +307,16 @@ fn persist_idem(root: &Path, r: &Request, response: &Value) -> Result<()> {
 fn is_mutation(method: &str) -> bool {
     matches!(
         method,
-        "work.create_child"
+        "workflow.create"
+            | "workflow.step.start"
+            | "workflow.step.complete"
+            | "workflow.step.fail"
+            | "workflow.step.skip"
+            | "workflow.plan_delta.propose"
+            | "workflow.plan_delta.accept"
+            | "workflow.plan_delta.reject"
+            | "workflow.complete.request"
+            | "work.create_child"
             | "work.claim"
             | "work.release"
             | "work.interrupt"
@@ -662,6 +680,13 @@ fn dispatch(mut request: Request, operator: bool) -> Value {
 }
 
 route_methods! { request, root, version;
+        "workflow.list" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::list(&root)?))),
+        "workflow.get" | "workflow.status" | "workflow.complete.check" => surface_response(&root, &request, || {
+            let status = route_basic::execution_contract::status(&root, &text_param(&request, "workflow_id"))?;
+            if request.method == "workflow.complete.check" { Ok(json!(status.completion)) } else { Ok(json!(status)) }
+        }),
+        "workflow.create" | "workflow.step.skip" | "workflow.plan_delta.propose" | "workflow.plan_delta.accept" | "workflow.plan_delta.reject" | "workflow.complete.request" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
+        "workflow.step.start" | "workflow.step.complete" | "workflow.step.fail" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
         "work.available" => surface_response(&root, &request, || Ok(json!(route_basic::work::available(&root)?))),
         "work.claims" => surface_response(&root, &request, || {
             let view = route_basic::work::available(&root)?;
@@ -674,7 +699,7 @@ route_methods! { request, root, version;
             Ok(json!(list))
         }),
         "worker.binding.issue" => surface_response(&root,&request,|| {
-            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record","work.create_child","work.claim","work.release","work.interrupt","work.finish"])))?;
+            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record","work.create_child","work.claim","work.release","work.interrupt","work.finish","workflow.step.start","workflow.step.complete","workflow.step.fail","workflow.step.skip","workflow.plan_delta.propose","workflow.complete.request"])))?;
             Ok(json!(route_basic::principal::issue(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"worker_id"),&text_param(&request,"credential_hash"),grants,&domain_deduplication_key(&request))?))
         }),
         "worker.binding.revoke" => surface_response(&root,&request,|| Ok(json!(route_basic::principal::revoke(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"binding_id"),&domain_deduplication_key(&request))?))),

@@ -1667,6 +1667,11 @@ enum ReferenceAction {
 
 #[derive(Subcommand)]
 enum WorkflowAction {
+    /// Inspect an evidence-bound execution contract (distinct from a Reference workflow).
+    Status {
+        /// Execution contract id; omit only when the project has exactly one.
+        id: Option<String>,
+    },
     /// List all workflows
     List,
     /// Show details of a workflow
@@ -3156,6 +3161,7 @@ fn main() -> Result<()> {
             ReferenceAction::Disable { id } => commands::reference_disable(id),
         },
         Commands::Workflow { action } => match action {
+            WorkflowAction::Status { id } => commands::workflow_contract_status(id),
             WorkflowAction::List => commands::workflow_list(),
             WorkflowAction::Show { id } => commands::workflow_show(id),
             WorkflowAction::Import {

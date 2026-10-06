@@ -798,6 +798,17 @@ self-modification remain unimplemented, not mandatory core policy.
 | [ROADMAP.md](ROADMAP.md) | Short-term priorities |
 | [SECURITY.md](SECURITY.md) | Security model and reporting |
 
+## Execution contract (Route AI v1)
+
+An accepted execution plan is an immutable, versioned contract under a
+DevelopmentIntent. Worker reports do not complete required steps by themselves:
+Route validates canonical System Evidence, current project fingerprint,
+dependencies and integration before declaring completion. Changes require an
+authorized PlanDelta; skips require a false declared condition or Operator
+waiver. `CONTROLLED` and `FULL_POWER` have the same no-false-completion
+boundary. See [Execution Contract I](docs/execution-contract.md) for the
+route/1 and CLI surface, limitations and anti-shortcut acceptance.
+
 ## 23. Glossary
 
 | Term | Meaning | Do not say |

@@ -4028,6 +4028,54 @@ pub fn reference_disable(id: String) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// List all workflows.
+pub fn workflow_contract_status(id: Option<String>) -> Result<()> {
+    use route_basic::execution_contract;
+    let root = current_project_root();
+    let id = match id {
+        Some(id) => id,
+        None => {
+            let all = execution_contract::list(&root)?;
+            anyhow::ensure!(
+                all.len() == 1,
+                "specify a workflow id ({} execution contracts found)",
+                all.len()
+            );
+            all[0].spec.workflow_id.clone()
+        }
+    };
+    let status = execution_contract::status(&root, &id)?;
+    println!(
+        "Workflow {} v{} ({:?})",
+        status.spec.workflow_id, status.spec.version, status.spec.mode
+    );
+    for view in &status.steps {
+        println!(
+            "  {:<20} {:<32} {:?}",
+            view.step.step_id, view.step.title, view.state
+        );
+    }
+    println!("Completion: {}", status.workflow_status);
+    for step in &status.completion.missing_required_steps {
+        println!("  missing required: {step}");
+    }
+    for step in &status.completion.stale_steps {
+        println!("  stale: {step}");
+    }
+    for step in &status.completion.failed_obligations {
+        println!("  failed obligation: {step}");
+    }
+    for step in &status.completion.unauthorized_bypasses {
+        println!("  unauthorized bypass: {step}");
+    }
+    for step in &status.completion.blocked_steps {
+        println!("  blocked: {step}");
+    }
+    for next in &status.completion.required_next_actions {
+        println!("  next: {next}");
+    }
+    Ok(())
+}
+
 pub fn workflow_list() -> Result<()> {
     use route_basic::WorkflowStore;
     let cwd = current_project_root();

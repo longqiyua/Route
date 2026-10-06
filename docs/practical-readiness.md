@@ -154,6 +154,21 @@ not implemented.
 | AutonomousMultiWorkerSession | DAILY_USE_VERIFIED | One bounded same-host Codex A/B/C maintenance session; not a general or cross-model claim. |
 | IntegrationBoundary | DAILY_USE_VERIFIED | Worker completion alone was insufficient; final combined verification used fresh System evidence and explicit Operator integration before the parent Intent closed. |
 
+## Execution Contract I (bounded local Route project)
+
+The [execution contract](execution-contract.md) enforces accepted, versioned
+steps and canonical proof below CLI and route/1. `DAILY_USE_VERIFIED` refers to
+the disposable real-process anti-shortcut and restart cases, not cross-model or
+remote-host operation.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| ExecutionContract | YES | Versioned event/authority validation | route/1 and CLI status | YES, disposable A–D run |
+| WorkflowCompleteness | YES | Canonical gate and required-step projection | Missing C denied; fresh C accepted | YES, A–D anti-shortcut |
+| ProofObligation | YES | System CheckPass, stable fingerprint, freshness | Claim-only denied; mutation stales proof | YES, real process restart/revalidation |
+| PlanDelta | YES | Immutable versions, authorized acceptance | Proposal/accept/reject and v1 readback | YES, disposable process sequence |
+| ControlledExecution | YES | Controlled/full-power share hard gate | Worker and Operator route/1 paths | YES for local bounded run only |
+
 ## Original audit checks (historical; before reliability closure)
 
 - `cargo test -p route-basic --lib`: exit 0, 380 passed, including blank

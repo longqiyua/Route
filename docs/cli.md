@@ -39,6 +39,7 @@ subprocess for Worker mutations. The credential takes precedence over
 | Workers | `worker.list`, `worker.register`, `worker.presence.update`, `worker.message.send`, `worker.binding.list`, `worker.binding.issue`, `worker.binding.revoke` |
 | Bounded work | `work.available`, `work.claims`, `work.create_child`, `work.claim`, `work.release`, `work.interrupt`, `work.finish`, `work.integrate` |
 | Existing Route domains | `intent.*`, `evidence.*`, `history.query`, `checkpoint.create`, `recovery.status` |
+| Execution contract | `workflow.list`, `workflow.get`, `workflow.status`, `workflow.complete.check`, `workflow.create`, `workflow.step.start`, `workflow.step.complete`, `workflow.step.fail`, `workflow.step.skip`, `workflow.plan_delta.propose`, `workflow.plan_delta.accept`, `workflow.plan_delta.reject`, `workflow.complete.request` |
 
 For a shared Intent, a Worker reads `work.available` and then
 `development.events.query` with the last seen `after_revision`. It may create a
@@ -63,6 +64,13 @@ The host bootstrap and credential handling are in
 [worker-principal-binding.md](worker-principal-binding.md). See
 [route-cooperation-protocol.md](route-cooperation-protocol.md) for envelopes,
 event types, the trust boundary and complete capability list.
+
+`route workflow status [ID]` displays the accepted execution version, per-step
+state and CompletionGate result. The CLI's other `workflow` commands still
+manage descriptive workflow References. See
+[execution-contract.md](execution-contract.md) for the proof and authority
+rules. An execution-contract mutation also requires `expected_revision` in
+its params, in addition to the route/1 idempotency key.
 
 ## Branching / Tags / Annotations
 

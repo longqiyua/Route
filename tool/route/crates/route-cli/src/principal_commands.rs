@@ -85,6 +85,12 @@ pub fn run(action: Action) -> Result<()> {
             );
             let grants = if grant.is_empty() {
                 vec![
+                    "workflow.step.start".to_string(),
+                    "workflow.step.complete".to_string(),
+                    "workflow.step.fail".to_string(),
+                    "workflow.step.skip".to_string(),
+                    "workflow.plan_delta.propose".to_string(),
+                    "workflow.complete.request".to_string(),
                     "work.create_child".to_string(),
                     "work.claim".to_string(),
                     "work.release".to_string(),

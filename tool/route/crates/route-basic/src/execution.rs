@@ -620,6 +620,10 @@ pub fn end_session(
             // The CLI, embedded callers and route/1 all share this boundary.
             // A Worker completion event is never a successful parent Intent.
             crate::work::ensure_integrated_before_success(project_root, session_id)?;
+            crate::execution_contract::ensure_completed_before_session_success(
+                project_root,
+                session_id,
+            )?;
             // P3: Check verification policy before allowing Succeeded.
             let verification_pass = check_verification_policy(project_root, session_id)?;
             if verification_pass {
