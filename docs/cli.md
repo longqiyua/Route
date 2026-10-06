@@ -1,6 +1,6 @@
 # CLI Reference
 
-This lists the commands that exist in the current V0.6 Beta parser. Run
+This lists the commands in the current CLI. Run
 `route <command> --help` for the authoritative, up-to-date flags.
 
 ## Project & State
@@ -25,17 +25,44 @@ This lists the commands that exist in the current V0.6 Beta parser. Run
 
 `route rpc` accepts one `route/1` JSON request on stdin and writes one JSON
 response to stdout. `route rpc --jsonl` keeps the same process open and handles
-one request/response per line. Mutating methods require an idempotency key.
+one request/response per line. Requests include `protocol`, `request_id`,
+`method`, `context` and `params`; mutations also require an `idempotency_key`.
+Bare `route rpc` is read-only. A trusted host uses `route rpc --operator` for
+administrative mutations and supplies `ROUTE_WORKER_CREDENTIAL` to its Worker
+subprocess for Worker mutations. The credential takes precedence over
+`--operator`; a request body cannot select its own actor.
 
 | Method family | Methods |
 |---|---|
 | Shared state | `development.state`, `development.events.query` |
 | Development events | `development.event.record` |
-| Workers | `worker.list`, `worker.register`, `worker.presence.update`, `worker.message.send` |
+| Workers | `worker.list`, `worker.register`, `worker.presence.update`, `worker.message.send`, `worker.binding.list`, `worker.binding.issue`, `worker.binding.revoke` |
+| Bounded work | `work.available`, `work.claims`, `work.create_child`, `work.claim`, `work.release`, `work.interrupt`, `work.finish`, `work.integrate` |
 | Existing Route domains | `intent.*`, `evidence.*`, `history.query`, `checkpoint.create`, `recovery.status` |
 
-See [route-cooperation-protocol.md](route-cooperation-protocol.md) for the
-envelopes, event types, trust boundary, and complete capability list.
+For a shared Intent, a Worker reads `work.available` and then
+`development.events.query` with the last seen `after_revision`. It may create a
+bounded child with `intent_ref`, `title`, `kind`, `scope_paths`,
+`verification_requirements` and `overlap_mode`, then claim the returned
+`work_id`. Check the projection for blockers, active claims and scope overlap
+before editing. The Worker can send `worker.message.send` notices and finish
+only its own active claim with `claim_id` and `reason`; it can instead release
+or interrupt that claim. An Operator can interrupt an observed stalled claim.
+`work.integrate` is Operator-only and requires accepted completed claims,
+current revision and state hash, and System verification evidence before a
+successful parent Intent closure. A claim does not grant filesystem or Git
+authority.
+
+For example, an authenticated Worker can inspect the current projection:
+
+```powershell
+'{"protocol":"route/1","request_id":"available-1","method":"work.available","context":{},"params":{}}' | route rpc
+```
+
+The host bootstrap and credential handling are in
+[worker-principal-binding.md](worker-principal-binding.md). See
+[route-cooperation-protocol.md](route-cooperation-protocol.md) for envelopes,
+event types, the trust boundary and complete capability list.
 
 ## Branching / Tags / Annotations
 

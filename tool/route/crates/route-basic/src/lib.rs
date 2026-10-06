@@ -66,6 +66,7 @@ pub mod strategy;
 pub mod study;
 pub mod trajectory;
 pub mod transaction;
+pub mod work;
 pub mod workflow;
 
 pub use adapter::{

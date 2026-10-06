@@ -89,7 +89,16 @@ pub fn compute_state_hash(project_root: &Path) -> Result<String> {
         if let Ok(changes) = repo.working_dir_status() {
             let changes_str = changes
                 .iter()
-                .map(|f| format!("{}:{}", f.path, f.change))
+                // Bind evidence to bytes, not merely to the set of dirty
+                // paths. Two edits to one path must not share a state hash.
+                .map(|f| {
+                    format!(
+                        "{}:{}:{}",
+                        f.path,
+                        f.change,
+                        f.current_hash.as_deref().unwrap_or("removed")
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(",");
             if !changes_str.is_empty() {
@@ -608,6 +617,9 @@ pub fn end_session(
 
     let new_status = match result {
         "success" => {
+            // The CLI, embedded callers and route/1 all share this boundary.
+            // A Worker completion event is never a successful parent Intent.
+            crate::work::ensure_integrated_before_success(project_root, session_id)?;
             // P3: Check verification policy before allowing Succeeded.
             let verification_pass = check_verification_policy(project_root, session_id)?;
             if verification_pass {
@@ -1792,6 +1804,10 @@ pub struct CommandEvidence {
     pub stderr_hash: String,
     /// Working-state fingerprint at execution time.
     pub state_hash: String,
+    /// False when the working state changed while the command was running.
+    /// A zero exit code alone must not certify the later state.
+    #[serde(default)]
+    pub state_stable: bool,
     /// Optional check/probe identifier for verification policy matching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_id: Option<String>,
@@ -1832,6 +1848,12 @@ pub fn exec_command(
         anyhow::bail!("argv is empty — nothing to execute");
     }
 
+    // Capture the development position before the command starts. A claim
+    // completed while this command runs must require a fresh verification.
+    let check_started_revision =
+        crate::development::global_development_revision(project_root).unwrap_or(0);
+    let state_hash_before = compute_state_hash(project_root).unwrap_or_default();
+
     // Spawn process (no shell).
     let start = Instant::now();
     let output = StdCommand::new(&argv[0])
@@ -1857,6 +1879,9 @@ pub fn exec_command(
 
     // Compute state hash.
     let state_hash = compute_state_hash(project_root).unwrap_or_default();
+    let check_finished_revision =
+        crate::development::global_development_revision(project_root).unwrap_or(0);
+    let state_stable = !state_hash_before.is_empty() && state_hash_before == state_hash;
     if !state_hash.is_empty() {
         write_state_hash(project_root, &state_hash)?;
     }
@@ -1868,6 +1893,7 @@ pub fn exec_command(
         stdout_hash,
         stderr_hash,
         state_hash: state_hash.clone(),
+        state_stable,
         check_id: check_id.map(|s| s.to_string()),
         stdout_preview,
         stderr_preview,
@@ -1875,7 +1901,7 @@ pub fn exec_command(
 
     // Record evidence.
     let mut evidence_store = EvidenceStore::load(project_root)?;
-    let kind = if exit_code == 0 {
+    let kind = if exit_code == 0 && state_stable {
         EvidenceKind::CheckPass
     } else {
         EvidenceKind::CheckFail
@@ -1884,10 +1910,29 @@ pub fn exec_command(
     metadata.insert("argv".to_string(), argv.join(" "));
     metadata.insert("exit_code".to_string(), exit_code.to_string());
     metadata.insert("duration_ms".to_string(), duration_ms.to_string());
+    metadata.insert("state_stable".to_string(), state_stable.to_string());
+    metadata.insert("state_hash_before".to_string(), state_hash_before.clone());
+    metadata.insert(
+        "check_started_revision".to_string(),
+        check_started_revision.to_string(),
+    );
+    metadata.insert(
+        "check_finished_revision".to_string(),
+        check_finished_revision.to_string(),
+    );
     if let Some(cid) = check_id {
         metadata.insert("check_id".to_string(), cid.to_string());
     }
-    let dedup_key = format!("exec:{}:{}", argv.join(" "), state_hash);
+    // A check spanning completion is ineligible for that completion. Its
+    // later rerun must not deduplicate to it merely because both ended at
+    // the same revision and produced the same working-state hash.
+    let dedup_key = format!(
+        "exec:{}:{}:{}:{check_started_revision}:{}",
+        argv.join(" "),
+        state_hash_before,
+        state_hash,
+        check_id.unwrap_or("")
+    );
     evidence_store.record_dedup(
         session_id,
         kind,

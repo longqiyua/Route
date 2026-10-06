@@ -1505,15 +1505,18 @@ fn do_task_exec(args: Value) -> Result<Value> {
 
     let evidence = route_basic::exec_command(&root, &sid, &argv, check_id)?;
 
-    let status_str = if evidence.exit_code == 0 {
+    let passed = evidence.exit_code == 0 && evidence.state_stable;
+    let status_str = if passed {
         "PASS"
+    } else if evidence.exit_code == 0 {
+        "UNSTABLE"
     } else {
         "FAIL"
     };
 
     Ok(json!({
-        "ok": evidence.exit_code == 0,
-        "code": if evidence.exit_code == 0 { "OK" } else { "COMMAND_FAILED" },
+        "ok": passed,
+        "code": if passed { "OK" } else if evidence.exit_code == 0 { "WORKSPACE_CHANGED_DURING_CHECK" } else { "COMMAND_FAILED" },
         "message": format!("Command {} with exit code {}", status_str, evidence.exit_code),
         "data": {
             "argv": argv,

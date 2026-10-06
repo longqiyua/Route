@@ -218,6 +218,12 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                 if matches!(
                     r.method.as_str(),
                     "development.event.record"
+                        | "work.create_child"
+                        | "work.claim"
+                        | "work.release"
+                        | "work.interrupt"
+                        | "work.finish"
+                        | "work.integrate"
                         | "worker.message.send"
                         | "worker.presence.update"
                         | "reference.register"
@@ -292,7 +298,13 @@ fn persist_idem(root: &Path, r: &Request, response: &Value) -> Result<()> {
 fn is_mutation(method: &str) -> bool {
     matches!(
         method,
-        "worker.binding.issue"
+        "work.create_child"
+            | "work.claim"
+            | "work.release"
+            | "work.interrupt"
+            | "work.finish"
+            | "work.integrate"
+            | "worker.binding.issue"
             | "worker.binding.revoke"
             | "institution.register"
             | "institution.activate"
@@ -650,12 +662,19 @@ fn dispatch(mut request: Request, operator: bool) -> Value {
 }
 
 route_methods! { request, root, version;
+        "work.available" => surface_response(&root, &request, || Ok(json!(route_basic::work::available(&root)?))),
+        "work.claims" => surface_response(&root, &request, || {
+            let view = route_basic::work::available(&root)?;
+            Ok(json!({"project_id":view.project_id,"global_revision":view.global_revision,"claims":view.available.iter().flat_map(|w| w.claims.clone()).collect::<Vec<_>>() }))
+        }),
+        "work.create_child" | "work.claim" | "work.release" | "work.finish" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
+        "work.interrupt" | "work.integrate" => surface_response(&root, &request, || Ok(json!(route_basic::work::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
         "worker.binding.list" => surface_response(&root,&request,|| {
             let list=route_basic::principal::bindings(&root)?.into_iter().map(|b|json!({"binding_id":b.binding_id,"worker_id":b.worker_id,"project_id":b.project_id,"issued_by":b.issued_by,"created_at":b.created_at,"status":b.status,"grants":b.grants})).collect::<Vec<_>>();
             Ok(json!(list))
         }),
         "worker.binding.issue" => surface_response(&root,&request,|| {
-            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record"])))?;
+            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record","work.create_child","work.claim","work.release","work.interrupt","work.finish"])))?;
             Ok(json!(route_basic::principal::issue(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"worker_id"),&text_param(&request,"credential_hash"),grants,&domain_deduplication_key(&request))?))
         }),
         "worker.binding.revoke" => surface_response(&root,&request,|| Ok(json!(route_basic::principal::revoke(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"binding_id"),&domain_deduplication_key(&request))?))),
@@ -834,6 +853,11 @@ route_methods! { request, root, version;
                 .get("result")
                 .and_then(Value::as_str)
                 .unwrap_or("aborted");
+            if result == "success" {
+                if let Err(e) = route_basic::work::ensure_integrated_before_success(&root, id) {
+                    return error(Some(&request.request_id), "INTEGRATION_REQUIRED", e.to_string(), false, json!({}));
+                }
+            }
             match route_basic::end_session(&root, id, result) {
                 Ok(s) => {
                     let out = success(
@@ -1511,6 +1535,21 @@ mod tests {
         assert!(METHODS.contains(&"intent.create"));
         assert!(METHODS.contains(&"evidence.record"));
         assert!(!METHODS.iter().any(|m| m.contains("yuich")));
+        for method in [
+            "work.available",
+            "work.claims",
+            "work.create_child",
+            "work.claim",
+            "work.release",
+            "work.interrupt",
+            "work.finish",
+            "work.integrate",
+        ] {
+            assert!(
+                METHODS.contains(&method),
+                "missing route/1 capability {method}"
+            );
+        }
     }
 
     #[test]

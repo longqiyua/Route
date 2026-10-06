@@ -4,6 +4,10 @@ Implementation audit, baseline `6d7697089077cf224f15e72bab63605aeab9b959`.
 This phase addresses supported-interface identity confusion, not hostile
 same-OS-user processes, root/admin compromise or remote authentication.
 
+The actor audit and dated acceptance results below preserve the original phase
+baseline. The daily-operation and authority sections describe the current engine,
+including the bounded work lifecycle added after that baseline.
+
 ## Actor audit before implementation
 
 | Existing entry | Field meaning | Required boundary |
@@ -34,8 +38,8 @@ Worker. Request fields cannot construct either context or request System or
 Institution authority. The fixed internal institution runtime keeps its existing
 dedicated provenance path; no external institution credentials are introduced.
 
-Worker authority is a closed allowlist, initially own messages, presence and
-bounded findings plus public reads. Administrative and institution mutations are
+Worker authority is a closed allowlist: own messages, presence, bounded findings
+and bounded work actions plus public reads. Administrative and institution mutations are
 denied. The trusted OS/host must not give an untrusted Worker an unrestricted
 Operator launch path; this phase does not establish OS-level isolation.
 
@@ -84,10 +88,29 @@ Use `route worker-binding revoke BINDING_ID --operation-key revoke-binding-id`
 from the trusted host, without a Worker environment. Revocation is rechecked for
 every JSONL request, before receipt replay, and under the canonical append lock.
 
+For autonomous work, read `work.available` together with
+`development.events.query` and its `after_revision` cursor before choosing scope.
+Use `work.create_child` under an active Intent when a bounded gap is not already
+represented, then `work.claim` before editing. Check existing scope and overlap;
+coordinate through `worker.message.send` when another claim intersects your work.
+Release work with `work.release`, record an observed interruption with
+`work.interrupt`, or complete your own claim with `work.finish` after contributing
+and verifying the result. A timeout does not automatically release a claim.
+
+Completion is not integration: `work.integrate` is Operator-only and requires
+completed accepted claims, the current state hash and revision, and System
+verification evidence. Worker completion does not authorize closing the parent
+Intent as success. Work claims confer no filesystem, Git or release authority.
+See the [Route Cooperation Protocol](route-cooperation-protocol.md#shared-development-semantics)
+for the shared ledger and integration boundary.
+
 ## Authority, provenance and compatibility
 
 - Default grants: `worker.message.send`, `worker.presence.update`,
-  `development.event.record` (Finding only; not Evidence).
+  `development.event.record` (Finding only; not Evidence), `work.create_child`,
+  `work.claim`, `work.release`, `work.interrupt`, and `work.finish`.
+  These defaults apply to newly issued bindings; existing bindings retain their
+  recorded grants. `work.integrate` is not a Worker grant.
 - Optional explicit grant: `cooperation.knowledge.record`, retaining existing
   knowledge/evidence validation. Use repeatable `--grant` values to replace defaults.
   No wildcard, administration or institution grant is accepted.
@@ -161,5 +184,7 @@ library contexts after revocation, foreign projects, grants and malformed parame
 
 Tests use disposable local projects and real Route binaries, not autonomous AI
 agents. Existing unrelated test warnings remain; they are not new feature claims.
-The prior identity blocker is CLOSED. Autonomous A/B/C remain NOT_RUN; no claim,
-assignment or autonomous integration features were added in this phase.
+At that phase's acceptance, the prior identity blocker was CLOSED and autonomous
+A/B/C remained NOT_RUN; no claim, assignment or autonomous integration features
+were added in that phase. This historical result is not the current work-surface
+status; see the [autonomous society audit](autonomous-society-audit.md).

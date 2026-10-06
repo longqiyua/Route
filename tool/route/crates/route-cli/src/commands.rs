@@ -5287,8 +5287,10 @@ pub fn task_exec(session: String, argv: Vec<String>, check_id: Option<String>) -
     let cwd = current_project_root();
     let evidence = exec_command(&cwd, &session, &argv, check_id.as_deref())?;
 
-    let status_str = if evidence.exit_code == 0 {
+    let status_str = if evidence.exit_code == 0 && evidence.state_stable {
         "PASS"
+    } else if evidence.exit_code == 0 {
+        "UNSTABLE"
     } else {
         "FAIL"
     };
@@ -5297,6 +5299,9 @@ pub fn task_exec(session: String, argv: Vec<String>, check_id: Option<String>) -
     println!("  duration:  {}ms", evidence.duration_ms);
     println!("  status:    {}", status_str);
     println!("  state:     {}", &evidence.state_hash[..16]);
+    if !evidence.state_stable {
+        anyhow::bail!("working state changed during check; zero exit code is not passing evidence");
+    }
     if evidence.exit_code != 0 {
         // Show stderr preview on failure.
         if !evidence.stderr_preview.is_empty() {

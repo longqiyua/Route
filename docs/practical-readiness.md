@@ -134,10 +134,25 @@ PENDING recovery, JSONL revocation and credential non-disclosure pass. Workspace
 changed: Worker binding or explicit Operator launch is required. Old unscoped
 receipts require explicit reconciliation, not silent replay under a new identity.
 
-This closes only the identity blocker in the
-[autonomous audit](autonomous-society-audit.md). Autonomous A/B/C, exclusive work
-claims and cross-model dogfood remain NOT_RUN. Same-OS-user hostile-process isolation
-and remote authenticated transport are not implemented.
+This closes the identity blocker in the
+[autonomous audit](autonomous-society-audit.md). The continuation adds
+child-work projection, exclusive claims, explicit interruption/reassignment,
+and a content- and causal-revision-bound integration gate. Scripted
+three-principal route/1 process coverage is distinct from the subsequent
+three independent authenticated Codex Worker dogfood on a real Route
+maintenance objective. Cross-model remains NOT_RUN.
+Same-OS-user hostile-process isolation and remote authenticated transport are
+not implemented.
+
+| Autonomous capability | Current readiness | Boundary |
+|---|---|---|
+| AutonomousWorkDiscovery | DAILY_USE_VERIFIED | Independent Workers discovered the same parent/child state and event deltas in a disposable Route project. |
+| WorkerSelfClaim | DAILY_USE_VERIFIED | Three bound identities created and self-claimed Work; conflict, replay and persistence also tested. |
+| PeerCoordination | DAILY_USE_VERIFIED | Voluntary help offer, review, proposal and disagreement are in the shared Route ledger. |
+| WorkerInterruption | DAILY_USE_VERIFIED | C's live implementation was explicitly interrupted; no age-based death inference. |
+| WorkerReassignment | DAILY_USE_VERIFIED | A observed and resumed C's Work with explicit predecessor lineage, retaining both contributions. |
+| AutonomousMultiWorkerSession | DAILY_USE_VERIFIED | One bounded same-host Codex A/B/C maintenance session; not a general or cross-model claim. |
+| IntegrationBoundary | DAILY_USE_VERIFIED | Worker completion alone was insufficient; final combined verification used fresh System evidence and explicit Operator integration before the parent Intent closed. |
 
 ## Original audit checks (historical; before reliability closure)
 

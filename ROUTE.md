@@ -655,6 +655,16 @@ authentication. Operator administration is explicit and separate. See
 [Worker principal binding](docs/worker-principal-binding.md) for migration and
 trusted-local security limits; this does not claim hostile same-OS-user isolation.
 
+Bounded child work and principal-derived claims are typed events in this same
+ledger. `work.available` is a revisioned read projection, not a second Task
+store; `development.events.query` supplies deltas. Explicit interruption and
+predecessor-linked reassignment retain both Workers' provenance. A claim never
+grants repository authority, and a Worker-marked completion is not project
+success. When child work exists, parent success requires an Operator integration
+record backed by current-state System evidence. Scripted route/1 coverage does
+not yet certify autonomous AI dogfood; see
+[the active audit](docs/autonomous-society-audit.md).
+
 The shared-state view projects existing Intent/ExecutionSession, Evidence,
 Git, KnownGood, worker, presence, and recent-event truth. It does not create a
 second owner for those domains. See

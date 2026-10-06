@@ -30,6 +30,7 @@ const MAX_EVENTS_PER_QUERY: usize = 1_000;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DevelopmentEventType {
+    Work,
     WorkerBinding,
     Institution,
     WorkerLifecycle,
@@ -74,6 +75,7 @@ pub enum WorkerMessageType {
     ReviewRequest,
     ReviewFinding,
     Handoff,
+    DependencyNotice,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -187,6 +189,9 @@ pub struct WorkerMessageInput {
     rename_all = "SCREAMING_SNAKE_CASE"
 )]
 pub enum DevelopmentEventPayload {
+    Work {
+        action: crate::work::WorkAction,
+    },
     WorkerBinding {
         transaction: crate::principal::BindingTransaction,
     },
@@ -270,6 +275,7 @@ pub enum DevelopmentEventPayload {
 impl DevelopmentEventPayload {
     pub fn event_type(&self) -> DevelopmentEventType {
         match self {
+            Self::Work { .. } => DevelopmentEventType::Work,
             Self::WorkerBinding { .. } => DevelopmentEventType::WorkerBinding,
             Self::Institution { .. } => DevelopmentEventType::Institution,
             Self::WorkerRegistered { .. } => DevelopmentEventType::WorkerLifecycle,
@@ -600,6 +606,7 @@ fn validate_metadata(metadata: &WorkerMetadata) -> Result<()> {
 
 fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
     match payload {
+        DevelopmentEventPayload::Work { action } => crate::work::validate_shape(action)?,
         DevelopmentEventPayload::WorkerBinding { transaction } => {
             if transaction.request_hash.len() != 64 {
                 bail!("invalid binding transaction");
@@ -745,9 +752,13 @@ pub fn append_development_event(
 ) -> Result<AppendDevelopmentEventResult> {
     if matches!(
         &draft.payload,
-        DevelopmentEventPayload::Institution { .. } | DevelopmentEventPayload::WorkerBinding { .. }
+        DevelopmentEventPayload::Institution { .. }
+            | DevelopmentEventPayload::WorkerBinding { .. }
+            | DevelopmentEventPayload::Work { .. }
     ) {
-        bail!("AUTHORITY_DENIED: institution transitions require the dedicated operator/runtime boundary");
+        bail!(
+            "AUTHORITY_DENIED: typed domain transitions require their dedicated authority boundary"
+        );
     }
     append_event_inner(root, draft, None)
 }
@@ -779,6 +790,17 @@ pub(crate) fn append_authenticated_event(
     caller: &crate::principal::CallerContext,
 ) -> Result<AppendDevelopmentEventResult> {
     append_event_inner(root, draft, Some(caller))
+}
+pub(crate) fn append_operator_work_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if !matches!(&draft.payload, DevelopmentEventPayload::Work { .. })
+        || draft.actor_worker_id.is_some()
+    {
+        bail!("AUTHORITY_DENIED");
+    }
+    append_event_inner(root, draft, None)
 }
 fn append_event_inner(
     root: &Path,
@@ -854,6 +876,15 @@ fn append_event_inner(
     }
 
     cooperation::validate_transition(&owner, &identity.project_id, &ledger.events, &draft.payload)?;
+    if let DevelopmentEventPayload::Work { action } = &draft.payload {
+        crate::work::validate_transition(
+            root,
+            &ledger.events,
+            &identity.project_id,
+            draft.actor_worker_id.as_deref(),
+            action,
+        )?;
+    }
     if let DevelopmentEventPayload::WorkerBinding { transaction } = &draft.payload {
         crate::principal::validate_transition(&ledger.events, &identity.project_id, transaction)?;
     }

@@ -9,6 +9,11 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::Path};
 
 const WORKER_METHODS: &[&str] = &[
+    "work.create_child",
+    "work.claim",
+    "work.release",
+    "work.interrupt",
+    "work.finish",
     "worker.message.send",
     "worker.presence.update",
     "development.event.record",
@@ -147,6 +152,7 @@ impl CallerContext {
                                     | "WORKER_PRESENCE_UPDATED"
                                     | "WORKER_REGISTERED"
                                     | "WORKER_METADATA_UPDATED"
+                                    | "WORK"
                             )
                         ),
                         "AUTHORITY_DENIED: dedicated domain ingress required"
@@ -290,6 +296,7 @@ pub(crate) fn validate_caller(
             matches!(
                 &draft.payload,
                 DevelopmentEventPayload::Finding { .. }
+                    | DevelopmentEventPayload::Work { .. }
                     | DevelopmentEventPayload::WorkerMessage { .. }
                     | DevelopmentEventPayload::WorkerPresenceUpdated { .. }
                     | DevelopmentEventPayload::CooperationKnowledgeRecorded { .. }
@@ -340,7 +347,8 @@ pub fn issue(
         "INVALID_CREDENTIAL_VERIFIER"
     );
     ensure!(
-        grants.len() <= 4 && grants.iter().all(|g| WORKER_METHODS.contains(&g.as_str())),
+        grants.len() <= WORKER_METHODS.len()
+            && grants.iter().all(|g| WORKER_METHODS.contains(&g.as_str())),
         "AUTHORITY_DENIED"
     );
     let (_, identity, _) = development::load_ledger_readonly(root)?;
@@ -422,6 +430,9 @@ pub fn worker_action(
     obj.remove("worker_id");
     obj.remove("from_worker");
     obj.remove("actor_worker_id");
+    if method.starts_with("work.") {
+        return crate::work::worker_action(root, caller, method, params, key);
+    }
     let mut draft: DevelopmentEventDraft = match method {
         "worker.message.send" => {
             let input: development::WorkerMessageInput = serde_json::from_value(params)?;

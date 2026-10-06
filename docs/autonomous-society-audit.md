@@ -1,8 +1,90 @@
-# Autonomous Society Dogfood I — pre-implementation audit
+# Autonomous Society Dogfood I — audit and implementation ledger
 
-Status: autonomous phase PARTIAL, not autonomous-session certification.
+Status: bounded three-Worker continuation reached an explicit combined
+integration and parent-Intent close after fresh System checks. Git publication
+and exact check receipts are reported by the run, not inferred from this file.
+The historical initial audit remains below and is not the current state.
 Identity-spoofing blocker: **CLOSED** by Worker Principal Binding I (2026-09-23).
-Autonomous A/B/C remain **NOT_RUN**, ready for the next authorized batch.
+Three independent authenticated Codex Worker processes used one shared Route
+project and parent Intent. They are **not** evidence of cross-model behavior:
+CROSS_MODEL = NOT_RUN. Scripted three-principal route/1 subprocess coverage is
+a separate transport/security gate.
+
+## Continuation: real bounded Worker dogfood
+
+The disposable Route project has parent Intent
+`01M48082QFQJJ4VYTHBH8E624V`, project
+`prj_01M47Z44M0ST5C6J732HXZNMNA`, and three authenticated identities:
+`dogfood-a`, `dogfood-b`, `dogfood-c`. The Human supplied one bounded
+verification-reliability objective, not Worker, file, or synchronization
+assignments. Workers created three child Work items and four claims. A chose a
+review, B chose the real-process regression, and C chose implementation. They
+used the shared event delta and messages, not private chat, to react to change.
+
+C proposed a check-start GlobalRevision boundary (`evt_01M480HN4FWD1253GWK88TJ85B`),
+A independently offered help and recorded a disagreement
+(`evt_01M480NK09BDY50X6646ER75Y5`): using a check-end revision in the dedup
+key could suppress a legitimate rerun crossing completion. C had made partial
+source changes before explicit interruption at development revision 45. A
+observed the interrupted claim, completed its own review, and opened a new
+predecessor-linked claim at revision 47. A continued and completed the same
+child work at revision 53. B independently supplied the competing regression
+and review findings, completing at revision 56. C's proposal and partial-work
+provenance were not erased. A's revised check-start implementation, not a vote
+or model preference, was chosen after targeted tests and peer review.
+
+The second correctness boundary is independent of causal revision: a command
+that exits 0 after project bytes changed during its run cannot produce
+qualifying CheckPass Evidence. `task exec` now captures before/after working
+state fingerprints and development revisions. Changed or unavailable state
+records CheckFail; CLI reports UNSTABLE and MCP returns
+`WORKSPACE_CHANGED_DURING_CHECK`. A deterministic held-command test edits a
+project file while the command runs and verifies CheckFail, then a stable rerun
+produces CheckPass. This detects endpoint changes, not an edit-and-revert ABA
+race or arbitrary external side effects; no filesystem snapshot isolation is
+claimed. Integration still checks exact candidate state and causal freshness.
+
+The optional v2 institution was activated in this disposable project and
+invoked once; it emitted REQUEST_WORK and OFFER_WORK suggestions only. It did
+not assign work, claim, execute commands, manufacture Evidence, or decide the
+technical dispute. All actors, claims, messages, interruptions, findings and
+effects are reconstructable from Route's project-scoped ledger; raw chain of
+thought was not persisted.
+
+## Current bounded implementation (continuation)
+
+The existing ExecutionSession remains the parent Intent. Bounded `ChildWork`,
+`WorkClaim` transitions, and integration decisions are typed DevelopmentEvents
+in the original project-scoped ledger; there is no second Task database.
+`work.available` projects active Intents, child work, blockers, claimability,
+claims, scopes, overlap, and current GlobalRevision. Existing
+`development.events.query` supplies bounded deltas. Claims are principal-derived,
+atomic under the ledger append lock, durable, and never grant Git or filesystem
+authority. Exclusive claims have one winner. An interrupted exclusive claim
+requires explicit predecessor lineage before reassignment; wall-clock absence
+alone never changes state. Worker completion is only a candidate.
+
+Parent success through route/1, direct CLI, or library requires an explicit
+Operator integration event when child work exists. Integration validates every
+child, accepted completed claims, no active claim, an expected ledger revision,
+the current content-bound Route state hash, and System CheckPass/TestPass
+evidence. Agent feedback and messages cannot satisfy it. A post-completion
+check must be fresh; command evidence deduplication now includes the development
+revision. The state hash now includes current blob hashes, so changing bytes
+on an already-dirty path invalidates prior verification.
+
+The optional `free-autonomy-minimal` v2 package adds only request/offer and
+overlap-review suggestions. v1 remains intact. Hook work refs include bounded
+active child refs; institutions cannot claim, assign, execute, or create Evidence.
+
+Current deterministic tests cover invalid scope/dependency, simultaneous
+exclusive claim, spoofed release/claim, explicit interruption/reassignment,
+premature/agent evidence rejection, direct close gate, content-stale hash, and
+route/1 subprocess replay, changed-parameter conflict, event delta, three
+credential-bound process clients, help/review/disagreement messages, and
+integration. Those process clients are scripted and do not alone prove
+autonomous development. The separate independent Worker session above does
+include real Route source, test and documentation contributions.
 
 ## Identity-boundary closure
 

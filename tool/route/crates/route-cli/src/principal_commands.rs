@@ -85,6 +85,11 @@ pub fn run(action: Action) -> Result<()> {
             );
             let grants = if grant.is_empty() {
                 vec![
+                    "work.create_child".to_string(),
+                    "work.claim".to_string(),
+                    "work.release".to_string(),
+                    "work.interrupt".to_string(),
+                    "work.finish".to_string(),
                     "worker.message.send".to_string(),
                     "worker.presence.update".to_string(),
                     "development.event.record".to_string(),

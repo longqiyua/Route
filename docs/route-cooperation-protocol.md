@@ -68,7 +68,7 @@ process's discovered project root or the call fails `PROJECT_IDENTITY_CONFLICT`.
 | recovery | `recovery.status` | read-only recovery availability/status |
 | shared development | `development.state`, `development.events.query`, `development.event.record` | project-scoped append-only `DevelopmentEvent` ledger plus read-only projection of authoritative Route/Git state |
 | workers | `worker.list`, `worker.register`, `worker.presence.update`, `worker.message.send` | persistent host/model-neutral worker identity, bounded presence, and project-visible typed messages |
-
+| bounded work | `work.available`, `work.claims`, `work.create_child`, `work.claim`, `work.release`, `work.interrupt`, `work.finish`, `work.integrate` | read projection and typed events over the existing DevelopmentEvent ledger; no second Task store |
 | Reference | `reference.list`, `reference.get`, `reference.register`, `reference.refresh`, `reference.recover` | canonical registry and durable operation journal/CAS/event bridge |
 | Cooperation | `cooperation.list`, `cooperation.get`, `cooperation.register`, `cooperation.refresh` | canonical ledger resource operations |
 | Shared knowledge | `cooperation.knowledge.query`, `cooperation.knowledge.record` | canonical knowledge projection and unified Evidence validation |
@@ -109,11 +109,69 @@ metadata without replacing its identity. Presence is a last-observed
 development projection, not proof of runtime or filesystem truth.
 
 Worker messages are typed (`QUESTION`, `ANSWER`, `NOTICE`, `HELP_REQUEST`,
-`HELP_OFFER`, `WARNING`, `PROPOSAL`, `DISAGREEMENT`, `REVIEW_REQUEST`,
+`HELP_OFFER`, `DEPENDENCY_NOTICE`, `WARNING`, `PROPOSAL`, `DISAGREEMENT`, `REVIEW_REQUEST`,
 `REVIEW_FINDING`, `HANDOFF`) and globally queryable inside the explicitly
 shared project. They never enter `EvidenceStore`; a finding, proposal,
 agreement, disagreement, or vote cannot promote itself to Evidence. The event
 schema accepts bounded operational summaries, not raw chain-of-thought.
+
+`work.available` includes bounded child scope, dependencies, blockers, active
+claims, overlap and GlobalRevision. Read it together with
+`development.events.query` after the last seen revision. Worker-authenticated
+work mutations derive actor identity from the binding. `work.interrupt` is
+also available to an explicit Operator who has observed interruption; a
+process timeout alone does not release a claim. `work.integrate` is Operator
+only and requires completed accepted claims, current state hash, current
+revision, and System verification evidence. Worker completion cannot close
+the parent Intent as success without it. Work refs and claims grant no Git,
+filesystem, release, or Constitution authority.
+Each child verification requirement is matched to a System pass with the same
+`check_id` (for example `route task exec INTENT --check-id CHECK_ID -- cargo test`).
+The check must verify the combined current state, not merely repeat a Worker
+claim. Integration freezes further child/claim transitions for that Intent.
+
+### Worker child-work example
+
+Run each request through `route rpc` (or sequentially through `route rpc --jsonl`)
+with the host-provided `ROUTE_WORKER_CREDENTIAL`. Replace the uppercase
+placeholders with returned IDs; do not submit the entire example unchanged.
+First inspect eligible work and read events after your last consumed revision:
+
+```json
+{"protocol":"route/1","request_id":"available-1","method":"work.available","context":{},"params":{}}
+{"protocol":"route/1","request_id":"events-1","method":"development.events.query","context":{},"params":{"after_revision":0,"limit":50}}
+```
+
+If no existing child covers the bounded gap, create one under an active Intent.
+Its scope and verification requirements are explicit; dependencies, when supplied,
+are existing work IDs. This example uses an exclusive documentation scope:
+
+```json
+{"protocol":"route/1","request_id":"child-1","method":"work.create_child","context":{},"params":{"intent_ref":"INTENT_ID","title":"Correct Worker lifecycle documentation","kind":"IMPLEMENTATION","scope_paths":["docs/worker-principal-binding.md"],"verification_requirements":["Cross-check current RPC implementation and run scripts/check-docs.ps1"],"overlap_mode":"EXCLUSIVE"},"idempotency_key":"worker-doc-child-1"}
+```
+
+Read `WORK_ID` from `result.event.payload.data.action.work.work_id`, then claim
+it before editing. A successful claim returns `CLAIM_ID` in
+`result.event.payload.data.action.claim.claim_id`; rejected claims grant no scope.
+
+```json
+{"protocol":"route/1","request_id":"claim-1","method":"work.claim","context":{},"params":{"work_id":"WORK_ID"},"idempotency_key":"worker-doc-claim-1"}
+```
+
+Publish useful progress or findings through `worker.message.send` or bounded
+Finding events, perform the contribution and checks, then finish your own claim:
+
+```json
+{"protocol":"route/1","request_id":"finish-1","method":"work.finish","context":{},"params":{"claim_id":"CLAIM_ID","reason":"Corrected documentation; source cross-check and documentation checks passed"},"idempotency_key":"worker-doc-finish-1"}
+```
+
+Report actual verification results in `reason`; this text is not System evidence.
+Use `work.release` or `work.interrupt` with the same `claim_id`/`reason` shape
+when work is released or interrupted instead. To resume eligible interrupted
+work, open a new claim with `work_id` and `resumes_claim_id` set to the
+earlier claim ID, retaining its provenance. A completed claim is a candidate for
+Operator integration, not parent Intent success. Reuse the same idempotency key
+and semantic request for an uncertain retry; use new keys for distinct operations.
 
 ## State ownership and compatibility
 

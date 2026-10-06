@@ -574,13 +574,32 @@ fn context(
             _ => {}
         }
     }
-    let work_refs = crate::execution::SessionStore::load(root)?
+    let mut work_refs: Vec<String> = crate::execution::SessionStore::load(root)?
         .sessions
         .into_iter()
         .filter(|s| s.status == crate::execution::SessionStatus::Active)
         .take(16)
         .map(|s| s.id)
         .collect();
+    let active_intents = work_refs.clone();
+    // Work is projected from the same ledger.  The hook receives bounded refs,
+    // never a private allocation queue or authority over a Worker.
+    for event in events {
+        if work_refs.len() >= 16 {
+            break;
+        }
+        if let DevelopmentEventPayload::Work {
+            action: crate::work::WorkAction::ChildCreated { work },
+        } = &event.payload
+        {
+            if !active_intents.contains(&work.intent_ref) {
+                continue;
+            }
+            if !work_refs.contains(&work.work_id) {
+                work_refs.push(work.work_id.clone());
+            }
+        }
+    }
     let reference_refs = crate::ReferenceRegistry::read(root)?
         .entries
         .into_iter()

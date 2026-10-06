@@ -1,0 +1,36 @@
+{
+  "institution_id": "free-autonomy-minimal",
+  "name": "Free autonomy minimal observer",
+  "description": "Optional coordination hints over shared work; no allocation, verification, or execution authority.",
+  "version": "2.0.0",
+  "provenance": "Route reference example; operator activation required; v1 package preserved",
+  "implementation_kind": "DECLARATIVE_V1",
+  "supported_hooks": ["ON_EVENT", "ON_WORK_AVAILABLE", "ON_CONFLICT"],
+  "requested_capabilities": ["OBSERVE", "COMMUNICATE", "PROPOSE"],
+  "compatibility": ["route/1"],
+  "configuration": {"policy": "suggestions-only"},
+  "configuration_schema": {"policy": "string"},
+  "rules": [
+    {
+      "hook": "ON_EVENT",
+      "event_type": "FINDING",
+      "effects": [
+        {"family": "MESSAGE", "summary": "A finding is in the shared ledger; Workers may inspect it independently."}
+      ]
+    },
+    {
+      "hook": "ON_WORK_AVAILABLE",
+      "require_available_work": true,
+      "effects": [
+        {"family": "REQUEST_WORK", "summary": "Available work references can be inspected and voluntarily claimed by authorized Workers."},
+        {"family": "OFFER_WORK", "summary": "Workers may offer help or review; this does not reserve or allocate work."}
+      ]
+    },
+    {
+      "hook": "ON_CONFLICT",
+      "effects": [
+        {"family": "PROPOSE", "summary": "Inspect separate claims and evidence, then resolve overlap at integration or escalate if authority is needed."}
+      ]
+    }
+  ]
+}
