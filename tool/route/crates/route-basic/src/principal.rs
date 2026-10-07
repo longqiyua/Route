@@ -9,6 +9,10 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::Path};
 
 const WORKER_METHODS: &[&str] = &[
+    "observation.record",
+    "decision.request",
+    "artifact.register",
+    "outcome.record",
     "workflow.step.start",
     "workflow.step.complete",
     "workflow.step.fail",
@@ -303,6 +307,7 @@ pub(crate) fn validate_caller(
                 &draft.payload,
                 DevelopmentEventPayload::Finding { .. }
                     | DevelopmentEventPayload::Work { .. }
+                    | DevelopmentEventPayload::GeneralWork { .. }
                     | DevelopmentEventPayload::WorkflowContract { .. }
                     | DevelopmentEventPayload::WorkerMessage { .. }
                     | DevelopmentEventPayload::WorkerPresenceUpdated { .. }
@@ -442,6 +447,12 @@ pub fn worker_action(
     }
     if method.starts_with("workflow.") {
         return crate::execution_contract::worker_action(root, caller, method, params, key);
+    }
+    if matches!(
+        method,
+        "observation.record" | "decision.request" | "artifact.register" | "outcome.record"
+    ) {
+        return crate::general_work::worker_action(root, caller, method, params, key);
     }
     let mut draft: DevelopmentEventDraft = match method {
         "worker.message.send" => {

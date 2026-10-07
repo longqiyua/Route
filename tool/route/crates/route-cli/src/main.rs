@@ -24,7 +24,24 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum AssistantAction {
+    /// Show the current general-work goal, obligations, and next actions.
+    Status {
+        goal_id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the machine-derived completion review for a goal.
+    Review { goal_id: String },
+}
+
+#[derive(Subcommand)]
 enum Commands {
+    /// Read-only status for ledger-backed general work (legacy `goal` is project memory).
+    Assistant {
+        #[command(subcommand)]
+        action: AssistantAction,
+    },
     /// Trusted-host Worker binding bootstrap and diagnostics; never prints credentials.
     WorkerBinding {
         #[command(subcommand)]
@@ -2814,6 +2831,7 @@ fn main() -> Result<()> {
         &cli.command,
         Commands::Rpc { .. }
             | Commands::WorkerBinding { .. }
+            | Commands::Assistant { .. }
             | Commands::Institution { .. }
             | Commands::Cooperation {
                 action: CooperationAction::List
@@ -2837,6 +2855,42 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::Assistant { action } => {
+            let root = std::env::current_dir()?;
+            match action {
+                AssistantAction::Status { goal_id, json } => {
+                    let status = match goal_id {
+                        Some(id) => route_basic::general_work::status(&root, &id)?,
+                        None => route_basic::general_work::current(&root)?,
+                    };
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&status)?);
+                    } else {
+                        println!("{}", status.answer);
+                        println!(
+                            "Goal: {} | {:?} | required {}/{}",
+                            status.goal.goal_id,
+                            status.goal_state,
+                            status.required_satisfied,
+                            status.required_total
+                        );
+                        for next in &status.review.required_next_actions {
+                            println!("Next: {next}");
+                        }
+                    }
+                    Ok(())
+                }
+                AssistantAction::Review { goal_id } => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&route_basic::general_work::review(
+                            &root, &goal_id
+                        )?)?
+                    );
+                    Ok(())
+                }
+            }
+        }
         Commands::WorkerBinding { action } => principal_commands::run(action),
         Commands::Institution { action } => institution_commands::run(action),
         Commands::Rpc { jsonl, operator } => route_cli::rpc::serve(jsonl, operator),

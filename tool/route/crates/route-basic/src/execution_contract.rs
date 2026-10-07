@@ -757,8 +757,9 @@ pub fn validate_transition(
             ensure!(
                 store
                     .get(&spec.intent_ref)
-                    .is_some_and(|s| s.status == SessionStatus::Active),
-                "ACTIVE_INTENT_REQUIRED"
+                    .is_some_and(|s| s.status == SessionStatus::Active)
+                    || crate::general_work::goal_active(events, &spec.intent_ref),
+                "ACTIVE_INTENT_OR_GOAL_REQUIRED"
             );
         }
         ContractChange::StepStarted {

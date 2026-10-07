@@ -31,6 +31,7 @@ const MAX_EVENTS_PER_QUERY: usize = 1_000;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DevelopmentEventType {
     Work,
+    GeneralWork,
     WorkflowContract,
     WorkerBinding,
     Institution,
@@ -193,6 +194,9 @@ pub enum DevelopmentEventPayload {
     Work {
         action: crate::work::WorkAction,
     },
+    GeneralWork {
+        action: crate::general_work::GeneralAction,
+    },
     WorkflowContract {
         action: crate::execution_contract::ContractAction,
     },
@@ -280,6 +284,7 @@ impl DevelopmentEventPayload {
     pub fn event_type(&self) -> DevelopmentEventType {
         match self {
             Self::Work { .. } => DevelopmentEventType::Work,
+            Self::GeneralWork { .. } => DevelopmentEventType::GeneralWork,
             Self::WorkflowContract { .. } => DevelopmentEventType::WorkflowContract,
             Self::WorkerBinding { .. } => DevelopmentEventType::WorkerBinding,
             Self::Institution { .. } => DevelopmentEventType::Institution,
@@ -612,6 +617,9 @@ fn validate_metadata(metadata: &WorkerMetadata) -> Result<()> {
 fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
     match payload {
         DevelopmentEventPayload::Work { action } => crate::work::validate_shape(action)?,
+        DevelopmentEventPayload::GeneralWork { action } => {
+            crate::general_work::validate_shape(action)?
+        }
         DevelopmentEventPayload::WorkflowContract { action } => {
             crate::execution_contract::validate_shape(action)?
         }
@@ -720,6 +728,10 @@ fn same_semantics(event: &DevelopmentEvent, draft: &DevelopmentEventDraft) -> bo
             DevelopmentEventPayload::WorkflowContract { action: b },
         ) => a.request_hash == b.request_hash,
         (
+            DevelopmentEventPayload::GeneralWork { action: a },
+            DevelopmentEventPayload::GeneralWork { action: b },
+        ) => a.request_hash == b.request_hash,
+        (
             DevelopmentEventPayload::WorkerRegistered { descriptor: left },
             DevelopmentEventPayload::WorkerRegistered { descriptor: right },
         ) => left.worker_id == right.worker_id && left.metadata == right.metadata,
@@ -767,6 +779,7 @@ pub fn append_development_event(
         DevelopmentEventPayload::Institution { .. }
             | DevelopmentEventPayload::WorkerBinding { .. }
             | DevelopmentEventPayload::Work { .. }
+            | DevelopmentEventPayload::GeneralWork { .. }
             | DevelopmentEventPayload::WorkflowContract { .. }
     ) {
         bail!(
@@ -823,6 +836,17 @@ pub(crate) fn append_operator_contract_event(
         &draft.payload,
         DevelopmentEventPayload::WorkflowContract { .. }
     ) || draft.actor_worker_id.is_some()
+    {
+        bail!("AUTHORITY_DENIED");
+    }
+    append_event_inner(root, draft, None)
+}
+pub(crate) fn append_operator_general_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if !matches!(&draft.payload, DevelopmentEventPayload::GeneralWork { .. })
+        || draft.actor_worker_id.is_some()
     {
         bail!("AUTHORITY_DENIED");
     }
@@ -916,6 +940,14 @@ fn append_event_inner(
             root,
             &ledger.events,
             &identity.project_id,
+            draft.actor_worker_id.as_deref(),
+            action,
+        )?;
+    }
+    if let DevelopmentEventPayload::GeneralWork { action } = &draft.payload {
+        crate::general_work::validate_transition(
+            root,
+            &ledger.events,
             draft.actor_worker_id.as_deref(),
             action,
         )?;

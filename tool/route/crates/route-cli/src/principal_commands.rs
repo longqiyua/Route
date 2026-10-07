@@ -99,6 +99,10 @@ pub fn run(action: Action) -> Result<()> {
                     "worker.message.send".to_string(),
                     "worker.presence.update".to_string(),
                     "development.event.record".to_string(),
+                    "observation.record".to_string(),
+                    "decision.request".to_string(),
+                    "artifact.register".to_string(),
+                    "outcome.record".to_string(),
                 ]
             } else {
                 grant

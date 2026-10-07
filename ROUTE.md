@@ -809,6 +809,11 @@ waiver. `CONTROLLED` and `FULL_POWER` have the same no-false-completion
 boundary. See [Execution Contract I](docs/execution-contract.md) for the
 route/1 and CLI surface, limitations and anti-shortcut acceptance.
 
+General non-code Goals and structured Plans now reuse that contract, the
+global event ledger, Worker claims, and System Evidence. A read-only assistant
+view reports obligations and next actions without claiming unverified work is
+complete. See [General Work & Assistant I](docs/general-work-assistant.md).
+
 ## 23. Glossary
 
 | Term | Meaning | Do not say |

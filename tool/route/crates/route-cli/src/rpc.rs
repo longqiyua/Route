@@ -218,6 +218,16 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                 if matches!(
                     r.method.as_str(),
                     "development.event.record"
+                        | "goal.create"
+                        | "goal.close"
+                        | "plan.create"
+                        | "observation.record"
+                        | "decision.request"
+                        | "decision.respond"
+                        | "artifact.register"
+                        | "outcome.record"
+                        | "plan.review.record"
+                        | "plan.verify_step"
                         | "workflow.create"
                         | "workflow.step.start"
                         | "workflow.step.complete"
@@ -308,6 +318,16 @@ fn is_mutation(method: &str) -> bool {
     matches!(
         method,
         "workflow.create"
+            | "goal.create"
+            | "goal.close"
+            | "plan.create"
+            | "observation.record"
+            | "decision.request"
+            | "decision.respond"
+            | "artifact.register"
+            | "outcome.record"
+            | "plan.review.record"
+            | "plan.verify_step"
             | "workflow.step.start"
             | "workflow.step.complete"
             | "workflow.step.fail"
@@ -680,6 +700,25 @@ fn dispatch(mut request: Request, operator: bool) -> Value {
 }
 
 route_methods! { request, root, version;
+        "goal.list" => surface_response(&root, &request, || Ok(json!(route_basic::general_work::list(&root)?))),
+        "goal.get" | "goal.status" | "assistant.status" | "plan.get" | "plan.review" | "decision.list" | "decision.get" | "artifact.list" | "artifact.get" | "outcome.get" | "observation.list" => surface_response(&root, &request, || {
+            let goal_id = text_param(&request, "goal_id");
+            let status = if goal_id.is_empty() { route_basic::general_work::current(&root)? } else { route_basic::general_work::status(&root, &goal_id)? };
+            Ok(match request.method.as_str() {
+                "goal.get" | "goal.status" => json!({"goal":status.goal,"state":status.goal_state,"creator":status.creator,"created_at":status.created_at,"project_id":status.project_id}),
+                "plan.get" => json!({"plans":status.plans,"current_plan":status.current_plan,"workflow":status.workflow}),
+                "plan.review" => json!(status.review),
+                "decision.list" => json!(status.decisions),
+                "decision.get" => json!(status.decisions.into_iter().find(|d| d.request.decision_id == text_param(&request,"decision_id"))),
+                "artifact.list" => json!(status.artifacts),
+                "artifact.get" => json!(status.artifacts.into_iter().find(|a| a.artifact_id == text_param(&request,"artifact_id"))),
+                "outcome.get" => json!(status.outcomes.last()),
+                "observation.list" => json!(status.observations),
+                _ => json!(status),
+            })
+        }),
+        "goal.create" | "goal.close" | "plan.create" | "observation.record" | "decision.request" | "decision.respond" | "artifact.register" | "outcome.record" | "plan.review.record" => surface_response(&root, &request, || Ok(json!(route_basic::general_work::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
+        "plan.verify_step" => surface_response(&root, &request, || Ok(route_basic::general_work::verify_step(&root, &route_basic::principal::CallerContext::trusted_operator(), &text_param(&request,"goal_id"), &text_param(&request,"step_id"), request.params.get("expected_revision").and_then(Value::as_u64).ok_or_else(|| anyhow!("expected_revision is required"))?, &domain_deduplication_key(&request))?)),
         "workflow.list" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::list(&root)?))),
         "workflow.get" | "workflow.status" | "workflow.complete.check" => surface_response(&root, &request, || {
             let status = route_basic::execution_contract::status(&root, &text_param(&request, "workflow_id"))?;
@@ -688,6 +727,11 @@ route_methods! { request, root, version;
         "workflow.create" | "workflow.step.skip" | "workflow.plan_delta.propose" | "workflow.plan_delta.accept" | "workflow.plan_delta.reject" | "workflow.complete.request" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
         "workflow.step.start" | "workflow.step.complete" | "workflow.step.fail" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
         "work.available" => surface_response(&root, &request, || Ok(json!(route_basic::work::available(&root)?))),
+        "work.list" | "work.get" => surface_response(&root, &request, || {
+            let view = route_basic::work::available(&root)?;
+            if request.method == "work.list" { Ok(json!(view)) }
+            else { Ok(json!(view.available.into_iter().find(|w| w.work.work_id == text_param(&request,"work_id")))) }
+        }),
         "work.claims" => surface_response(&root, &request, || {
             let view = route_basic::work::available(&root)?;
             Ok(json!({"project_id":view.project_id,"global_revision":view.global_revision,"claims":view.available.iter().flat_map(|w| w.claims.clone()).collect::<Vec<_>>() }))
@@ -699,7 +743,7 @@ route_methods! { request, root, version;
             Ok(json!(list))
         }),
         "worker.binding.issue" => surface_response(&root,&request,|| {
-            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record","work.create_child","work.claim","work.release","work.interrupt","work.finish","workflow.step.start","workflow.step.complete","workflow.step.fail","workflow.step.skip","workflow.plan_delta.propose","workflow.complete.request"])))?;
+            let grants=serde_json::from_value(request.params.get("grants").cloned().unwrap_or_else(||json!(["worker.message.send","worker.presence.update","development.event.record","work.create_child","work.claim","work.release","work.interrupt","work.finish","workflow.step.start","workflow.step.complete","workflow.step.fail","workflow.step.skip","workflow.plan_delta.propose","workflow.complete.request","observation.record","decision.request","artifact.register","outcome.record"])))?;
             Ok(json!(route_basic::principal::issue(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"worker_id"),&text_param(&request,"credential_hash"),grants,&domain_deduplication_key(&request))?))
         }),
         "worker.binding.revoke" => surface_response(&root,&request,|| Ok(json!(route_basic::principal::revoke(&root,&route_basic::principal::CallerContext::trusted_operator(),&text_param(&request,"binding_id"),&domain_deduplication_key(&request))?))),

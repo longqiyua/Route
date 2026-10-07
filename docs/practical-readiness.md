@@ -169,7 +169,40 @@ remote-host operation.
 | PlanDelta | YES | Immutable versions, authorized acceptance | Proposal/accept/reject and v1 readback | YES, disposable process sequence |
 | ControlledExecution | YES | Controlled/full-power share hard gate | Worker and Operator route/1 paths | YES for local bounded run only |
 
+## General Work & Assistant I (local, bounded)
+
+The [general-work loop](general-work-assistant.md) connects a non-code Goal,
+structured Plan, Worker-owned General ChildWork, Decision, Observation,
+PlanDelta, Artifact, Outcome, and read-only assistant projection to the
+existing Execution Contract. The real-process two-Worker product-launch
+scenario is `SURFACE_TESTED`; it is not evidence of an autonomous external
+business action, cross-model deployment, or semantic quality verification.
+`plan.verify_step` checks structured causal facts and project fingerprint,
+not whether a launch recommendation is commercially correct. Final closure
+still requires the canonical Workflow gate, integration, a final Artifact,
+and a final Outcome. The older project-memory GoalStore remains separate.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| GeneralWorkKernel | YES | Existing Work/ledger regressions | Two-Worker real-process planning fixture | NO, no live host rollout |
+| Goal | YES | Canonical transition under ledger lock | Create, close, restart | NO |
+| GenericWorkItem | YES | Claim/integration regressions | Six non-code self-claimed items | NO |
+| PlanningDomain | YES | Contract version/PlanDelta regressions | Structured v1/v2, required/conditional/optional | NO |
+| PlanReview | YES | Contract completion regressions | Missing C and affected D visible | NO |
+| Decision | YES | Principal rejection path | Pending Human answer and Operator response | NO |
+| Outcome | YES | Completion gate | Draft denied, Final after PASS | NO |
+| AssistantLoop | YES | Projection over canonical stores | Restarted route/1 and CLI status | NO, no natural-language host integration |
+| AssistantContinuity | YES | Ledger persistence | Independent process reconstruction | NO |
+| AssistantStatus | YES | Zero-write invariant | Fresh-process p50/p95 measured | NO |
+| NonCodeAutonomousWork | YES | Claim/authority regressions | Two bound Workers self-claim | NO, scripted Worker processes only |
+
+`ROUTE_AI_V1_BOUNDED_ASSISTANT_READY = NO` pending a genuine daily-use
+non-code host/Worker run and semantic acceptance of its planning output.
+The scripted fixture proves machine-state integrity, not general assistant
+quality or autonomous research.
+
 ## Original audit checks (historical; before reliability closure)
+
 
 - `cargo test -p route-basic --lib`: exit 0, 380 passed, including blank
   registry rejection and missing-resource staleness regressions.

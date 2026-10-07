@@ -17,6 +17,7 @@ use std::{
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum WorkKind {
+    General,
     TestGap,
     CompatibilityProbe,
     Implementation,
@@ -47,12 +48,18 @@ pub struct ChildWork {
     #[serde(default)]
     pub work_id: String,
     pub intent_ref: String,
+    #[serde(default)]
+    pub goal_id: Option<String>,
+    #[serde(default)]
+    pub workflow_step_id: Option<String>,
     pub title: String,
     pub kind: WorkKind,
     pub scope_paths: Vec<String>,
     #[serde(default)]
     pub dependencies: Vec<String>,
     pub verification_requirements: Vec<String>,
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
     pub overlap_mode: OverlapMode,
 }
 
@@ -176,10 +183,10 @@ pub(crate) fn validate_shape(action: &WorkAction) -> Result<()> {
             bounded("work id", &work.work_id, 256)?;
             bounded("intent ref", &work.intent_ref, 256)?;
             bounded("title", &work.title, 512)?;
-            ensure!(
-                !work.scope_paths.is_empty() && work.scope_paths.len() <= 16,
-                "INVALID_WORK_SCOPE"
-            );
+            ensure!(work.scope_paths.len() <= 16, "INVALID_WORK_SCOPE");
+            if !matches!(work.kind, WorkKind::General) {
+                ensure!(!work.scope_paths.is_empty(), "INVALID_WORK_SCOPE");
+            }
             for path in &work.scope_paths {
                 validate_path(path)?;
             }
@@ -192,12 +199,24 @@ pub(crate) fn validate_shape(action: &WorkAction) -> Result<()> {
                 "INVALID_WORK_DEPENDENCY"
             );
             ensure!(
-                !work.verification_requirements.is_empty()
-                    && work.verification_requirements.len() <= 16,
+                work.verification_requirements.len() <= 16,
                 "INVALID_WORK_VERIFICATION"
             );
+            if !matches!(work.kind, WorkKind::General) {
+                ensure!(
+                    !work.verification_requirements.is_empty(),
+                    "INVALID_WORK_VERIFICATION"
+                );
+            }
             for requirement in &work.verification_requirements {
                 bounded("verification requirement", requirement, 256)?;
+            }
+            ensure!(
+                work.required_capabilities.len() <= 16,
+                "INVALID_WORK_CAPABILITIES"
+            );
+            for capability in &work.required_capabilities {
+                bounded("required capability", capability, 80)?;
             }
         }
         WorkAction::ClaimOpened { claim } => {
@@ -287,7 +306,10 @@ fn projected(
     (work, claims)
 }
 
-fn active_intent(root: &Path, intent_ref: &str) -> Result<()> {
+fn active_intent(root: &Path, events: &[DevelopmentEvent], intent_ref: &str) -> Result<()> {
+    if crate::general_work::goal_active(events, intent_ref) {
+        return Ok(());
+    }
     let session = execution::session_status(root, Some(intent_ref))?
         .pop()
         .ok_or_else(|| anyhow!("UNKNOWN_INTENT"))?;
@@ -314,7 +336,32 @@ pub(crate) fn validate_transition(
     match action {
         WorkAction::ChildCreated { work: item } => {
             ensure!(actor.is_some(), "WORKER_BINDING_REQUIRED");
-            active_intent(root, &item.intent_ref)?;
+            active_intent(root, events, &item.intent_ref)?;
+            if matches!(item.kind, WorkKind::General) {
+                ensure!(
+                    item.goal_id.as_deref() == Some(item.intent_ref.as_str()),
+                    "GOAL_ID_REQUIRED"
+                );
+                ensure!(
+                    crate::general_work::goal_active(events, &item.intent_ref),
+                    "ACTIVE_GOAL_REQUIRED"
+                );
+                if let Some(step_id) = &item.workflow_step_id {
+                    ensure!(
+                        crate::general_work::workflow_contains_step(
+                            events,
+                            &item.intent_ref,
+                            step_id
+                        ),
+                        "UNKNOWN_WORKFLOW_STEP"
+                    );
+                }
+            } else {
+                ensure!(
+                    item.goal_id.is_none() && item.workflow_step_id.is_none(),
+                    "DEVELOPMENT_WORK_SCOPE_REQUIRED"
+                );
+            }
             ensure!(!integrated(&item.intent_ref), "INTEGRATION_FROZEN");
             ensure!(!work.contains_key(&item.work_id), "WORK_ID_CONFLICT");
             let mut seen = BTreeSet::new();
@@ -333,9 +380,33 @@ pub(crate) fn validate_transition(
             let (item, _) = work
                 .get(&claim.work_id)
                 .ok_or_else(|| anyhow!("UNKNOWN_WORK"))?;
-            active_intent(root, &item.intent_ref)?;
+            active_intent(root, events, &item.intent_ref)?;
             ensure!(!integrated(&item.intent_ref), "INTEGRATION_FROZEN");
             ensure!(!claims.contains_key(&claim.claim_id), "CLAIM_ID_CONFLICT");
+            if !item.required_capabilities.is_empty() {
+                let descriptor = events
+                    .iter()
+                    .rev()
+                    .find_map(|event| match &event.payload {
+                        DevelopmentEventPayload::WorkerRegistered { descriptor }
+                            if descriptor.worker_id == claim.worker_id =>
+                        {
+                            Some(descriptor)
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| anyhow!("UNKNOWN_WORKER"))?;
+                ensure!(
+                    item.required_capabilities
+                        .iter()
+                        .all(|capability| descriptor
+                            .metadata
+                            .capabilities
+                            .get(capability)
+                            .is_some_and(|value| !value.trim().is_empty())),
+                    "WORKER_CAPABILITY_REQUIRED"
+                );
+            }
             for dep in &item.dependencies {
                 ensure!(
                     claims
@@ -414,7 +485,7 @@ pub(crate) fn validate_transition(
             expected_revision,
         } => {
             ensure!(actor.is_none(), "OPERATOR_REQUIRED");
-            active_intent(root, intent_ref)?;
+            active_intent(root, events, intent_ref)?;
             ensure!(!integrated(intent_ref), "INTEGRATION_FROZEN");
             let revision = events.last().map(|e| e.sequence).unwrap_or(0);
             ensure!(*expected_revision == revision, "STALE_CONTEXT");
@@ -529,9 +600,10 @@ pub fn available(root: &Path) -> Result<WorkView> {
             })
             .cloned()
             .collect();
-        let parent_active = sessions
-            .iter()
-            .any(|s| s.id == item.intent_ref && s.status == SessionStatus::Active);
+        let parent_active = crate::general_work::goal_active(&ledger.events, &item.intent_ref)
+            || sessions
+                .iter()
+                .any(|s| s.id == item.intent_ref && s.status == SessionStatus::Active);
         let active = related
             .iter()
             .any(|c| matches!(c.state, ClaimState::Active));

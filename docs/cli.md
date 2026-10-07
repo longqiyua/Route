@@ -149,6 +149,7 @@ set-mode, push-u, rebase-in-progress, backups, and more.
 | `route trajectory list\|show\|diff\|analyze` | Development trajectories |
 | `route roadmap` | Project roadmap |
 | `route goal` | Project goals |
+| `route assistant status [GOAL_ID] [--json]` / `route assistant review GOAL_ID` | Ledger-backed general Goal status and completion review; distinct from legacy project-memory `route goal` |
 
 ## Recovery
 
