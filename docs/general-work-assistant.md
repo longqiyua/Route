@@ -9,6 +9,77 @@ neither is silently converted into execution truth.
 
 ## Local route/1 flow
 
+### First Goal on a fresh project (PowerShell)
+
+Build Route first (`cargo build -p route-cli` from `tool/route`), then set
+`$route` to the resulting `route.exe` absolute path. In a new, disposable
+project directory, the following Operator bootstrap creates a real Goal,
+Workflow, and versioned Plan. `--operator` is for a trusted local host only;
+never forward it or the Worker credential to an untrusted Worker.
+
+```powershell
+$route = 'C:\path\to\Route\tool\route\target\debug\route.exe'
+New-Item -ItemType Directory -Path '.\route-demo' | Out-Null
+Push-Location '.\route-demo'
+try {
+    & $route init
+    function Call-Route($method, $params, $key = $null, $operator = $false) {
+        $request = @{ protocol = 'route/1'; request_id = [guid]::NewGuid().ToString();
+            method = $method; context = @{}; params = $params; idempotency_key = $key }
+        $json = $request | ConvertTo-Json -Depth 20 -Compress
+        $reply = if ($operator) { $json | & $route rpc --operator | ConvertFrom-Json }
+                 else { $json | & $route rpc | ConvertFrom-Json }
+        if (-not $reply.ok) { throw "$method`: $($reply.error.message)" }
+        return $reply.result
+    }
+    function Revision { (Call-Route 'development.events.query' @{}).global_revision }
+    $created = Call-Route 'goal.create' @{ expected_revision = (Revision); goal = @{
+        title = 'Plan a local event'; description = 'Produce a reviewable event plan';
+        domain = 'PLANNING'; constraint_refs = @(); reference_refs = @() } } 'demo-goal' $true
+    $goalId = $created.event.payload.data.action.change.goal.goal_id
+    $step = @{ step_id = 'outline'; title = 'Draft event outline'; requirement = 'REQUIRED';
+        dependencies = @(); proof = @{ check_id = 'outline-reviewed' } }
+    Call-Route 'workflow.create' @{ expected_revision = (Revision); spec = @{
+        workflow_id = 'event-plan'; intent_ref = $goalId; title = 'Event plan';
+        mode = 'CONTROLLED'; steps = @($step) } } 'demo-workflow' $true | Out-Null
+    Call-Route 'plan.create' @{ expected_revision = (Revision); plan = @{
+        goal_id = $goalId; workflow_id = 'event-plan'; workflow_version = 1;
+        assumptions = @('Local event'); unknowns = @('Venue availability');
+        constraints = @('No booking without approval'); milestones = @('Review outline');
+        risks = @('Venue unavailable'); review_conditions = @('Venue changes');
+        observation_refs = @() } } 'demo-plan' $true | Out-Null
+    Call-Route 'worker.register' @{ worker_id = 'event-worker' } 'demo-register' $true | Out-Null
+    $credentialFile = Join-Path $env:TEMP ('route-demo-' + [guid]::NewGuid().ToString('N') + '.credential')
+    & $route worker-binding issue event-worker --credential-file $credentialFile --operation-key demo-bind | Out-Null
+    $previousCredential = $env:ROUTE_WORKER_CREDENTIAL
+    try {
+        $env:ROUTE_WORKER_CREDENTIAL = [IO.File]::ReadAllText($credentialFile)
+        Call-Route 'work.available' @{ goal_id = $goalId } | Out-Host
+        $work = Call-Route 'work.create_child' @{ intent_ref = $goalId; goal_id = $goalId;
+            workflow_step_id = 'outline'; title = 'Draft event outline'; kind = 'GENERAL';
+            scope_paths = @(); verification_requirements = @(); overlap_mode = 'EXCLUSIVE' } 'demo-work'
+        $claim = Call-Route 'work.claim' @{ work_id = $work.event.payload.data.action.work.work_id } 'demo-claim'
+        Call-Route 'work.finish' @{ claim_id = $claim.event.payload.data.action.claim.claim_id;
+            reason = 'Draft work recorded; not yet verified' } 'demo-finish' | Out-Null
+    } finally { $env:ROUTE_WORKER_CREDENTIAL = $previousCredential }
+    Call-Route 'plan.get' @{ goal_id = $goalId } | Out-Host
+    & $route assistant status $goalId
+    $goalId  # Keep this ID to resume after restarting Route.
+} finally { Pop-Location }
+```
+
+Run the same `plan.get` / `route assistant status GOAL_ID` reads from the
+project directory in a new process to resume. For authenticated Worker
+credential handling in a real host, continue with
+[Worker Principal Binding](worker-principal-binding.md) and
+[Work Integration & Verification](work-integration-verification.md). Keep the
+demo credential private and remove it after the experiment. The snippet
+intentionally stops before completion: a finished Work claim alone is not
+proof that its required step is done. See the verification and completion
+sequence below. On an uncertain
+mutation response, retry its **same** idempotency key and payload; do not
+generate a new key.
+
 1. Initialize a project with `route init`. An Operator calls `goal.create`
    with `expected_revision` and a Goal domain (`PLANNING`, `RESEARCH`,
    `GENERAL`, or `DEVELOPMENT`). The returned ledger event supplies `goal_id`.

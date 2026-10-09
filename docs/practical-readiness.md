@@ -175,8 +175,11 @@ The [general-work loop](general-work-assistant.md) connects a non-code Goal,
 structured Plan, Worker-owned General ChildWork, Decision, Observation,
 PlanDelta, Artifact, Outcome, and read-only assistant projection to the
 existing Execution Contract. The real-process two-Worker product-launch
-scenario is `SURFACE_TESTED`; it is not evidence of an autonomous external
-business action, cross-model deployment, or semantic quality verification.
+scenario is `SURFACE_TESTED`. A separate real AI Host and two bound,
+self-selecting AI Workers completed the non-code Route AI v1 closure audit;
+see [the bounded closure record](route-ai-v1-closure-audit.md). Neither run
+is evidence of an autonomous external business action, cross-model
+deployment, or semantic quality verification by Route.
 `plan.verify_step` checks structured causal facts and project fingerprint,
 not whether a launch recommendation is commercially correct. Final closure
 still requires the canonical Workflow gate, integration, a final Artifact,
@@ -184,22 +187,25 @@ and a final Outcome. The older project-memory GoalStore remains separate.
 
 | Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
 |---|---|---|---|---|
-| GeneralWorkKernel | YES | Existing Work/ledger regressions | Two-Worker real-process planning fixture | NO, no live host rollout |
-| Goal | YES | Canonical transition under ledger lock | Create, close, restart | NO |
-| GenericWorkItem | YES | Claim/integration regressions | Six non-code self-claimed items | NO |
-| PlanningDomain | YES | Contract version/PlanDelta regressions | Structured v1/v2, required/conditional/optional | NO |
-| PlanReview | YES | Contract completion regressions | Missing C and affected D visible | NO |
-| Decision | YES | Principal rejection path | Pending Human answer and Operator response | NO |
-| Outcome | YES | Completion gate | Draft denied, Final after PASS | NO |
-| AssistantLoop | YES | Projection over canonical stores | Restarted route/1 and CLI status | NO, no natural-language host integration |
-| AssistantContinuity | YES | Ledger persistence | Independent process reconstruction | NO |
-| AssistantStatus | YES | Zero-write invariant | Fresh-process p50/p95 measured | NO |
-| NonCodeAutonomousWork | YES | Claim/authority regressions | Two bound Workers self-claim | NO, scripted Worker processes only |
+| GeneralWorkKernel | YES | Existing Work/ledger regressions | Two-Worker real-process planning fixture | YES, bounded same-host closure audit |
+| Goal | YES | Canonical transition under ledger lock | Create, close, restart | YES, closure Goal SUCCEEDED after gate |
+| GenericWorkItem | YES | Claim/integration regressions | Six non-code self-claimed items | YES, eight real Worker claims integrated |
+| PlanningDomain | YES | Contract version/PlanDelta regressions | Structured v1/v2, required/conditional/optional | YES, Observation-addressed v1→v2 |
+| PlanReview | YES | Contract completion regressions | Missing C and affected D visible | YES, DENIED→PASS on live Goal |
+| Decision | YES | Principal rejection path | Pending Human answer and Operator response | YES, bounded onboarding triage answered; no Human release approval implied |
+| Outcome | YES | Completion gate | Draft denied, Final after PASS | YES, FINAL Outcome after PASS |
+| AssistantLoop | YES | Projection over canonical stores | Restarted route/1 and CLI status | YES, external AI Host used Route; no built-in model runtime |
+| AssistantContinuity | YES | Ledger persistence | Independent process reconstruction | YES, new processes recovered Plan and claims |
+| AssistantStatus | YES | Zero-write invariant | Fresh-process p50/p95 measured | YES, truthful 0/7→7/7 projection |
+| NonCodeAutonomousWork | YES | Claim/authority regressions | Two bound Workers self-claim | YES, two real same-host AI Workers |
 
-`ROUTE_AI_V1_BOUNDED_ASSISTANT_READY = NO` pending a genuine daily-use
-non-code host/Worker run and semantic acceptance of its planning output.
-The scripted fixture proves machine-state integrity, not general assistant
-quality or autonomous research.
+`ROUTE_AI_V1_BOUNDED_ASSISTANT_READY = YES` for the local same-host,
+bounded Goal→structured Plan→authenticated Worker→System proof→Outcome
+promise. The actual non-code closure Goal produced a clear, prioritized
+report and reached canonical Workflow/PlanReview PASS; this does not
+certify general assistant quality, autonomous research, hostile-process
+isolation, public Release, or cross-model operation. A Human still owns any
+main merge, tag, Release and public-version decision.
 
 ## Original audit checks (historical; before reliability closure)
 
