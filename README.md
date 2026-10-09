@@ -2,7 +2,8 @@
 
 > **Git remembers the code. Route remembers the work.**
 >
-> **当前版本：v1.0 beta**（machine `1.0.0-beta`）— Experimental Beta
+> **发布状态：v1 候选，尚未发布。** 现有版本元数据（CLI `1.0.0`、其他 beta 标识）
+> 尚待统一；本行不构成正式版本声明。见[候选说明](docs/v1-release-candidate.md)。
 
 **Route** 是一个 **local-first、基于会话（session）的 AI 辅助开发管理系统**。
 它不是 Git 的替代品，而是记录"**工作**"那一层：项目意图、连续性、任务历史、KnownGood、
@@ -80,6 +81,7 @@ route self-archive git-commit --message "…"  # 提交整个文档区快照
 
 发布包、安装器和临时装配内容统一写入根目录的 `Release/`。该目录已被
 Git 忽略，不属于源码仓库；正式分发前只从 `Release/packages/` 取经过验证的产物。
+当前 `fruit` 上的 v1 候选仅供本地验收；尚未合入 `main`、打 tag 或公开发布。
 
 ---
 
@@ -114,22 +116,22 @@ Route 会**约束自身的开发**并把它沉淀成可执行、可追溯的 SOP
 
 | 分支 | 角色 |
 |------|------|
-| **main** | 稳定 Route 产品源 / beta release（**默认推荐，正常使用走这里**） |
-| **fruit** | 自进化**组件演示**（额外推送的展示分支） |
+| **main** | 既有 beta 产品源；尚未与 v1 候选完成对账合并 |
+| **fruit** | 当前 v1 发布候选的开发/验收分支；**尚非公开发布** |
 | **sandbox** | 开发记录 / 实验 / 验证历史 |
 
 ```
-MAIN    = WHAT ROUTE IS.
-FRUIT   = WHAT ROUTE MAY BECOME.   （组件演示）
+MAIN    = CURRENT BETA BRANCH; RECONCILIATION PENDING.
+FRUIT   = V1 RELEASE CANDIDATE; NOT YET RELEASED.
 SANDBOX = HOW ROUTE WAS DEVELOPED.
 ```
 
 ### 关于 `fruit` 的重要说明
 
-- `fruit` 分支是**额外推送上去**的一个分支，**只为了展示** route 的默认自进化结果，
-  不是产品、不是正式发布。
-- **正常使用时请只看 `main`**。`fruit`（以及本仓库内 `fruit` 相关产物，如
-  `tools/patchbench/`）**仅为组件演示**，不要把它当作独立产品使用。
+- `fruit` 分支承载当前 v1 发布候选以及自进化组件；它已经超出早期“仅演示”范围，
+  但仍**不是正式发布**。不要把它当成已稳定的公开产品分发。
+- `main` 的既有 beta 内容和未提交工作必须先经人工对账；本候选阶段不自动合并。
+  `tools/patchbench/` 仍是开发/验证工具，不是独立产品。
 - fruit 组件的**真实内容与存储路径在 route 仓库内部的单个独立文件夹**：
   **`tool/route/fruit/`**；其自进化数据落盘于 `Documents/Route/route/` 与
   `.route/sop.md`，均为本机文件、不依赖该 git 分支。
