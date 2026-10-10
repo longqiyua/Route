@@ -2,11 +2,14 @@
 
 mod commands;
 mod git_commands;
+mod host_adapter;
 mod institution_commands;
 mod plugin_commands;
 mod principal_commands;
 mod sidecar_commands;
 mod sync_commands;
+mod team_commands;
+mod team_verify;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -38,6 +41,11 @@ enum AssistantAction {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Explicit opt-in bounded Codex coordination; no daemon or provider setup.
+    Team {
+        #[command(subcommand)]
+        action: team_commands::Action,
+    },
     /// Attach optional shared work state without scanning or archiving source.
     Attach {
         #[arg(long, default_value = "local")]
@@ -2855,6 +2863,7 @@ fn main() -> Result<()> {
         &cli.command,
         Commands::Rpc { .. }
             | Commands::Attach { .. }
+            | Commands::Team { .. }
             | Commands::Sidecar { .. }
             | Commands::Handoff { shared: true, .. }
             | Commands::WorkerBinding { .. }
@@ -2882,6 +2891,7 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::Team { action } => team_commands::run(action),
         Commands::Attach { host } => sidecar_commands::attach(&host),
         Commands::Sidecar { host, action } => sidecar_commands::run(&host, action),
         Commands::Assistant { action } => {

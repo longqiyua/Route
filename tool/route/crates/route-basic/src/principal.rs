@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::Path};
 
 const WORKER_METHODS: &[&str] = &[
+    "team.decide",
     "observation.record",
     "decision.request",
     "artifact.register",
@@ -306,6 +307,7 @@ pub(crate) fn validate_caller(
             matches!(
                 &draft.payload,
                 DevelopmentEventPayload::Finding { .. }
+                    | DevelopmentEventPayload::Team { .. }
                     | DevelopmentEventPayload::Work { .. }
                     | DevelopmentEventPayload::GeneralWork { .. }
                     | DevelopmentEventPayload::WorkflowContract { .. }
@@ -442,6 +444,9 @@ pub fn worker_action(
     obj.remove("worker_id");
     obj.remove("from_worker");
     obj.remove("actor_worker_id");
+    if method == "team.decide" {
+        return crate::team::decide(root, caller, params, key);
+    }
     if method.starts_with("work.") {
         return crate::work::worker_action(root, caller, method, params, key);
     }

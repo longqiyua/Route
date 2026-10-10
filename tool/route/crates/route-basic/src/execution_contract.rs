@@ -98,6 +98,13 @@ pub enum ContractChange {
         step_id: String,
         evidence_ref: Option<String>,
     },
+    /// Explicit broker verification, not a Worker report or an Operator waiver.
+    SystemStepVerified {
+        workflow_id: String,
+        version: u32,
+        step_id: String,
+        evidence_ref: String,
+    },
     StepFailed {
         workflow_id: String,
         version: u32,
@@ -406,6 +413,7 @@ fn qualifying_proof(
         return Ok((false, false));
     };
     let base = e.session_id == spec.intent_ref
+        && !store.has_later_failed_check(e)
         && e.source == EvidenceSource::System
         && e.kind == EvidenceKind::CheckPass
         && e.metadata.get("check_id") == Some(&step.proof.check_id)
@@ -445,6 +453,18 @@ fn step_run(event: &DevelopmentEvent, id: &str, version: u32) -> Option<StepRun>
             step_id,
             "reported",
             evidence_ref.clone(),
+        ),
+        ContractChange::SystemStepVerified {
+            workflow_id,
+            version,
+            step_id,
+            evidence_ref,
+        } => (
+            workflow_id,
+            *version,
+            step_id,
+            "reported",
+            Some(evidence_ref.clone()),
         ),
         ContractChange::StepFailed {
             workflow_id,
@@ -746,6 +766,36 @@ pub fn validate_transition(
         "STALE_CONTEXT"
     );
     match &action.change {
+        ContractChange::SystemStepVerified {
+            workflow_id,
+            version,
+            step_id,
+            evidence_ref,
+        } => {
+            ensure!(actor.is_none(), "OPERATOR_REQUIRED");
+            let (revision, spec) = latest(events, workflow_id)?;
+            ensure!(*version == spec.version, "STALE_WORKFLOW_VERSION");
+            ensure!(
+                crate::team::project(events, &spec.intent_ref)
+                    .is_some_and(|v| !v.cancelled && v.runs.values().all(|r| !r.state.active())),
+                "QUIESCENT_TEAM_REQUIRED"
+            );
+            let step = spec
+                .steps
+                .iter()
+                .find(|s| s.step_id == *step_id)
+                .ok_or_else(|| anyhow!("UNKNOWN_STEP"))?;
+            let hash = execution::compute_state_hash(root)?;
+            let (valid, stale) = qualifying_proof(
+                &EvidenceStore::load(root)?,
+                &spec,
+                step,
+                revision,
+                evidence_ref,
+                &hash,
+            )?;
+            ensure!(valid && !stale, "CURRENT_SYSTEM_EVIDENCE_REQUIRED");
+        }
         ContractChange::Created { spec } => {
             ensure!(actor.is_none(), "OPERATOR_REQUIRED");
             ensure!(
@@ -908,6 +958,9 @@ fn action_from_request(
         "workflow.step.complete" => serde_json::from_value(
             json!({"operation":"step_reported","workflow_id":input.get("workflow_id"),"version":input.get("version"),"step_id":input.get("step_id"),"evidence_ref":input.get("evidence_ref")}),
         )?,
+        "workflow.step.verify_system" => serde_json::from_value(
+            json!({"operation":"system_step_verified","workflow_id":input.get("workflow_id"),"version":input.get("version"),"step_id":input.get("step_id"),"evidence_ref":input.get("evidence_ref")}),
+        )?,
         "workflow.step.fail" => serde_json::from_value(
             json!({"operation":"step_failed","workflow_id":input.get("workflow_id"),"version":input.get("version"),"step_id":input.get("step_id"),"reason":input.get("reason")}),
         )?,
@@ -999,7 +1052,10 @@ fn perform(
     }
     if matches!(
         method,
-        "workflow.create" | "workflow.plan_delta.accept" | "workflow.plan_delta.reject"
+        "workflow.create"
+            | "workflow.plan_delta.accept"
+            | "workflow.plan_delta.reject"
+            | "workflow.step.verify_system"
     ) {
         ensure!(operator, "OPERATOR_REQUIRED");
     }

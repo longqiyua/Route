@@ -231,6 +231,8 @@ fn preflight_idempotency(root: &Path, r: &Request) -> Result<IdempotencyDecision
                         | "workflow.create"
                         | "workflow.step.start"
                         | "workflow.step.complete"
+                        | "workflow.step.verify_system"
+                        | "team.decide"
                         | "workflow.step.fail"
                         | "workflow.step.skip"
                         | "workflow.plan_delta.propose"
@@ -318,6 +320,7 @@ fn is_mutation(method: &str) -> bool {
     matches!(
         method,
         "workflow.create"
+            | "team.decide"
             | "goal.create"
             | "goal.close"
             | "plan.create"
@@ -330,6 +333,7 @@ fn is_mutation(method: &str) -> bool {
             | "plan.verify_step"
             | "workflow.step.start"
             | "workflow.step.complete"
+            | "workflow.step.verify_system"
             | "workflow.step.fail"
             | "workflow.step.skip"
             | "workflow.plan_delta.propose"
@@ -700,6 +704,16 @@ fn dispatch(mut request: Request, operator: bool) -> Value {
 }
 
 route_methods! { request, root, version;
+        "base.query" => surface_response(&root, &request, || {
+            let component=text_param(&request,"component");
+            let environment:Vec<String>=serde_json::from_value(request.params.get("environment").cloned().unwrap_or_else(||json!([])))?;
+            anyhow::ensure!(component.len()<=512 && environment.len()<=4 && environment.iter().all(|s|s.len()<=128),"BOUNDED_BASE_QUERY_REQUIRED");
+            Ok(json!(route_basic::passive_base::retrieve(&root,&component,&environment,request.params.get("independent_first").and_then(Value::as_bool).unwrap_or(true))?))
+        }),
+        "team.status" => surface_response(&root, &request, || Ok(json!(route_basic::team::status(&root, &text_param(&request,"goal_id"))?))),
+        "team.context" => surface_response(&root, &request, || route_basic::context_pack::build(&root,&text_param(&request,"goal_id"),request.params.get("work_id").and_then(Value::as_str),&if request.params.get("independent_review").and_then(Value::as_bool)==Some(true) {route_basic::team::Role::IndependentReviewer}else{route_basic::team::Role::Implementer})),
+        "base.detect" => surface_response(&root, &request, || Ok(json!(route_basic::passive_base::detect(&root,&text_param(&request,"goal_id"))?))),
+        "team.decide" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use the authenticated temporary planner", false, json!({})),
         "handoff.get" => surface_response(&root, &request, || route_basic::sidecar::handoff(&root, request.params.get("goal_id").and_then(Value::as_str))),
         "goal.list" => surface_response(&root, &request, || Ok(json!(route_basic::general_work::list(&root)?))),
         "goal.get" | "goal.status" | "assistant.status" | "plan.get" | "plan.review" | "decision.list" | "decision.get" | "artifact.list" | "artifact.get" | "outcome.get" | "observation.list" => surface_response(&root, &request, || {
@@ -725,7 +739,7 @@ route_methods! { request, root, version;
             let status = route_basic::execution_contract::status(&root, &text_param(&request, "workflow_id"))?;
             if request.method == "workflow.complete.check" { Ok(json!(status.completion)) } else { Ok(json!(status)) }
         }),
-        "workflow.create" | "workflow.step.skip" | "workflow.plan_delta.propose" | "workflow.plan_delta.accept" | "workflow.plan_delta.reject" | "workflow.complete.request" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
+        "workflow.create" | "workflow.step.skip" | "workflow.plan_delta.propose" | "workflow.plan_delta.accept" | "workflow.plan_delta.reject" | "workflow.complete.request" | "workflow.step.verify_system" => surface_response(&root, &request, || Ok(json!(route_basic::execution_contract::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), &request.method, request.params.clone(), &domain_deduplication_key(&request))?))),
         "workflow.step.start" | "workflow.step.complete" | "workflow.step.fail" => error(Some(&request.request_id), "WORKER_BINDING_REQUIRED", "Use authenticated Worker ingress", false, json!({})),
         "work.available" => surface_response(&root, &request, || Ok(json!(route_basic::work::available(&root)?))),
         "work.list" | "work.get" => surface_response(&root, &request, || {

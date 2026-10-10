@@ -336,6 +336,25 @@ pub(crate) fn validate_transition(
     match action {
         WorkAction::ChildCreated { work: item } => {
             ensure!(actor.is_some(), "WORKER_BINDING_REQUIRED");
+            if let Some(team) = crate::team::project(events, &item.intent_ref) {
+                ensure!(
+                    !team.cancelled
+                        && team
+                            .runs
+                            .values()
+                            .any(|r| r.state == crate::team::RunState::Running
+                                && r.reservation.role == crate::team::Role::Planner
+                                && Some(r.reservation.worker_id.as_str()) == actor),
+                    "TEAM_PLANNER_REQUIRED"
+                );
+                ensure!(
+                    work.values()
+                        .filter(|(w, _)| w.intent_ref == item.intent_ref)
+                        .count()
+                        < team.budget.max_workers_per_goal,
+                    "WORK_DECOMPOSITION_BUDGET_DENIED"
+                );
+            }
             active_intent(root, events, &item.intent_ref)?;
             if matches!(item.kind, WorkKind::General) {
                 ensure!(
@@ -544,6 +563,7 @@ pub(crate) fn validate_transition(
                     store.evidence.iter().any(|e| e.id == *id
                         && e.session_id == *intent_ref
                         && e.source == EvidenceSource::System
+                        && !store.has_later_failed_check(e)
                         && matches!(e.kind, EvidenceKind::CheckPass | EvidenceKind::TestPass)
                         && match e.metadata.get("check_started_revision") {
                             Some(encoded_revision) => encoded_revision

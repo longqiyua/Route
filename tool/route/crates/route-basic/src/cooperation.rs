@@ -169,6 +169,8 @@ pub struct CooperationResource {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CooperationKnowledgeRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lesson: Option<crate::passive_base::Lesson>,
     pub knowledge_id: String,
     pub cooperation_id: String,
     pub statement: String,
@@ -329,6 +331,7 @@ pub(crate) fn validate_refresh(value: &CooperationRefreshObservation) -> Result<
 }
 
 pub(crate) fn validate_knowledge(value: &CooperationKnowledgeRecord) -> Result<()> {
+    crate::passive_base::validate_shape(value)?;
     validate_id("knowledge_id", &value.knowledge_id)?;
     validate_id("cooperation_id", &value.cooperation_id)?;
     validate_text("knowledge statement", &value.statement, MAX_TEXT)?;
@@ -827,6 +830,7 @@ pub(crate) fn validate_transition(
         }
         DevelopmentEventPayload::CooperationKnowledgeRecorded { record }
         | DevelopmentEventPayload::CooperationCapabilityObserved { record } => {
+            crate::passive_base::validate_transition(root, events, record)?;
             let resource = resources
                 .get(&record.cooperation_id)
                 .ok_or_else(|| anyhow::anyhow!("unknown cooperation resource"))?;
@@ -1100,7 +1104,7 @@ pub fn cooperation_knowledge(
     if crate::project_identity::load_identity(root)?.is_none() {
         return Ok(Vec::new());
     }
-    let events = load_ledger(root)?.0.events;
+    let events = crate::development::load_ledger_readonly(root)?.0.events;
     let resources = project_cooperation_resources(&events);
     Ok(project_cooperation_knowledge(&events, &resources)
         .into_iter()
@@ -1460,6 +1464,7 @@ mod tests {
             vec![]
         };
         CooperationKnowledgeRecord {
+            lesson: None,
             knowledge_id: id.into(),
             cooperation_id: cooperation_id.into(),
             statement: "This resource has a bounded test capability.".into(),

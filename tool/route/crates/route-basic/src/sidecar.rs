@@ -51,7 +51,28 @@ pub fn safe_text(text: &str) -> String {
 
 fn bounded(value: Value) -> Value {
     match value {
-        Value::String(s) => json!(safe_text(&s)),
+        Value::String(s) => {
+            let locator = [
+                "work-",
+                "claim-",
+                "goal-",
+                "decision-",
+                "observation-",
+                "artifact-",
+                "workflow-",
+            ]
+            .iter()
+            .any(|prefix| {
+                s.strip_prefix(prefix).is_some_and(|tail| {
+                    tail.len() == 64 && tail.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+            });
+            if locator {
+                json!(s)
+            } else {
+                json!(safe_text(&s))
+            }
+        }
         Value::Array(items) => {
             Value::Array(items.into_iter().take(MAX_ITEMS).map(bounded).collect())
         }

@@ -75,6 +75,7 @@ fn cooperation_generic_rpc_evidence_gate_and_pending_replay() {
     let resource = cooperation_resource(root, "resource").unwrap().unwrap();
     let fingerprint = resource.fingerprint.unwrap().value;
     let mut record = CooperationKnowledgeRecord {
+        lesson: None,
         knowledge_id: "observed".into(),
         cooperation_id: "resource".into(),
         statement: "Fixture check passed".into(),
@@ -208,6 +209,7 @@ fn independent_process_supersession_has_exactly_one_winner() {
     )
     .unwrap();
     let original = CooperationKnowledgeRecord {
+        lesson: None,
         knowledge_id: "old".into(),
         cooperation_id: "resource".into(),
         statement: "Declared fixture".into(),

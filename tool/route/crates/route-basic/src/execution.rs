@@ -999,6 +999,19 @@ pub struct EvidenceStore {
 }
 
 impl EvidenceStore {
+    /// Durable insertion order, not wall-clock timestamps, determines newer failure.
+    pub(crate) fn has_later_failed_check(&self, proof: &Evidence) -> bool {
+        let Some(index) = self.evidence.iter().position(|e| e.id == proof.id) else {
+            return true;
+        };
+        self.evidence[index + 1..].iter().any(|e| {
+            e.session_id == proof.session_id
+                && e.source == EvidenceSource::System
+                && matches!(e.kind, EvidenceKind::CheckFail | EvidenceKind::TestFail)
+                && proof.metadata.get("check_id").is_some()
+                && e.metadata.get("check_id") == proof.metadata.get("check_id")
+        })
+    }
     /// Load evidence from disk. Returns empty store if file missing.
     pub fn load(project_root: &Path) -> Result<Self> {
         let p = evidence_path(project_root);
@@ -1836,14 +1849,20 @@ pub fn exec_command(
 ) -> Result<CommandEvidence> {
     // Validate session exists and is Active.
     let store = SessionStore::load(project_root)?;
-    let session = store
-        .get(session_id)
-        .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
-    if session.status != SessionStatus::Active {
-        anyhow::bail!(
-            "session '{}' is not Active (status: {:?}). Cannot execute commands.",
-            session_id,
-            session.status
+    if let Some(session) = store.get(session_id) {
+        if session.status != SessionStatus::Active {
+            anyhow::bail!(
+                "session '{}' is not Active (status: {:?}). Cannot execute commands.",
+                session_id,
+                session.status
+            );
+        }
+    } else {
+        // General Goals use real command Evidence without an unrelated session/archive.
+        let goal = crate::general_work::status(project_root, session_id)?;
+        anyhow::ensure!(
+            goal.goal_state == crate::general_work::GoalState::Active,
+            "ACTIVE_GOAL_REQUIRED"
         );
     }
     drop(store);
@@ -1931,11 +1950,12 @@ pub fn exec_command(
     // later rerun must not deduplicate to it merely because both ended at
     // the same revision and produced the same working-state hash.
     let dedup_key = format!(
-        "exec:{}:{}:{}:{check_started_revision}:{}",
+        "exec:{}:{}:{}:{check_started_revision}:{}:{}",
         argv.join(" "),
         state_hash_before,
         state_hash,
-        check_id.unwrap_or("")
+        check_id.unwrap_or(""),
+        route_core::new_id() // A physical rerun is new Evidence, not a request replay.
     );
     evidence_store.record_dedup(
         session_id,

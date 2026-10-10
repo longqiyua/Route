@@ -12,6 +12,13 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Action {
+    /// Call an existing Worker domain method with this local binding's grants.
+    Call {
+        method: String,
+        params: String,
+        #[arg(long)]
+        key: String,
+    },
     /// Read the local bound identity (never prints authentication material).
     Whoami,
     /// Publish a shareable handoff summary, never Evidence or a transcript.
@@ -98,6 +105,49 @@ fn read_key(file: &Path) -> Result<String> {
         "invalid local host key"
     );
     Ok(fs::read_to_string(file)?)
+}
+
+/// Broker setup, never selected by Worker JSON. Credentials stay outside the repo.
+pub(crate) fn provision_team_worker(
+    root: &Path,
+    host: &str,
+    worker: &str,
+    role: &route_basic::team::Role,
+) -> Result<()> {
+    let file = host_key(root, host, true)?;
+    ensure!(!file.exists(), "TEAM_IDENTITY_ALREADY_PROVISIONED");
+    let secret = route_basic::principal::generate_credential()?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut out = options.open(file)?;
+    out.write_all(secret.as_bytes())?;
+    out.sync_all()?;
+    let operator = CallerContext::trusted_operator();
+    route_basic::principal::register_worker(
+        root,
+        &operator,
+        Some(worker.into()),
+        route_basic::WorkerMetadata {
+            display_name: Some(format!("{role:?}")),
+            host: Some("Codex".into()),
+            ..Default::default()
+        },
+        &format!("team-register-{worker}"),
+    )?;
+    route_basic::principal::issue(
+        root,
+        &operator,
+        worker,
+        &route_core::sha256_hex(secret.as_bytes()),
+        route_basic::team::role_grants(role),
+        &format!("team-binding-{worker}"),
+    )?;
+    Ok(())
 }
 
 /// Explicit trusted-local setup only. Discovery/ROUTE.md never invokes this.
@@ -206,7 +256,28 @@ pub fn run(host: &str, action: Action) -> Result<()> {
         Err(_) => read_key(&host_key(&root, host, false)?)?,
     };
     let caller = CallerContext::authenticate(&root, &secret)?;
+    if let Action::Call {
+        method,
+        params,
+        key,
+    } = &action
+    {
+        ensure!(
+            params.len() <= 16_384 && !params.contains(&secret),
+            "BOUNDED_SHAREABLE_INPUT_REQUIRED"
+        );
+        let event = route_basic::principal::worker_action(
+            &root,
+            &caller,
+            method,
+            serde_json::from_str(params)?,
+            key,
+        )?;
+        println!("{}", serde_json::to_string(&event)?);
+        return Ok(());
+    }
     let (method, params): (&str, Value) = match action {
+        Action::Call { .. } => unreachable!(),
         Action::Whoami => {
             println!(
                 "{}",

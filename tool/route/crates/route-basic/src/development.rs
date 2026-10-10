@@ -30,6 +30,7 @@ const MAX_EVENTS_PER_QUERY: usize = 1_000;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DevelopmentEventType {
+    Team,
     Work,
     GeneralWork,
     WorkflowContract,
@@ -191,6 +192,9 @@ pub struct WorkerMessageInput {
     rename_all = "SCREAMING_SNAKE_CASE"
 )]
 pub enum DevelopmentEventPayload {
+    Team {
+        action: crate::team::TeamAction,
+    },
     Work {
         action: crate::work::WorkAction,
     },
@@ -283,6 +287,7 @@ pub enum DevelopmentEventPayload {
 impl DevelopmentEventPayload {
     pub fn event_type(&self) -> DevelopmentEventType {
         match self {
+            Self::Team { .. } => DevelopmentEventType::Team,
             Self::Work { .. } => DevelopmentEventType::Work,
             Self::GeneralWork { .. } => DevelopmentEventType::GeneralWork,
             Self::WorkflowContract { .. } => DevelopmentEventType::WorkflowContract,
@@ -616,6 +621,7 @@ fn validate_metadata(metadata: &WorkerMetadata) -> Result<()> {
 
 fn validate_payload(payload: &DevelopmentEventPayload) -> Result<()> {
     match payload {
+        DevelopmentEventPayload::Team { action } => crate::team::validate_shape(action)?,
         DevelopmentEventPayload::Work { action } => crate::work::validate_shape(action)?,
         DevelopmentEventPayload::GeneralWork { action } => {
             crate::general_work::validate_shape(action)?
@@ -776,7 +782,8 @@ pub fn append_development_event(
 ) -> Result<AppendDevelopmentEventResult> {
     if matches!(
         &draft.payload,
-        DevelopmentEventPayload::Institution { .. }
+        DevelopmentEventPayload::Team { .. }
+            | DevelopmentEventPayload::Institution { .. }
             | DevelopmentEventPayload::WorkerBinding { .. }
             | DevelopmentEventPayload::Work { .. }
             | DevelopmentEventPayload::GeneralWork { .. }
@@ -785,6 +792,17 @@ pub fn append_development_event(
         bail!(
             "AUTHORITY_DENIED: typed domain transitions require their dedicated authority boundary"
         );
+    }
+    append_event_inner(root, draft, None)
+}
+pub(crate) fn append_operator_team_event(
+    root: &Path,
+    draft: DevelopmentEventDraft,
+) -> Result<AppendDevelopmentEventResult> {
+    if !matches!(&draft.payload, DevelopmentEventPayload::Team { .. })
+        || draft.actor_worker_id.is_some()
+    {
+        bail!("AUTHORITY_DENIED");
     }
     append_event_inner(root, draft, None)
 }
@@ -925,7 +943,35 @@ fn append_event_inner(
         }
     }
 
+    // Exact retries are read-only replays even after a run stops. Binding
+    // validity and actor identity were checked before deduplication above.
+    if let Some(worker) = caller.and_then(|c| c.worker_id()) {
+        crate::team_authority::validate(&ledger.events, worker, &draft)?;
+    }
     cooperation::validate_transition(&owner, &identity.project_id, &ledger.events, &draft.payload)?;
+    if let DevelopmentEventPayload::Team { action } = &draft.payload {
+        crate::team::validate_transition(
+            root,
+            &ledger.events,
+            draft.actor_worker_id.as_deref(),
+            action,
+        )?;
+    }
+    if let DevelopmentEventPayload::CooperationKnowledgeRecorded { record } = &draft.payload {
+        if let (Some(actor), Some(lesson)) = (draft.actor_worker_id.as_deref(), &record.lesson) {
+            if actor != lesson.creator_worker_id
+                || !crate::team::project(&ledger.events, &lesson.goal_id).is_some_and(|v| {
+                    v.runs.values().any(|r| {
+                        r.reservation.worker_id == actor
+                            && r.reservation.role == crate::team::Role::Knowledge
+                            && r.state == crate::team::RunState::Running
+                    })
+                })
+            {
+                bail!("KNOWLEDGE_WORKER_REQUIRED: no creator spoofing or main Worker extraction");
+            }
+        }
+    }
     if let DevelopmentEventPayload::Work { action } = &draft.payload {
         crate::work::validate_transition(
             root,

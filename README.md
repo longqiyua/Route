@@ -101,6 +101,8 @@ output filter catches common sensitive patterns, not every possible secret.
 | Work | Available/claimed/interrupted work and its next action |
 | Evidence | Trusted verification facts, distinct from Worker self-report |
 | History | Published events that outlive an individual session |
+| Base | Narrow sourced lessons, not current Evidence or authority |
+| Context | Only the bounded facts the current Worker needs |
 | Completion | Machine-derived obligations and honest missing verification |
 
 `route handoff --shared` and `route/1 handoff.get` expose the same projection.
@@ -112,6 +114,16 @@ Host credentials stay outside the shared project. Explicit trusted-local
 bootstrap uses existing Principal Binding; ordinary helpers have only narrow
 coordination grants. Same-OS-user hostile isolation is not claimed.
 See [interop/safety](docs/lightweight-interop.md).
+
+## Optional bounded coordination
+
+Route can also let an AI decompose a Goal and coordinate bounded Workers.
+Current real validation uses one Codex Host with multiple independently
+authenticated Route Workers; a trivial Goal can remain single-Worker.
+There is no cross-host or multi-model team certification. Passive Base may
+produce zero lessons after healthy work; knowledge never replaces Evidence.
+See [the opt-in workflow](docs/autonomous-team-base.md) and
+[acceptance/readiness](docs/autonomous-team-base-acceptance.md).
 
 ## Further reading
 
