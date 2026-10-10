@@ -3,3 +3,5 @@
 # PPAM material does not inject it into Assistant or Worker context.
 PPAM_SOURCE_PATH=constraints/ppam/
 PPAM_REMOTE_URL=https://github.com/longqiyua/ppam
+# Compatibility for the optional PPAM bridge's explicit local-clone reads.
+PPAM_LOCAL_PATH=ppam/
