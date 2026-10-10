@@ -1,7 +1,7 @@
 # Basic Example
 
 This directory shows the minimal, real on-disk formats Route reads and writes.
-Every file here is a literal match for what the current V0.6 Beta implementation
+Every file here is a literal match for the historical V0.6 Beta implementation
 produces. These are **not** "pretty fake examples" — Route can parse them.
 
 ## Files

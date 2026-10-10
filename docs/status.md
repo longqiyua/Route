@@ -1,8 +1,10 @@
 # Feature Status
 
-> **V0.6 Beta.** This matrix is the authoritative statement of what is
-> implemented, partial, experimental, or planned. It reflects the current code
-> and parser. Nothing here is a design goal disguised as a feature.
+> **Historical V0.6 Beta matrix.** Its milestone labels are preserved for
+> traceability; they are not the current Route AI v1 version declaration or a
+> certification of later features. See the [prior v1 candidate audit](v1-release-closure-audit.md)
+> for runtime evidence and [version boundary](v1-version-policy.md) for the
+> current product-version decision.
 
 ## Version Metadata Note
 
@@ -11,11 +13,11 @@ Current Reference/Cooperation working-tree readiness is tracked separately in
 substrate is development-only; historical PASS entries below do not certify
 its transport integration, crash recovery, or resource budgets.
 
-**V0.6 Beta is the current product milestone.** Crate/package version metadata
-remains unchanged (`1.0.0`) during this closure round. This is an intentional,
-temporary distinction pending the user's decision at the final Release Gate —
-it is **not** a silently-applied fix. See
-[CHANGELOG.md](../CHANGELOG.md) and [ROUTE.md](../ROUTE.md).
+**Route AI v1's public product version is `1.0.0`**, as explicitly decided for
+the current unpublished candidate. V0.6 Beta remains the historical milestone
+described by this matrix. `route/1` is an independent protocol identifier;
+experimental and legacy packages are classified in the
+[version policy](v1-version-policy.md).
 
 ## Status Legend
 

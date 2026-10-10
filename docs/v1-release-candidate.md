@@ -53,9 +53,10 @@ cloud-distributed security, arbitrary external-action certification, and a
 general autonomous-company/AGI claim are outside this candidate. Tauri GUI
 and Python binding are not shipped in this Windows CLI package.
 
-The release version is **not settled**: Cargo and `route.exe --version` say
-`1.0.0`, while other product/package metadata and documentation say beta or
-V0.6 Beta. `route/1` is the protocol version and is independent of the
-product version. No public release or compatibility promise follows from this
-candidate document; a Human version decision and main reconciliation remain
-release gates.
+The public Route AI v1 product version is decided as **`1.0.0`**. Cargo,
+`route.exe --version`, and the repository's Route tool manifest use that version.
+`route/1` is an independent protocol version. Historical Beta labels and
+experimental/legacy package versions are not silently promoted; see the
+[version policy](v1-version-policy.md). No public release or compatibility
+promise follows from this candidate document: main reconciliation, a fresh
+candidate acceptance, and Human publication authorization remain gates.

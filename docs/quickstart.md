@@ -1,7 +1,7 @@
 # Quickstart
 
 This is the shortest real flow, from an empty project directory, using only
-commands that exist in V0.6 Beta. It assumes:
+commands present in the Route AI v1 `1.0.0` candidate. It assumes:
 
 - You have built `route` and added it to your PATH (see
   [README.md](../README.md)).

@@ -1,8 +1,8 @@
 # Route AI v1 — local release notes draft
 
-**Draft only. Not a tag, publication, or public version declaration.** The
-candidate source is the `fruit` branch; product version metadata and `main`
-reconciliation are pending. These notes describe bounded features already
+**Draft only. Not a tag or publication.** The public Route AI v1 product
+version is `1.0.0`; the candidate source is the `fruit` branch and `main`
+reconciliation remains pending. These notes describe bounded features already
 implemented and exercised, not a claim of cross-model certification.
 
 ## What's in the candidate

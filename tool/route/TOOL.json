@@ -2,7 +2,7 @@
   "tool_id": "route",
   "name": "Route",
   "kind": "HARNESS",
-  "version": "1.0.0-beta",
+  "version": "1.0.0",
   "source": "BUNDLED",
   "description": "Development execution system with AI worker orchestration, safety gates, and causal evidence tracking.",
   "canonical_source": ".",

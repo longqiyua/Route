@@ -2,8 +2,9 @@
 
 > **Git remembers the code. Route remembers the work.**
 >
-> **发布状态：v1 候选，尚未发布。** 现有版本元数据（CLI `1.0.0`、其他 beta 标识）
-> 尚待统一；本行不构成正式版本声明。见[候选说明](docs/v1-release-candidate.md)。
+> **Route AI v1 产品版本：`1.0.0`，当前仍是未发布候选。**
+> 协议版本独立保持 `route/1`；实验性和旧包不会因产品定版而自动升版。
+> 见[候选说明](docs/v1-release-candidate.md)与[版本边界](docs/v1-version-policy.md)。
 
 **Route** 是一个 **local-first、基于会话（session）的 AI 辅助开发管理系统**。
 它不是 Git 的替代品，而是记录"**工作**"那一层：项目意图、连续性、任务历史、KnownGood、

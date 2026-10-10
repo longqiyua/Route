@@ -1,8 +1,8 @@
 # ROUTE.md — The Canonical Guide
 
-> **V0.8 — Agent-Native Development Protocol.** Documentation milestone.
-> Codebase version `1.0.0`; the version-metadata conflict is deferred to the
-> final Release Gate and is not resolved in this document.
+> **V0.8 — Agent-Native Development Protocol** is a historical documentation
+> milestone. Route AI v1's public product version is now decided as `1.0.0`;
+> this source remains an unpublished candidate. Protocol `route/1` is separate.
 
 Route is a **persistent development protocol/state/governance layer** for
 AI-assisted work. It is not an LLM, not a coding agent, not a harness, and not
@@ -610,10 +610,10 @@ hard invariant / trusted physical evidence
 
 **Do not claim Markdown alone provides an unbypassable security boundary.**
 
-> The version-metadata note: **V0.6 Beta is the current product milestone.**
-> Crate/package version metadata remains unchanged (`1.0.0`). This is an
-> intentional, temporary distinction pending the user's decision at the final
-> Release Gate.
+> Version boundary: **Route AI v1 product version is `1.0.0`**. V0.6 Beta and
+> V0.8 below name historical milestones, not the current product version.
+> Experimental/legacy packages retain their own status and protocol `route/1`
+> does not change. See [version policy](docs/v1-version-policy.md).
 
 ## 13. Constitution / Protocol / Reference
 
