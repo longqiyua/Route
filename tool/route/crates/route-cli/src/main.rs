@@ -5,6 +5,7 @@ mod git_commands;
 mod institution_commands;
 mod plugin_commands;
 mod principal_commands;
+mod sidecar_commands;
 mod sync_commands;
 
 use anyhow::Result;
@@ -37,6 +38,18 @@ enum AssistantAction {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Attach optional shared work state without scanning or archiving source.
+    Attach {
+        #[arg(long, default_value = "local")]
+        host: String,
+    },
+    /// Thin trusted-local host adapter; does not launch or replace your AI tool.
+    Sidecar {
+        #[arg(long, default_value = "local")]
+        host: String,
+        #[command(subcommand)]
+        action: sidecar_commands::Action,
+    },
     /// Read-only status for ledger-backed general work (legacy `goal` is project memory).
     Assistant {
         #[command(subcommand)]
@@ -636,7 +649,13 @@ enum Commands {
         task: Option<String>,
     },
     /// Generate a handoff document for a new AI session
-    Handoff,
+    Handoff {
+        /// Read bounded shared work JSON, with no durable writes.
+        #[arg(long)]
+        shared: bool,
+        #[arg(long, requires = "shared")]
+        goal_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2821,7 +2840,12 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
     if std::env::var_os("ROUTE_WORKER_CREDENTIAL").is_some()
-        && !matches!(&cli.command, Commands::Rpc { .. })
+        && !matches!(
+            &cli.command,
+            Commands::Rpc { .. }
+                | Commands::Sidecar { .. }
+                | Commands::Handoff { shared: true, .. }
+        )
     {
         anyhow::bail!("WORKER_INTERFACE_REQUIRED: authenticated Workers use route rpc; administrative CLI commands are not Worker authority");
     }
@@ -2830,6 +2854,9 @@ fn main() -> Result<()> {
     let read_or_domain_audited = matches!(
         &cli.command,
         Commands::Rpc { .. }
+            | Commands::Attach { .. }
+            | Commands::Sidecar { .. }
+            | Commands::Handoff { shared: true, .. }
             | Commands::WorkerBinding { .. }
             | Commands::Assistant { .. }
             | Commands::Institution { .. }
@@ -2855,6 +2882,8 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::Attach { host } => sidecar_commands::attach(&host),
+        Commands::Sidecar { host, action } => sidecar_commands::run(&host, action),
         Commands::Assistant { action } => {
             let root = std::env::current_dir()?;
             match action {
@@ -3756,7 +3785,21 @@ fn main() -> Result<()> {
             }
         }
         Commands::Brief { task } => commands::brief(task),
-        Commands::Handoff => commands::handoff(),
+        Commands::Handoff { shared, goal_id } => {
+            if shared {
+                let root = route_basic::discover_project_root(&std::env::current_dir()?)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Route unavailable; project workflow is unaffected")
+                    })?;
+                println!(
+                    "{}",
+                    route_basic::sidecar::handoff(&root, goal_id.as_deref())?
+                );
+                Ok(())
+            } else {
+                commands::handoff()
+            }
+        }
     };
 
     // History is an engine-owned append surface. The public CLI can only read

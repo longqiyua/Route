@@ -1,159 +1,142 @@
 # Route
 
-> **Git remembers the code. Route remembers the work.**
->
-> **Route AI v1 产品版本：`1.0.0`，当前仍是未发布候选。**
-> 协议版本独立保持 `route/1`；实验性和旧包不会因产品定版而自动升版。
-> 见[候选说明](docs/v1-release-candidate.md)与[版本边界](docs/v1-version-policy.md)。
+## Keep your tools. Keep your repo. Add Route.
 
-**Route** 是一个 **local-first、基于会话（session）的 AI 辅助开发管理系统**。
-它不是 Git 的替代品，而是记录"**工作**"那一层：项目意图、连续性、任务历史、KnownGood、
-checkpoint、证据、修复、重构、迁移、恢复，以及 AI/人类交接时的开发执行上下文。
+Route is an optional, local-first AI work sidecar: a small shared work record
+beside your existing project. Keep using your AI terminal, editor and Git.
+Route helps the next session see what happened, what stopped, and what remains
+verified — without copying the previous chat.
 
+No migration. No central GUI. No account for local mode. No master agent.
+Route does not replace Codex, Claude Code, Cursor, Git or your terminal.
+Real terminal acceptance in this phase covers **Codex CLI**; other names describe
+the tool-neutral design, not tested integrations.
+
+## Get value before learning the architecture
+
+The lightweight commands below are **fruit development features**, not commands
+in the already-published v1.0.0 binary. Build this source first:
+
+```sh
+git clone --branch fruit https://github.com/longqiyua/Route.git
+cd Route
+cargo install --path tool/route/crates/route-cli --locked
 ```
-UNDERSTAND BEFORE REWRITE.
-PATCH WHEN PATCH ENOUGH.
-RESTRUCTURE WHEN STRUCTURE IS THE PROBLEM.
-UGLY != WRONG.  OLD != BAD.  NEW != BETTER.
-PRESERVE WORKING VALUE.  VERIFY BEFORE PROMOTION.
+
+Then, in the existing repository you actually want to use:
+
+Windows also ships an unrelated network utility named route.exe. Verify
+`route --version`, or call `$env:USERPROFILE\.cargo\bin\route.exe` explicitly;
+do not change system networking settings to install Route.
+
+```sh
+route attach
+route handoff --shared
 ```
 
----
+That's the basic setup: one attach action, no configuration fields. Attach creates
+local state without scanning or archiving your source. Existing files, Git
+history, hooks and configuration stay intact. A short ROUTE.md is created only
+if absent; your existing one is never replaced.
 
-## 为什么不是用 Git 就够了？
+Leave a useful fact, not a transcript:
 
-Git 记住**代码**——谁、何时、改了什么。Route 记住**工作**：
+```sh
+route sidecar note "Found missing boundary test; next add Unicode coverage"
+```
 
-- 一个开发任务从哪来、到哪去、验收是什么；
-- 哪些状态是 **KnownGood**，哪些 checkpoint 可以恢复；
-- 记录了哪些**证据**，验证是否真的通过（而不是 AI 嘴上说"通过了"）；
-- 什么时候该 **PATCH**、什么时候才该 **RESTRUCTURE**；
-- AI Worker 与人类之间如何**交接**而不丢上下文。
+A fresh AI session in that same project reads `route handoff --shared` and sees
+the published finding, work/claim state, blockers and next actions. Nothing from
+your old chat needs to be copied. If structured work already exists:
 
-Route 直接使用用户项目的状态，把"一次开发"作为一等公民记录下来，而不是把一堆文件变更扔进历史里。
+```sh
+route sidecar whoami
+route sidecar claim WORK_ID
+route handoff --shared
+route sidecar interrupt CLAIM_ID "Stopping here; boundary test remains"
+```
 
----
+The next trusted local host can explicitly `route attach --host reviewer`, then
+use `route sidecar --host reviewer claim WORK_ID --resumes-claim-id CLAIM_ID`.
+This records independent identity and predecessor-linked continuation without
+creating an organization or a new execution framework.
 
-## 问题 / 它解决什么
+See the [real acceptance record](docs/lightweight-interop-acceptance.md) for what
+was actually exercised, timings and limitations. Model startup/inference time
+is separate from local attach/read latency; this is not a claim that two AI
+sessions finish their reasoning within 30 seconds.
+Reusable [normal-terminal prompts](examples/lightweight-interop/README.md) need
+no extension or transcript copying.
 
-- **AI 开发缺连续性**：每次新会话都像失忆——Route 用会话 + 上下文 + 记忆把工作衔接起来。
-- **AI 声称 ≠ 证据**：Route 区分"人/系统的真实证据"与"AI 的自述"，验证才有说服力。
-- **回退与恢复不可靠**：KnownGood / checkpoint / 保存点 / 恢复策略让项目能被修复而不是只能重改。
-- **改之前不懂**：`UNDERSTAND BEFORE REWRITE`——先理解现状，再决定 patch 还是重构。
-- **人机交接断裂**：handoff / brief 生成可移交的开发上下文。
+## What you get
 
-> Route **不假定项目是空白**——`existing project first-class`。进入任意既有项目：
-> 理解当前状态、保留既有文件、识别结构、建立项目状态与 KnownGood，然后执行有边界的开发任务。
+- Easier AI handoff: bounded work context, not a giant conversation archive.
+- Persistent work state: progress and explicit interruptions survive restart.
+- Traceable findings and decisions: who published what and at which revision.
+- Verified versus claimed results: Worker reports never become System Evidence.
+- Honest completion: missing plans/proofs remain missing, not silently waived.
+- Optional checkpoint/archive recovery through the existing separate commands.
 
----
+## What Route does not do
 
-## 快速开始
+Route does not replace Git or your AI tool, require repository migration, demand
+one master reasoning agent, or grant authority just because a tool connects.
+It does not automatically trust AI claims or require raw chain-of-thought.
 
-### 构建（Rust workspace）
+If Route is missing or stopped, keep editing, committing, building and testing.
+Only Route coordination, history/Evidence publication and completion tracking
+pause. Re-enable retained local state to resume. Work never published while
+Route was absent is **unknown**; Route does not pretend to have observed it.
 
-```bash
+The basic path installs no daemon, watcher or Git hook. Published summaries are
+untrusted data, not instructions. Unknown resources are not automatically run.
+Never publish secrets, credentials, raw chat or private reasoning. The bounded
+output filter catches common sensitive patterns, not every possible secret.
+
+## How the shared record works
+
+| Record | Meaning |
+| --- | --- |
+| Worker | A project-scoped authenticated participant, not Operator authority |
+| Work | Available/claimed/interrupted work and its next action |
+| Evidence | Trusted verification facts, distinct from Worker self-report |
+| History | Published events that outlive an individual session |
+| Completion | Machine-derived obligations and honest missing verification |
+
+`route handoff --shared` and `route/1 handoff.get` expose the same projection.
+Up to 8 entries per list, 256 characters per text plus ellipsis, and 64 KiB total.
+Older entries may be omitted; query the existing protocol for details.
+This bounds context output, not the size or replay cost of the underlying ledger.
+
+Host credentials stay outside the shared project. Explicit trusted-local
+bootstrap uses existing Principal Binding; ordinary helpers have only narrow
+coordination grants. Same-OS-user hostile isolation is not claimed.
+See [interop/safety](docs/lightweight-interop.md).
+
+## Further reading
+
+Start with the short [ROUTE.md](ROUTE.md) entry point.
+Advanced capabilities remain available but are not basic setup requirements:
+
+- [CLI reference](docs/cli.md) and [route/1 protocol](docs/route-cooperation-protocol.md)
+- [Advanced protocol guide](docs/route-protocol-guide.md)
+- [Recovery](docs/recovery.md), [reference resources](docs/references.md)
+- [Repository layout](docs/repository-layout.md), [security](SECURITY.md)
+- [Storage and local-output boundaries](docs/repository-layout.md)
+
+The Rust workspace lives in `tool/route/`. Check it with:
+
+```sh
 cd tool/route
-cargo build -p route-cli          # CLI 二进制
-cargo build --workspace           # 全部 crate
-cargo test  --workspace           # 全量回归
+cargo fmt --all -- --check
+cargo test --workspace --exclude route-pyo3
 ```
 
-仓库根目录是 Route 项目的管理边界；Rust Reference Engine 的 workspace
-位于 `tool/route/`。完整目录职责见
-[`docs/repository-layout.md`](docs/repository-layout.md)。
-
-### 初始化一个既有项目并开发
-
-```bash
-route init                        # 进入/初始化既有项目
-route commit -m "…"               # 提交一次"开发"（edge-centric）
-route log                         # 查看开发历史
-route self-sop                    # 把 route 自身约束升级为 SOP（生成 .route/sop.md）
-route self-archive git-init       # 文档区本地 git 备份（无远程）
-route self-archive git-commit --message "…"  # 提交整个文档区快照
-```
-
-### 既有的 CLI
-
-- 全部命令与本文件的规范见 **`ROUTE.md`**（给任何 AI 的规范与操作手册，单一事实源）。
-- 命令行手册见 [`docs/cli.md`](docs/cli.md)。
-
-### Release 产物
-
-发布包、安装器和临时装配内容统一写入根目录的 `Release/`。该目录已被
-Git 忽略，不属于源码仓库；正式分发前只从 `Release/packages/` 取经过验证的产物。
-当前 `fruit` 上的 v1 候选仅供本地验收；尚未合入 `main`、打 tag 或公开发布。
-
----
-
-## 依赖 / 约束 / 参考
-
-Route 分别消费项目的约束资料与参考资料：
-
-- `constraints/` — **Binding project rules** used during development（规范性，含 `constraints/ppam/`）。
-- `references/` — **Optional supporting material** used for understanding and decision-making（参考性，不产生强制约束）。
-
-约束优先于参考；参考不能覆盖约束。详见 `docs/` 与 `ROUTE.md`。
-
----
-
-## 自进化能力（SOP / 自存档 / 本地备份）
-
-Route 会**约束自身的开发**并把它沉淀成可执行、可追溯的 SOP，全部基于真实数据：
-
-| 能力 | 命令 | 产物 / 落盘 |
-|------|------|-------------|
-| 升级为 **SOP**（并持久化为能力） | `route self-sop` | `<project>/.route/sop.md`（由项目记忆 + 自身 standard 生成）；同时**版本化持久化**到统一存档 `Documents/Route/route/versions/`（append-only，可回溯） |
-| **自存档**（append-only） | `route self-archive {archive,list,show,apply}` | `Documents/Route/route/versions/v######/` |
-| **文档区本地 git 备份**（无远程） | `route self-archive {git-init,git-commit,git-log}` | `Documents/Route/`（仅本机 git 仓库，永不推送） |
-| **自改进**（只生成，不自动应用） | `route self-improve` / `route self-evolve` | pattern / workflow / memory 提案 |
-
-> 这是 **fruit 组件**（Route 自进化）——详见
-> [`tool/route/fruit/README.md`](tool/route/fruit/README.md)。
-
----
-
-## 分支策略（重要）
-
-| 分支 | 角色 |
-|------|------|
-| **main** | 既有 beta 产品源；尚未与 v1 候选完成对账合并 |
-| **fruit** | 当前 v1 发布候选的开发/验收分支；**尚非公开发布** |
-| **sandbox** | 开发记录 / 实验 / 验证历史 |
-
-```
-MAIN    = CURRENT BETA BRANCH; RECONCILIATION PENDING.
-FRUIT   = V1 RELEASE CANDIDATE; NOT YET RELEASED.
-SANDBOX = HOW ROUTE WAS DEVELOPED.
-```
-
-### 关于 `fruit` 的重要说明
-
-- `fruit` 分支承载当前 v1 发布候选以及自进化组件；它已经超出早期“仅演示”范围，
-  但仍**不是正式发布**。不要把它当成已稳定的公开产品分发。
-- `main` 的既有 beta 内容和未提交工作必须先经人工对账；本候选阶段不自动合并。
-  `tools/patchbench/` 仍是开发/验证工具，不是独立产品。
-- fruit 组件的**真实内容与存储路径在 route 仓库内部的单个独立文件夹**：
-  **`tool/route/fruit/`**；其自进化数据落盘于 `Documents/Route/route/` 与
-  `.route/sop.md`，均为本机文件、不依赖该 git 分支。
-- 推广到 `main` 只依据可验证证据，绝不靠 AI 自己决定。
-
----
-
-## 文档
-
-| 文档 | 内容 |
-|------|------|
-| [ROUTE.md](ROUTE.md) | 给任何 AI 的规范与操作手册（单一事实源） |
-| [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | 由 `route apply` 生成的有效开发上下文 |
-| [docs/](docs/) | 架构、CLI、概念、回退恢复、协议、演化等 |
-| [docs/repository-layout.md](docs/repository-layout.md) | 仓库根目录、源码、文档与本地 Release 产物的边界 |
-| [docs/open-development-substrate.md](docs/open-development-substrate.md) | 项目级 DevelopmentEvent、全局 revision、Worker/Presence/Message 与 Evidence 边界 |
-| [docs/route-cooperation-protocol.md](docs/route-cooperation-protocol.md) | `route/1` 主机/模型中立 stdio/JSONL 协议 |
-| [tool/route/fruit/README.md](tool/route/fruit/README.md) | fruit 组件（自进化演示）规范与存储说明 |
-
----
+Release packages, test fixtures and temporary assembly output belong in ignored
+`Release/`, not the source repository. v1.0.0 remains preserved by its published
+tag; fruit is subsequent development, not a new public release. The main
+worktree's existing local changes are not part of this phase.
 
 ## License
 
-**AGPL-3.0** — 见 [LICENSE](./LICENSE)。第三方组件见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+[AGPL-3.0](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md).

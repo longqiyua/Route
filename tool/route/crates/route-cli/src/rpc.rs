@@ -700,6 +700,7 @@ fn dispatch(mut request: Request, operator: bool) -> Value {
 }
 
 route_methods! { request, root, version;
+        "handoff.get" => surface_response(&root, &request, || route_basic::sidecar::handoff(&root, request.params.get("goal_id").and_then(Value::as_str))),
         "goal.list" => surface_response(&root, &request, || Ok(json!(route_basic::general_work::list(&root)?))),
         "goal.get" | "goal.status" | "assistant.status" | "plan.get" | "plan.review" | "decision.list" | "decision.get" | "artifact.list" | "artifact.get" | "outcome.get" | "observation.list" => surface_response(&root, &request, || {
             let goal_id = text_param(&request, "goal_id");

@@ -63,6 +63,7 @@ pub mod role_template;
 pub mod route_history;
 pub mod savepoint;
 pub mod self_archive;
+pub mod sidecar;
 pub mod sop;
 pub mod strategy;
 pub mod study;

@@ -30,14 +30,61 @@ pub fn identity_path(root: &Path) -> PathBuf {
     root.join(".route").join(FILE_NAME)
 }
 
+/// Resolve an existing local path without requiring directory-handle access
+/// denied by some Windows process containers. The fallback accepts only an
+/// absolute local drive path with no reparse point in ANY ancestor.
+pub fn resolve_local_path(path: &Path) -> std::io::Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(path) => Ok(path),
+        #[cfg(windows)]
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            use std::os::windows::fs::MetadataExt;
+            use std::path::{Component, Prefix};
+            let absolute = std::path::absolute(path)?;
+            if !matches!(absolute.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(),Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+                || absolute
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir))
+            {
+                return Err(error);
+            }
+            for ancestor in absolute.ancestors() {
+                if fs::symlink_metadata(ancestor)?.file_attributes() & 0x400 != 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "reparse path cannot be safely resolved",
+                    ));
+                }
+            }
+            if absolute.to_string_lossy().starts_with(r"\\?\") {
+                Ok(absolute)
+            } else {
+                Ok(PathBuf::from(format!(r"\\?\{}", absolute.display())))
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub fn discover_project_root(start: &Path) -> Option<PathBuf> {
-    let mut current = fs::canonicalize(start).ok()?;
+    let mut current = resolve_local_path(start).ok()?;
     if current.is_file() {
         current.pop();
     }
     loop {
         if current.join(".route").is_dir() || current.join(".route-basic").is_dir() {
+            // Never follow shared state redirected into a foreign project.
+            for name in [".route", ".route-basic"] {
+                let state = current.join(name);
+                if state.exists() && !resolve_local_path(&state).ok()?.starts_with(&current) {
+                    return None;
+                }
+            }
             return Some(current);
+        }
+        // A nested independent Git repository is a discovery boundary.
+        if current.join(".git").exists() {
+            return None;
         }
         if !current.pop() {
             return None;
