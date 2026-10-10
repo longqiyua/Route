@@ -1,0 +1,10 @@
+{
+  "goal": "External demo: Worker violated scope by touching a forbidden path so PatchBench should FAIL it.",
+  "allowed_paths": ["src/**", "tests/**"],
+  "forbidden_paths": ["docs/**", "secret.txt", "config/*.local"],
+  "files": { "changed": ["src/app.py", "tests/test_app.py", "secret.txt"] },
+  "checks": [],
+  "claims": [
+    { "text": "only src and tests were changed", "kind": "scope", "condition": "in_scope" }
+  ]
+}

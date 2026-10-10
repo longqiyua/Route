@@ -1,0 +1,10 @@
+# Inventory validator (candidate mutation: sorted-aware)
+
+Like the baseline, but the candidate first sorts entries by id then checks
+that every `name=` is preceded by an `id=`.
+Exits 0 if all entries have ids, 1 otherwise.
+
+Hypothesis under test: sorting catches a class of missing-id defects that the
+sequential validator misses.
+This is an EXPERIMENTAL candidate. It must NOT be promoted to Stable without
+Prime gate + evidence + (if mandatory) challenger.

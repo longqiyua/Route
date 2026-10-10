@@ -1,0 +1,26 @@
+{
+  "goal": "Verify the PatchBench dogfood patch is scoped to tools/patchbench/** and that its self-tests still pass.",
+  "repo": "",
+  "allowed_paths": ["tools/patchbench/**"],
+  "forbidden_paths": ["yuich/**", ".route/**", ".route-basic/**", "sandbox/**"],
+  "files": {
+    "changed": [
+      "tools/patchbench/patchbench.py",
+      "tools/patchbench/tests/run_tests.py",
+      "tools/patchbench/examples/task.json",
+      "tools/patchbench/examples/self-task.json"
+    ]
+  },
+  "checks": [
+    {
+      "command": "python tests/run_tests.py",
+      "timeout": 120,
+      "expected_exit_code": 0
+    }
+  ],
+  "claims": [
+    { "text": "only files under tools/patchbench were touched", "kind": "scope", "condition": "in_scope" },
+    { "text": "the PatchBench self-test suite passes", "kind": "check_ref", "ref": 0 }
+  ],
+  "metrics": []
+}

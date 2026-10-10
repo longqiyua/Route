@@ -1,0 +1,3 @@
+idea: a plain-text knowledge base
+idea: zero-dependency everything
+idea: boring is a feature

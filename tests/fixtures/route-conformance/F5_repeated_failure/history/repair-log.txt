@@ -1,0 +1,6 @@
+# repair log
+
+#1 2024-02 stage2 crash "OutOfMemory" -> restart service (ops)
+#2 2024-03 stage2 crash again -> PATCH: try/except swallow in app.txt (dev)
+#3 2025-01 stage2 hang 6h -> manual kill + restart; patch kept (ops)
+# note: root cause (unbounded stage1 -> stage2, no backpressure) never addressed

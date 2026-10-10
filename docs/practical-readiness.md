@@ -1,0 +1,225 @@
+# Practical readiness and development gates
+
+Audit date: 2026-09-06. Current daily-use work on `fruit` is based on
+`cbbb032`; the original audit below was based on `4e0e2865`. This is not a release certification or a
+replacement for the historical feature matrix. No new runtime is proposed.
+
+## Intended useful outcome
+
+A developer should be able to register useful information, resume a task in
+another process, discover what changed, and reuse explicitly qualified
+knowledge without losing project identity, history, or control over execution.
+Route must save more recovery/context work than it adds in maintenance.
+Model definitions and successful serialization alone do not demonstrate this.
+
+## Initial audit findings and closure status
+
+| Priority | Evidence in current code | Practical consequence / acceptance |
+|---|---|---|
+| P0 | `rpc.rs` listed new methods without dispatch arms | Fixed in this audit: do not advertise them; reject before receipt/state writes. Re-enable individually only with real transport tests. |
+| P0 | `ReferenceRegistry::read_unlocked` treated existing blank JSON as a new registry | Fixed: reject empty/truncated files, preserve bytes; missing registry remains a supported first-use case. Legacy Reference callers now propagate corruption errors; see closure evidence. |
+| P0 | Knowledge fingerprint comparison used `Option::zip` | Fixed: losing a previously observed fingerprint makes bound knowledge stale; stale capabilities must not remain in the projection. |
+| P0 | Reference registry writes and commons events have separate persistence paths | Implemented: durable Reference operation journal, registry CAS, deterministic forward recovery and one keyed ledger event; legacy writes share this boundary. |
+| P0 | Knowledge can carry OBSERVED through the generic record path; capability-specific evidence checks are separate | Implemented: one stateful validator under the ledger lock for generic and dedicated ingress; successful System Evidence must bind project/resource/fingerprint. |
+| P0 | Cooperation projection inserts records by ID; append lock does not establish all domain uniqueness/supersession rules | Implemented: locked ID/supersession validation; concurrent conflicting replacements have one winner. |
+| P0 | Registry and development locks infer staleness from a 30-second age | Implemented: kernel-owned file locks plus PID/nonce metadata; real Windows child holds beyond 30 seconds and exits abruptly, then recovery succeeds. |
+| P1 | Reference reads acquire a lock that creates the reference directory | Implemented: no lock acquisition/initialization on Reference reads; Cooperation reads do not initialize or rebind identity. |
+| P1 | `material.rs` scans `constraints/`, not Constitution/Protocol/intent | Coverage report implemented: bounded constraints/ppam metadata is PARTIAL; prose and active intent rules are explicitly NOT_PROJECTED, not silently omitted. |
+| P1 | Commons loads and rewrites a complete JSON ledger; directory scanning and locator checks need adversarial bounds | Measured in the daily-use batch: E10K p95 602.381 ms and peak 30.38 MiB after eliminating repeated ledger verification; bounded large-file/directory, junction, credential-marker and corruption process tests pass. |
+| P1 | New substrate has library tests but no complete CLI/RPC worker handoff | Verified in real processes: A records, B reads delta/reuses, C retries; crash/recovery, external change and foreign-project no-write tests pass. |
+
+## Definition of usable
+
+These are acceptance requirements, not measured results. A capability advances
+separately through `DESIGNED`, `LIBRARY_TESTED`, `SURFACE_TESTED`, and
+`DAILY_USE_VERIFIED`. Missing evidence is `NOT_RUN`, not an implicit pass.
+
+1. Fresh disposable project: documented commands work without manual state
+   edits; errors give a safe recovery action. No change outside the named root.
+2. Restart and concurrency: two independent processes see the same ordered
+   changes; retries do not duplicate effects; interrupted writes either recover
+   or fail closed without erasing history. Test the crash window, not only the
+   happy path.
+3. Epistemics: declaration, inference and observation remain distinct; cited
+   evidence exists; replaced/missing resources invalidate applicable knowledge.
+4. Safety: no execution from registration, no implicit foreign-project writes,
+   no secret/raw reasoning persistence, no recursive Wiki/Release ingestion.
+5. Resource budget: publish binary SHA, machine/RAM, dataset size, elapsed time,
+   peak working set, bytes read/written and retained disk growth. Test empty,
+   1,000 and 10,000-event histories plus a large external resource. Proposed
+   local-interactive target: p95 read <= 1 second, peak <= 128 MiB for metadata
+   queries; a measured exception needs explicit review, never silent waiver.
+   Compare 100 repeated reads: they must not grow durable state. No background
+   polling, full reference copy or extra build target without a stated need.
+6. Dogfood: three complete task/resume cycles across process restarts, including
+   a failed operation and recovery. Record expected/actual outputs and usable
+   limitations. This gate does not imply cross-host or cross-model validation.
+
+## Development rules for the current backlog
+
+- Start each patch with a concrete user scenario, failing regression, canonical
+  state owner, allowed paths and failure/retry behavior. No new conceptual
+  layers until the existing workflow closes.
+- Domain validation belongs below transports. A CLI/RPC adapter may not weaken
+  it. Capability discovery lists only implemented dispatch routes.
+- Persistence changes require concurrent writer, duplicate replay, restart,
+  corruption and failure-injection tests. Preserve historical bytes and schema
+  compatibility; never use resetting state as the recovery implementation.
+- Reuse one bounded build target; do not start another build against a locked
+  target. Build/cache/Release are not source or snapshots. Cleanup requires an
+  exact target, an ownership check and appropriate user authority.
+- Before merging a completed batch: formatting, route-core/basic/cli tests,
+  workspace tests excluding route-pyo3, doc links, PowerShell parsing and diff
+  checks. Record exit codes and distinguish targeted from full regression.
+- A handoff records changed files, tests actually run, remaining acceptance
+  gaps and the next smallest closure step. No phase PASS, commit/push or release
+  claim on the strength of library tests alone.
+
+Current disposition: **the exact local Reference/Cooperation workflows below
+have daily-use process evidence**; this is not production certification of Route
+as a whole. See [daily-use evidence](cooperation-daily-use.md) for commands,
+actual request/response shapes, limitations, benchmark fixtures and regression
+results. Historical [reliability closure](cooperation-reliability-closure.md)
+remains a separate phase.
+
+## Capability-specific readiness
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| Reference registry/journal/recovery | YES | YES | YES, dedicated RPC + CLI | YES, local register/resume/crash/recover/retry/refresh |
+| CooperationResource | YES | YES | YES, dedicated RPC + CLI | YES, local/external bounded resource and foreign-project no-write |
+| CooperationKnowledge | YES | YES | YES, dedicated RPC + CLI; OBSERVED rejection gate | YES for bound DECLARED learning, stale projection and supersession; positive OBSERVED creation through a host is NOT_RUN |
+| MultiWorkerSharedLearning | YES | YES | YES, two distinct worker IDs and actual OS processes | YES for same-project delta/reuse with original provenance |
+| ConstraintProjection | YES, partial coverage only | YES | NOT_RUN for a dedicated transport | NOT_RUN |
+| OS lock ownership | YES | YES, real crash/age tests | Used through domain surfaces | Exercised in local recovery; not a distributed lock |
+| Cross-host validation | Protocol design | No new claim | NOT_RUN | NOT_RUN |
+| Cross-model validation | Host-neutral design | No new claim | NOT_RUN | NOT_RUN |
+
+Evidence is bounded: E0/E1K/E10K contain history findings, not 10,000 resources;
+the benchmark project has no populated Git tree. The large resource is 256 MiB
+and remains external. Full per-method metrics and binary/machine identity are
+in [budget results](cooperation-daily-use-budget.json). Whole-ledger read cost
+still scales linearly. At the tested scale no segmented ledger is warranted.
+
+## Open Institution Runtime I (bounded local workflow)
+
+The [institution contract and evidence](open-institution-runtime.md) apply only
+to explicit declarative CLI/route/1 invocation, not autonomous society.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| InstitutionPackage | YES | Immutable identity/hash, corruption, external source | Register/inspect/list/get through real processes | YES, custom package remains external |
+| InstitutionBinding | YES | Explicit grants, CAS, isolation | Concurrent activation, durable keyed retries | YES, restart/deactivation/v1-v2-v1 |
+| InstitutionHooks | YES | Stale revision/no-effect/denial | Real FINDING delivered with bounded context | YES for explicit delivery, no daemon |
+| InstitutionEffects | YES | Typed validation, missing/unknown authority | Safe proposal, invalid/privileged target rejection | YES for suggestions/requests, no domain execution |
+| InstitutionReplay | YES | Deterministic and bounded | CLI + JSONL, hash/mtime/byte no-write checks | YES, selected version over 1000-event fixture |
+| InstitutionComposition | YES | Same ledger snapshot and deterministic ordering | Two active packages with separate conflicting effects | YES, no voting or overwrite |
+| CustomInstitution | YES | IDs are data, not core enums | Disposable user-review v1/v2, two Workers | YES, local custom/restart/rollback workflow |
+| Autonomous Society / self-modification | FUTURE only | NOT_RUN | NOT_RUN | NOT_RUN |
+
+The measured five-institution invoke p95 is 249.55 ms with 20.20 MiB peak
+working set on a 1000-event fixture. Replay of one selected version across 1000
+events has p95 <=227.62 ms, peak <=29.72 MiB and zero durable growth.
+See [exact measurement](open-institution-runtime-budget.json); five samples
+per row are a bounded check, not a production SLA. Explicit invocations append
+history/receipts, including when zero institutions are active.
+
+## Worker Principal Binding I (trusted-local interface)
+
+[Binding acceptance and host guide](worker-principal-binding.md): PASS. Persistent,
+revocable Worker contexts, explicit Operator separation and principal-derived event
+actors are library- and real-process-tested. A–J attacks, restart, concurrent issue,
+PENDING recovery, JSONL revocation and credential non-disclosure pass. Workspace:
+617 passed, 2 existing fixture ignores. Default RPC mutation authority intentionally
+changed: Worker binding or explicit Operator launch is required. Old unscoped
+receipts require explicit reconciliation, not silent replay under a new identity.
+
+This closes the identity blocker in the
+[autonomous audit](autonomous-society-audit.md). The continuation adds
+child-work projection, exclusive claims, explicit interruption/reassignment,
+and a content- and causal-revision-bound integration gate. Scripted
+three-principal route/1 process coverage is distinct from the subsequent
+three independent authenticated Codex Worker dogfood on a real Route
+maintenance objective. Cross-model remains NOT_RUN.
+Same-OS-user hostile-process isolation and remote authenticated transport are
+not implemented.
+
+| Autonomous capability | Current readiness | Boundary |
+|---|---|---|
+| AutonomousWorkDiscovery | DAILY_USE_VERIFIED | Independent Workers discovered the same parent/child state and event deltas in a disposable Route project. |
+| WorkerSelfClaim | DAILY_USE_VERIFIED | Three bound identities created and self-claimed Work; conflict, replay and persistence also tested. |
+| PeerCoordination | DAILY_USE_VERIFIED | Voluntary help offer, review, proposal and disagreement are in the shared Route ledger. |
+| WorkerInterruption | DAILY_USE_VERIFIED | C's live implementation was explicitly interrupted; no age-based death inference. |
+| WorkerReassignment | DAILY_USE_VERIFIED | A observed and resumed C's Work with explicit predecessor lineage, retaining both contributions. |
+| AutonomousMultiWorkerSession | DAILY_USE_VERIFIED | One bounded same-host Codex A/B/C maintenance session; not a general or cross-model claim. |
+| IntegrationBoundary | DAILY_USE_VERIFIED | Worker completion alone was insufficient; final combined verification used fresh System evidence and explicit Operator integration before the parent Intent closed. |
+
+## Execution Contract I (bounded local Route project)
+
+The [execution contract](execution-contract.md) enforces accepted, versioned
+steps and canonical proof below CLI and route/1. `DAILY_USE_VERIFIED` refers to
+the disposable real-process anti-shortcut and restart cases, not cross-model or
+remote-host operation.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| ExecutionContract | YES | Versioned event/authority validation | route/1 and CLI status | YES, disposable A–D run |
+| WorkflowCompleteness | YES | Canonical gate and required-step projection | Missing C denied; fresh C accepted | YES, A–D anti-shortcut |
+| ProofObligation | YES | System CheckPass, stable fingerprint, freshness | Claim-only denied; mutation stales proof | YES, real process restart/revalidation |
+| PlanDelta | YES | Immutable versions, authorized acceptance | Proposal/accept/reject and v1 readback | YES, disposable process sequence |
+| ControlledExecution | YES | Controlled/full-power share hard gate | Worker and Operator route/1 paths | YES for local bounded run only |
+
+## General Work & Assistant I (local, bounded)
+
+The [general-work loop](general-work-assistant.md) connects a non-code Goal,
+structured Plan, Worker-owned General ChildWork, Decision, Observation,
+PlanDelta, Artifact, Outcome, and read-only assistant projection to the
+existing Execution Contract. The real-process two-Worker product-launch
+scenario is `SURFACE_TESTED`. A separate real AI Host and two bound,
+self-selecting AI Workers completed the non-code Route AI v1 closure audit;
+see [the bounded closure record](route-ai-v1-closure-audit.md). Neither run
+is evidence of an autonomous external business action, cross-model
+deployment, or semantic quality verification by Route.
+`plan.verify_step` checks structured causal facts and project fingerprint,
+not whether a launch recommendation is commercially correct. Final closure
+still requires the canonical Workflow gate, integration, a final Artifact,
+and a final Outcome. The older project-memory GoalStore remains separate.
+
+| Capability | DESIGNED | LIBRARY_TESTED | SURFACE_TESTED | DAILY_USE_VERIFIED |
+|---|---|---|---|---|
+| GeneralWorkKernel | YES | Existing Work/ledger regressions | Two-Worker real-process planning fixture | YES, bounded same-host closure audit |
+| Goal | YES | Canonical transition under ledger lock | Create, close, restart | YES, closure Goal SUCCEEDED after gate |
+| GenericWorkItem | YES | Claim/integration regressions | Six non-code self-claimed items | YES, eight real Worker claims integrated |
+| PlanningDomain | YES | Contract version/PlanDelta regressions | Structured v1/v2, required/conditional/optional | YES, Observation-addressed v1→v2 |
+| PlanReview | YES | Contract completion regressions | Missing C and affected D visible | YES, DENIED→PASS on live Goal |
+| Decision | YES | Principal rejection path | Pending Human answer and Operator response | YES, bounded onboarding triage answered; no Human release approval implied |
+| Outcome | YES | Completion gate | Draft denied, Final after PASS | YES, FINAL Outcome after PASS |
+| AssistantLoop | YES | Projection over canonical stores | Restarted route/1 and CLI status | YES, external AI Host used Route; no built-in model runtime |
+| AssistantContinuity | YES | Ledger persistence | Independent process reconstruction | YES, new processes recovered Plan and claims |
+| AssistantStatus | YES | Zero-write invariant | Fresh-process p50/p95 measured | YES, truthful 0/7→7/7 projection |
+| NonCodeAutonomousWork | YES | Claim/authority regressions | Two bound Workers self-claim | YES, two real same-host AI Workers |
+
+`ROUTE_AI_V1_BOUNDED_ASSISTANT_READY = YES` for the local same-host,
+bounded Goal→structured Plan→authenticated Worker→System proof→Outcome
+promise. The actual non-code closure Goal produced a clear, prioritized
+report and reached canonical Workflow/PlanReview PASS; this does not
+certify general assistant quality, autonomous research, hostile-process
+isolation, public Release, or cross-model operation. A Human still owns any
+main merge, tag, Release and public-version decision.
+
+## Original audit checks (historical; before reliability closure)
+
+
+- `cargo test -p route-basic --lib`: exit 0, 380 passed, including blank
+  registry rejection and missing-resource staleness regressions.
+- `cargo test -p route-cli --lib rpc::tests`: exit 0, 11 passed, including
+  unimplemented method rejection without state creation.
+- `cargo fmt --all -- --check`, `scripts/check-docs.ps1`, parsing root
+  `scripts/*.ps1`, and `git diff --check`: exit 0.
+- An initial RPC filter against the binary target selected zero tests; it is
+  not counted as RPC evidence. The library-target run above is the real check.
+- Full workspace regression, resource-budget measurements, and the new
+  cross-process substrate acceptance scenarios: NOT_RUN in this audit.
+- Existing unfinished RPC helper warnings remain. No commit, push, history
+  rewrite, release, or change to Yuich was performed by this audit. Preexisting
+  worktree deletions were left untouched.

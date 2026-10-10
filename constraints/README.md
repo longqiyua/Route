@@ -32,8 +32,12 @@
 
 ## AI Worker 使用方式
 
-约束资料进入 Worker 上下文的 **REQUIRED / MUST / FORBIDDEN / INVARIANT** 层。
-违反约束 = 任务失败 / 需要上报。
-能机器验证的约束（路径、分支、测试）进入既有 Gate（PathGate / BranchGate / TestGate）。
+约束资料是可供显式选择、审阅和投影的源材料。仅因文件位于此目录，
+**不会**自动成为 Worker 指令，也不会把原文无界注入上下文。Route v1
+以有界 Constraint projection 为准；具体权限、适用范围和验证结果仍由
+Route 现行语义及授权流程决定。
+
+能机器验证的约束（路径、分支、测试）可通过现有 Gate 执行，
+但资料本身不构成验证通过的证据。
 
 `TEXT DESCRIBES THE CONSTRAINT. THE EXECUTOR ENFORCES WHAT IT CAN.`

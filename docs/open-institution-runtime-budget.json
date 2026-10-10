@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-08",
+  "machine": "Windows NT 10.0.26200.0; AMD Ryzen 9 7945HX; total RAM not re-measured (CIM access denied)",
+  "profile": "debug test-utils",
+  "binary_bytes": 39686144,
+  "binary_sha256": "1999e2b161c0ec622e6f3f4d03d58167e9b19a490f301883bfdd158fb53cdf36",
+  "scope": "fresh process + RPC + ledger validation + evaluation + response; invoke includes ledger and receipt writes",
+  "fixture": "1000 canonical FINDING events, simple one-effect declarative packages, no populated Git tree",
+  "runs_per_row": 5,
+  "percentiles": "nearest rank; p95 is maximum of five, not a long-running distribution",
+  "rows": [
+    {
+      "active_institutions": 0,
+      "correctness": "PASS",
+      "durable_before_bytes": 567083,
+      "durable_growth_bytes": 16540,
+      "fixture_events": 1000,
+      "method": "institution.invoke",
+      "p50_ms": 235.4193,
+      "p95_ms": 235.7429,
+      "peak_working_set_bytes": 20103168,
+      "result_bytes": 1205,
+      "runs": 5
+    },
+    {
+      "active_institutions": 1,
+      "correctness": "PASS",
+      "durable_before_bytes": 577025,
+      "durable_growth_bytes": 45010,
+      "fixture_events": 1000,
+      "method": "institution.invoke",
+      "p50_ms": 226.14000000000001,
+      "p95_ms": 247.79919999999998,
+      "peak_working_set_bytes": 20979712,
+      "result_bytes": 2613,
+      "runs": 5
+    },
+    {
+      "active_institutions": 1,
+      "correctness": "PASS",
+      "durable_before_bytes": 622035,
+      "durable_growth_bytes": 0,
+      "fixture_events": 1000,
+      "method": "institution.replay",
+      "p50_ms": 207.05509999999998,
+      "p95_ms": 210.7877,
+      "peak_working_set_bytes": 31072256,
+      "result_bytes": 1405952,
+      "runs": 5
+    },
+    {
+      "active_institutions": 5,
+      "correctness": "PASS",
+      "durable_before_bytes": 616073,
+      "durable_growth_bytes": 158890,
+      "fixture_events": 1000,
+      "method": "institution.invoke",
+      "p50_ms": 237.8219,
+      "p95_ms": 249.55440000000002,
+      "peak_working_set_bytes": 21180416,
+      "result_bytes": 8249,
+      "runs": 5
+    },
+    {
+      "active_institutions": 5,
+      "correctness": "PASS",
+      "durable_before_bytes": 774963,
+      "durable_growth_bytes": 0,
+      "fixture_events": 1000,
+      "method": "institution.replay",
+      "p50_ms": 209.9558,
+      "p95_ms": 227.61229999999998,
+      "peak_working_set_bytes": 31154176,
+      "result_bytes": 1405952,
+      "runs": 5
+    }
+  ],
+  "notes": [
+    "Replay evaluates one selected version over 1000 events, even when five institutions are active.",
+    "Growth is total over five distinct invocation keys, not per operation; zero-institution explicit invocation still records an audit event and receipt.",
+    "Replay checked content hashes, file/directory timestamps and durable byte count; zero growth.",
+    "No isolated evaluator CPU timing or filesystem IO byte counters claimed. Existing whole-ledger verification remains linear.",
+    "One reused CARGO_TARGET_DIR; no release build or new benchmark target directory."
+  ]
+}

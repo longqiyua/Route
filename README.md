@@ -2,7 +2,9 @@
 
 > **Git remembers the code. Route remembers the work.**
 >
-> **当前版本：v1.0 beta**（machine `1.0.0-beta`）— Experimental Beta
+> **Route AI v1 产品版本：`1.0.0`，当前仍是未发布候选。**
+> 协议版本独立保持 `route/1`；实验性和旧包不会因产品定版而自动升版。
+> 见[候选说明](docs/v1-release-candidate.md)与[版本边界](docs/v1-version-policy.md)。
 
 **Route** 是一个 **local-first、基于会话（session）的 AI 辅助开发管理系统**。
 它不是 Git 的替代品，而是记录"**工作**"那一层：项目意图、连续性、任务历史、KnownGood、
@@ -50,175 +52,106 @@ Route 直接使用用户项目的状态，把"一次开发"作为一等公民记
 ### 构建（Rust workspace）
 
 ```bash
+cd tool/route
 cargo build -p route-cli          # CLI 二进制
 cargo build --workspace           # 全部 crate
 cargo test  --workspace           # 全量回归
 ```
 
+仓库根目录是 Route 项目的管理边界；Rust Reference Engine 的 workspace
+位于 `tool/route/`。完整目录职责见
+[`docs/repository-layout.md`](docs/repository-layout.md)。
+
 ### 初始化一个既有项目并开发
 
 ```bash
-cd /path/to/your/project
-route init                         # 进入项目，保留既有文件，建立状态
-route status                       # 项目概览（integrity / profile / sessions）
-route task start "<task>" --target generic      # 启动一个有边界的开发会话，返回 SESSION_ID
-route task exec <SESSION_ID> -- <cmd>           # 有边界地执行（BranchGate/PathGate/CommandGate）
-route task verify <SESSION_ID>                  # 验证（真实测试证据，而非 AI 声称）
-route task end --result success <SESSION_ID>    # 收尾，生成 Outcome（失败则 --result failed）
-route commit -m "..."              # 把当前状态存为快照
-route log                          # 查看历史
-route rollback <snapshot>          # 回退到快照
-route check                        # 校验仓库完整性
-route repair-plan                  # 基于 check 生成修复计划
+route init                        # 进入/初始化既有项目
+route commit -m "…"               # 提交一次"开发"（edge-centric）
+route log                         # 查看开发历史
+route self-sop                    # 把 route 自身约束升级为 SOP（生成 .route/sop.md）
+route self-archive git-init       # 文档区本地 git 备份（无远程）
+route self-archive git-commit --message "…"  # 提交整个文档区快照
 ```
 
-### Python 绑定（route-py）
+### 既有的 CLI
 
-```bash
-cd packages/route-py
-maturin build --release
-# 生成的 wheel：route_vc-1.0.0b0-cp310-abi3-*.whl
-python -c "import route; print(route.__version__)"   # 1.0.0-beta
-```
+- 全部命令与本文件的规范见 **`ROUTE.md`**（给任何 AI 的规范与操作手册，单一事实源）。
+- 命令行手册见 [`docs/cli.md`](docs/cli.md)。
 
----
+### Release 产物
 
-## 核心安全思想
-
-| 思想 | 含义 |
-|------|------|
-| **Evidence > 声称** | AI 说"测试通过"不算，Route **实际执行**测试才算。`CLAIM_EQUALS_EVIDENCE = NO` |
-| **有边界的 AI Worker** | TaskSpec：目标 / 允许路径 / 禁止路径 / 测试 / 不变项 / 作用域 / 分支 |
-| **多道门** | BranchGate、PathGate、CommandGate、DiffGate、TestGate、ClaimEvidenceGate |
-| **禁止伪造证据** | AI 不能把自述伪装成系统证据（TestPass/Commit 由系统产生） |
-| **已知好状态** | KnownGood / checkpoint / 保存点 / 恢复策略，破坏可回滚而非只能重写 |
-| **UNDERSTAND BEFORE REWRITE** | 重构是大手术，先理解，能 patch 就 patch |
-| **验证后才提升** | Candidate → Benchmark → Compare → 显式 Promote；AI 不能自我 promote |
+发布包、安装器和临时装配内容统一写入根目录的 `Release/`。该目录已被
+Git 忽略，不属于源码仓库；正式分发前只从 `Release/packages/` 取经过验证的产物。
+当前 `fruit` 上的 v1 候选仅供本地验收；尚未合入 `main`、打 tag 或公开发布。
 
 ---
 
-## 让 AI / Agent 使用 Route
+## 依赖 / 约束 / 参考
 
-Route 提供 **host 中立** 的合作面，可被 Yuich、Claude/Codex 风格 Agent host、自定义 harness、
-人类控制器、乃至未来系统调用。它**不要求任何特定宿主的私有 schema**。
+Route 分别消费项目的约束资料与参考资料：
 
-接口包括：
-
-- **CLI** — `route` 二进制（上表命令即公开入口）。
-- **MCP** — `route-mcp`（Model Context Protocol）。
-- **HTTP** — `route-http` REST API。
-- **TUI** — `route-tui` 交互式 REPL。
-- **Python** — `route-py`（PyO3 绑定）。
-- **协议层** — `task` / `context` / `constitution` / `protocol` / `reference` / `workflow` / `apply`
-  把决策上下文编译给外部 Coding AI（Claude Code、Codex……），`.route/` 才是真值源。
-
-**入口导航：**
-
-- **用 Route 做 AI 开发** → [docs/AI-USAGE.md](docs/AI-USAGE.md)
-- **Route 协议 / 系统描述** → [ROUTE.md](ROUTE.md)
-- **约束（binding）** → [constraints/](constraints/README.md)
-- **参考（non-binding）** → [references/](references/README.md)
-
-Route 与任意宿主**严格解耦**：**ROUTE MUST BE VALUABLE WITHOUT YUICH.** Yuich 只是其中一个高级 Host / dogfood 参与者。
-
----
-
-## 当前状态：v1.0 beta
-
-**v1.0 beta** 表示第一代 Route product semantics 已收敛、核心 development lifecycle 可运行，
-并且：
-
-- existing project first-class 已实证；
-- KnownGood / checkpoint / recovery 存在；
-- Evidence / verification 存在；
-- AI / Agent / Harness 集成存在；
-- Route 可完全独立运行；
-- 可被 Yuich 或其他 Host 调用。
-
-但 **不承诺 production-perfect**，也不会把未验证能力写成 `completed`。API / CLI / Protocol
-仍可能在 beta dogfood 之后调整。
-
-### 已实证的验证（本轮 release closure）
-
-| 项目 | 结果 |
-|------|------|
-| `cargo test --workspace` | PASS（全 crate 零失败） |
-| `route-basic` | PASS（323 项） |
-| CLI sanity（help / version） | PASS |
-| `route --version` | `route 1.0.0-beta` |
-| existing-project 测试 | PASS（init→status→commit→log，保留既有文件） |
-| `route-py` `maturin build --release` | PASS（wheel 生成 + import 冒烟） |
-| Route self-dogfood | PASS（route-cli 无害 unused import 清理，测试通过） |
-
-详细开发过程记录在 **sandbox** 分支。
-
----
-
-## 版本策略
-
-| 位置 | 值 |
-|------|----|
-| Route 产品 release | `1.0.0-beta`（display: v1.0 beta） |
-| Rust workspace 版本 | `1.0.0-beta` |
-| route-py（`route-vc`） | `1.0.0-beta` |
-| TOOL.json | `1.0.0-beta` |
-| CLI `--version` | `route 1.0.0-beta` |
-
-产品 release、protocol revision、schema revision、Handle revision **不必是同一个数字**。
-
----
-
-## 项目结构
-
-```
-route/
-├── Cargo.toml            # Rust workspace（12 个 crate）
-├── crates/
-│   ├── route-core/       # 核心原语（paths / hash / guard / schema / storage）
-│   ├── route-basic/      # 核心仓库实现（会话、任务、证据、发展生命周期）
-│   ├── route-cli/        # CLI 二进制
-│   ├── route-mcp/        # MCP 服务器
-│   ├── route-tui/        # 交互式 REPL
-│   ├── route-http/       # HTTP REST API
-│   ├── route-engine/     # 搜索 / 模糊匹配 / token
-│   ├── route-memory/     # 记忆 / 因果链 / 会话跟踪
-│   ├── route-sync/       # 同步与备份（WebDAV / S3 / SSH……）
-│   ├── route-plugins/    # 插件系统
-│   ├── route-stats/      # 统计
-│   └── route-pyo3/       # Python 原生绑定
-├── packages/route-py/    # Python 包（pip install route-vc）
-├── constraints/       # 约束资料（binding material，含 constraints/ppam/）
-├── references/        # 参考资料（informative material）
-├── README.md             # 本文件
-├── ROUTE.md              # 给任何 AI 的规范与操作手册
-├── LICENSE               # AGPL-3.0
-└── THIRD_PARTY_NOTICES.md
-```
-
----
-
-## 约束与参考资料
-
-Route 可以分别消费项目的约束资料与参考资料：
-
-- `constraints/` — **Binding project rules** used during development（规范性，含 `constraints/ppam/`）。
+- `constraints/` — retained project rule source material（含 `constraints/ppam/`）；
+  v1 通过显式有界投影使用，文件存在不等于自动向 Worker 注入原文或授予权限。
 - `references/` — **Optional supporting material** used for understanding and decision-making（参考性，不产生强制约束）。
 
-约束优先于参考；参考不能覆盖约束。详见 [constraints/README.md](constraints/README.md) 与 [references/README.md](references/README.md)。
+约束优先于参考；参考不能覆盖约束。详见 `docs/` 与 `ROUTE.md`。
 
-## 分支
+---
+
+## 自进化能力（SOP / 自存档 / 本地备份）
+
+Route 会**约束自身的开发**并把它沉淀成可执行、可追溯的 SOP，全部基于真实数据：
+
+| 能力 | 命令 | 产物 / 落盘 |
+|------|------|-------------|
+| 升级为 **SOP**（并持久化为能力） | `route self-sop` | `<project>/.route/sop.md`（由项目记忆 + 自身 standard 生成）；同时**版本化持久化**到统一存档 `Documents/Route/route/versions/`（append-only，可回溯） |
+| **自存档**（append-only） | `route self-archive {archive,list,show,apply}` | `Documents/Route/route/versions/v######/` |
+| **文档区本地 git 备份**（无远程） | `route self-archive {git-init,git-commit,git-log}` | `Documents/Route/`（仅本机 git 仓库，永不推送） |
+| **自改进**（只生成，不自动应用） | `route self-improve` / `route self-evolve` | pattern / workflow / memory 提案 |
+
+> 这是 **fruit 组件**（Route 自进化）——详见
+> [`tool/route/fruit/README.md`](tool/route/fruit/README.md)。
+
+---
+
+## 分支策略（重要）
 
 | 分支 | 角色 |
 |------|------|
-| **main** | 稳定 Route 产品源 / beta release 线（**默认推荐**） |
-| **fruit** | Route 实验改进与 dogfood 结果（可能领先，但 ≠ stable ≠ release） |
-| **sandbox** | Route 开发记录 / 实验 / 验证历史（开发史，不是产品状态） |
+| **main** | 既有 beta 产品源；尚未与 v1 候选完成对账合并 |
+| **fruit** | 当前 v1 发布候选的开发/验收分支；**尚非公开发布** |
+| **sandbox** | 开发记录 / 实验 / 验证历史 |
 
 ```
-MAIN  = WHAT ROUTE IS.
-FRUIT = WHAT ROUTE MAY BECOME.
+MAIN    = CURRENT BETA BRANCH; RECONCILIATION PENDING.
+FRUIT   = V1 RELEASE CANDIDATE; NOT YET RELEASED.
 SANDBOX = HOW ROUTE WAS DEVELOPED.
 ```
+
+### 关于 `fruit` 的重要说明
+
+- `fruit` 分支承载当前 v1 发布候选以及自进化组件；它已经超出早期“仅演示”范围，
+  但仍**不是正式发布**。不要把它当成已稳定的公开产品分发。
+- `main` 的既有 beta 内容和未提交工作必须先经人工对账；本候选阶段不自动合并。
+  `tools/patchbench/` 仍是开发/验证工具，不是独立产品。
+- fruit 组件的**真实内容与存储路径在 route 仓库内部的单个独立文件夹**：
+  **`tool/route/fruit/`**；其自进化数据落盘于 `Documents/Route/route/` 与
+  `.route/sop.md`，均为本机文件、不依赖该 git 分支。
+- 推广到 `main` 只依据可验证证据，绝不靠 AI 自己决定。
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+|------|------|
+| [ROUTE.md](ROUTE.md) | 给任何 AI 的规范与操作手册（单一事实源） |
+| [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | 由 `route apply` 生成的有效开发上下文 |
+| [docs/](docs/) | 架构、CLI、概念、回退恢复、协议、演化等 |
+| [docs/repository-layout.md](docs/repository-layout.md) | 仓库根目录、源码、文档与本地 Release 产物的边界 |
+| [docs/open-development-substrate.md](docs/open-development-substrate.md) | 项目级 DevelopmentEvent、全局 revision、Worker/Presence/Message 与 Evidence 边界 |
+| [docs/route-cooperation-protocol.md](docs/route-cooperation-protocol.md) | `route/1` 主机/模型中立 stdio/JSONL 协议 |
+| [tool/route/fruit/README.md](tool/route/fruit/README.md) | fruit 组件（自进化演示）规范与存储说明 |
 
 ---
 

@@ -1,13 +1,15 @@
 # PPAM — Point to Programming Auxiliary Materials（约束资料）
 
-这是 **PPAM** 在本仓库中的 **canonical 规范来源**，位于 `constraints/` 体系内（binding material）。
+这是 **PPAM** 在本仓库中的保留源资料，位于 `constraints/` 体系内。
+Route AI v1 不会因其存在而自动加载原文、授予权限或进行无界上下文注入；
+适用内容必须经显式、有界的 Route Constraint projection 使用。
 
 ## 是什么
 
 PPAM（可插拔文档增强组件）是独立的文档增强系统（MIT License），用于增强 AI 开发流程的规范性：需求清晰度、变更可追溯、bug 可回归、功能稳中求进。
 
 - `2_Request/Request.md` — 对 AI 的核心要求（人读中文规则说明，本包心脏）
-- `.trae/skills/vibe-flow/SKILL.md` — AI 实际加载的提示词本体（与 Request.md 一致）
+- `.trae/skills/vibe-flow/SKILL.md` — PPAM 原有提示词资料（Route 不自动加载）
 - `3_Prompt/Prompt_Optimization.md` — 用户提示词优化规范
 - `1_Configuration/` — 系统内部配置（命名 / 整理规范、脚本、CI）
 - `INDEX.md` — 顶层结构说明
@@ -16,7 +18,8 @@ PPAM（可插拔文档增强组件）是独立的文档增强系统（MIT Licens
 
 ## 范围说明
 
-本目录为 PPAM 的**规范核心**。PPAM 原始语义与内容保持原样，未做重解释。
+本目录保留 PPAM 的原始资料。Route 的权限、证据和上下文边界仍以当前
+Route v1 实现为准；资料中的命令式文字不直接成为 Route 指令。
 
 PPAM 自带的 `4_Expand/`（可拓展层）按 PPAM 自身定义属于**非规范参考资料**（用户自定义内容 + anthropic-skills / skills-main 外部参考，冲突只提醒不自动改），因此**不进入** Route main 的 `constraints/`，也不复制进本仓库；其规范源位于 PPAM 远程仓库（`https://github.com/longqiyua/ppam`，见 `.ppam-link` 语义）。
 

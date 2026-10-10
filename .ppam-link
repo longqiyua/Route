@@ -1,0 +1,5 @@
+# PPAM source material is retained at constraints/ppam/ (MIT).
+# Route v1 uses explicit, bounded constraint projection. Merely storing
+# PPAM material does not inject it into Assistant or Worker context.
+PPAM_SOURCE_PATH=constraints/ppam/
+PPAM_REMOTE_URL=https://github.com/longqiyua/ppam

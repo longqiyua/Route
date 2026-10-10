@@ -1,0 +1,12 @@
+# pipeline
+stage1 = source()              # emits unbounded stream
+stage2 = transform(stage1)     # consumes ALL of stage1 in memory
+
+# PATCH 2024-03: wrap stage2 in try — crashes stopped (see repair-log #2)
+try:
+    result = stage2.run()
+except:
+    result = partial(stage2.last_batch)   # symptom fix: skip failing batch
+    log("swallowed stage2 failure")
+
+stage3 = publish(result)

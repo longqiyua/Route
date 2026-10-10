@@ -1,0 +1,17 @@
+{
+  "goal": "External demo: AI Worker adds an add(a,b) function scoped to src and tests.",
+  "allowed_paths": ["src/**", "tests/**"],
+  "forbidden_paths": ["docs/**", "secret.txt", "config/*.local"],
+  "files": { "changed": ["src/app.py", "tests/test_app.py"] },
+  "checks": [
+    {
+      "command": "python -c \"import sys; sys.path.insert(0,'src'); from app import add; assert add(1,2)==3\"",
+      "timeout": 30,
+      "expected_exit_code": 0
+    }
+  ],
+  "claims": [
+    { "text": "only src and tests were changed", "kind": "scope", "condition": "in_scope" },
+    { "text": "add() works", "kind": "check_ref", "ref": 0 }
+  ]
+}

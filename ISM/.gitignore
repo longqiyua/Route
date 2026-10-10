@@ -1,0 +1,8 @@
+# Private ISM reference pack — DEFAULT DENY.
+# ISM data is PRIVATE REFERENCE, NOT SOURCE CODE.
+# Only the two marker files below may ever be tracked by git.
+# Everything else (plaintext json, encrypted pack, wrapped key, metadata)
+# stays local to this machine.
+/*
+!.gitignore
+!README.private.md

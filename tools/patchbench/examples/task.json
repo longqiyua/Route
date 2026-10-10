@@ -1,0 +1,23 @@
+{
+  "name": "example-add-function",
+  "goal": "Add a pure add(a,b) function to app.py and keep it covered by a test.",
+  "allowed_paths": ["app.py", "tests/**"],
+  "forbidden_paths": [".git", "README.md", "docs/**"],
+  "files": {
+    "changed": ["app.py", "tests/test_app.py"]
+  },
+  "checks": [
+    {
+      "command": "python -c \"import py_compile,sys; sys.path.insert(0,'tests'); py_compile.compile('app.py',doraise=True); py_compile.compile('tests/test_app.py',doraise=True); from test_app import test_add; test_add()\"",
+      "timeout": 30,
+      "expected_exit_code": 0
+    }
+  ],
+  "claims": [
+    { "text": "only app.py and tests were changed", "kind": "scope", "condition": "in_scope" },
+    { "text": "the code compiles and the test passes", "kind": "check_ref", "ref": 0 }
+  ],
+  "metrics": [
+    { "id": "check0_duration", "field": "duration_s", "check": 0 }
+  ]
+}

@@ -1,7 +1,10 @@
-﻿node_modules/
+node_modules/
 dist/
 target/
+target-*/
+/Release/
 **/target/
+**/target-*/
 crates/*/target/
 crates/*/web/dist/
 *.rs.bk
@@ -44,8 +47,29 @@ packages/desktop/src-tauri/target/
 sandbox-demo/
 demo/
 
-# Third-party AI skill assets (external references, not part of the Route source)
+# Yuich backup copies (not part of the Yuich project)
+尤以迟yuich - 副本 - 副本/
+
+# Yuich standalone git repo (managed independently; not committed to Route)
+yuich/
+
+# ============================================================
+# PPAM local clone isolation (canonical retained material is tracked under
+# constraints/ppam/ and must not be ignored by this rule)
+# ============================================================
+# The current tracked bridge is tool/route/crates/route-ppam/.
+# The old root crates/route-ppam/ path and root local clones remain ignored.
+# ============================================================
+
+# PPAM install directory (cloned from remote PPAM repo, isolated from Route root)
+/ppam/
 /PPAM/
+
+# PPL is an independent repository (longqiyua/PPL), never vendor it into Route.
+/PPL/
+
+# PPAM bridge crate (local-only, not pushed to Route repo)
+/crates/route-ppam/
 
 # Design reference documents (not part of the Route source code)
 FrontDesignSkill.md
@@ -58,3 +82,17 @@ __pycache__/
 *.pyc
 *.pyd
 *.pdb
+
+# ============================================================
+# ISM Private Reference Pack — DEFAULT DENY (local backup rule;
+# the tracked ISM/.gitignore is the authoritative whitelist)
+# ============================================================
+# ISM data is PRIVATE REFERENCE, NOT SOURCE CODE. Plaintext ISM,
+# encrypted pack, wrapped key and metadata must never be committed.
+ISM/*
+!ISM/README.private.md
+!ISM/.gitignore
+
+# Wiki is a hot-pluggable local reference area, not repository source or
+# development history. Its datasets may be added or removed independently.
+/Wiki/

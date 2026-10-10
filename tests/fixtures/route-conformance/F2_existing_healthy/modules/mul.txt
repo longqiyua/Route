@@ -1,0 +1,6 @@
+component: mul
+contract: mul(a, b) = a * b
+domain: integers
+examples:
+  mul(2, 3) = 6
+  mul(-1, 5) = -5
