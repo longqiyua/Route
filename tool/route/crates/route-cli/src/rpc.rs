@@ -1202,16 +1202,13 @@ route_methods! { request, root, version;
                 ),
             }
         },
-        "worker.list" => match (
-            route_basic::worker_descriptors(&root),
-            route_basic::worker_presences(&root),
-        ) {
-            (Ok(workers), Ok(presences)) => success(
+        "worker.list" => match route_basic::development::worker_descriptors_and_presences(&root) {
+            Ok((workers, presences)) => success(
                 &request,
                 json!({"workers": workers, "presences": presences}),
                 vec![],
             ),
-            (Err(error_value), _) | (_, Err(error_value)) => error(
+            Err(error_value) => error(
                 Some(&request.request_id),
                 "WORKER_STATE_UNAVAILABLE",
                 error_value.to_string(),

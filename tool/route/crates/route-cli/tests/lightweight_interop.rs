@@ -137,6 +137,100 @@ fn existing_repo_zero_config_handoff_absence_and_restart() {
 }
 
 #[test]
+fn metadata_only_goal_checks_bind_source_without_basic_archive() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repo");
+    let home = temp.path().join("host");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("source.rs"), b"fn before() {}").unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .status()
+        .unwrap()
+        .success());
+    let git_before = files(&root.join(".git"));
+    // attach currently initializes Basic metadata. Exercise the genuinely
+    // archive-free domain entry, rather than assuming attach has no Basic DB.
+    route_basic::ensure_identity(&root).unwrap();
+    let created = route_basic::general_work::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), "goal.create",
+        json!({"expected_revision":route_basic::global_development_revision(&root).unwrap(),"goal":{"title":"Source-bound sidecar regression","domain":"DEVELOPMENT"}}), "source-bound-goal").unwrap();
+    let route_basic::DevelopmentEventPayload::GeneralWork { action } = created.event.payload else {
+        panic!()
+    };
+    let route_basic::general_work::GeneralChange::GoalCreated { goal } = action.change else {
+        panic!()
+    };
+    assert!(
+        !root.join(".route-basic").exists(),
+        "goal.create created Basic metadata"
+    );
+    let binary = env!("CARGO_BIN_EXE_route");
+    let run = || {
+        let output = cli(
+            &root,
+            &home,
+            &[
+                "task",
+                "exec",
+                &goal.goal_id,
+                "--check-id",
+                "sidecar-source-check",
+                "--",
+                binary,
+                "--version",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run();
+    assert!(
+        !root.join(".route-basic").exists(),
+        "first CLI check created Basic metadata"
+    );
+    let evidence = route_basic::EvidenceStore::load(&root).unwrap();
+    let pass = evidence
+        .evidence
+        .iter()
+        .find(|e| e.metadata.get("check_id").map(String::as_str) == Some("sidecar-source-check"))
+        .unwrap();
+    assert_eq!(pass.kind, route_basic::EvidenceKind::CheckPass);
+    assert!(!evidence.is_pass_stale(pass, &route_basic::compute_state_hash(&root).unwrap()));
+    let legacy_context_only = route_core::sha256_hex(
+        format!(
+            "context:{}",
+            route_basic::constitutive::ContextSnapshot::collect(&root)
+                .unwrap()
+                .fingerprint
+        )
+        .as_bytes(),
+    );
+    assert_ne!(
+        pass.state_hash.as_deref(),
+        Some(legacy_context_only.as_str()),
+        "old context-only proof needs re-verification"
+    );
+    fs::write(root.join("source.rs"), b"fn after_() {}").unwrap();
+    assert!(evidence.is_pass_stale(pass, &route_basic::compute_state_hash(&root).unwrap()));
+    run();
+    let current = route_basic::EvidenceStore::load(&root).unwrap();
+    let last = current
+        .evidence
+        .iter()
+        .rev()
+        .find(|e| e.metadata.get("check_id").map(String::as_str) == Some("sidecar-source-check"))
+        .unwrap();
+    assert_ne!(last.id, pass.id);
+    assert!(!current.is_pass_stale(last, &route_basic::compute_state_hash(&root).unwrap()));
+    assert!(!root.join(".route-basic").exists());
+    assert_eq!(files(&root.join(".git")), git_before);
+}
+
+#[test]
 fn discovery_and_projection_do_not_bootstrap_or_execute_markdown() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repo");

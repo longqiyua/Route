@@ -1,0 +1,35 @@
+{
+  "binary_bytes": 26219520,
+  "binary_sha256": "214b131c24352bb7a614227c21cfceb28555c5957ebd0c5deee23af99c8f3838",
+  "deadline_and_process_tree": "NOT_IMPLEMENTED",
+  "profile": "debug test binary, not release route.exe",
+  "rows": [
+    {
+      "bytes_per_channel": 16777216,
+      "capture_ms": 460.2126,
+      "collector_peak_working_set_bytes": 8089600,
+      "exit_code": 7,
+      "full_hash_and_tail": "PASS",
+      "output_spool_bytes": 0,
+      "preview_bytes_per_channel": 2048,
+      "producer_peak_working_set_bytes": 7016448,
+      "stderr_bytes": 16777228,
+      "stdout_bytes": 16777244,
+      "temporary_metadata_bytes": 43
+    },
+    {
+      "bytes_per_channel": 1073741824,
+      "capture_ms": 25683.5737,
+      "collector_peak_working_set_bytes": 7606272,
+      "exit_code": 7,
+      "full_hash_and_tail": "PASS",
+      "output_spool_bytes": 0,
+      "preview_bytes_per_channel": 2048,
+      "producer_peak_working_set_bytes": 7421952,
+      "stderr_bytes": 1073741836,
+      "stdout_bytes": 1073741852,
+      "temporary_metadata_bytes": 43
+    }
+  ],
+  "samples_per_size": 1
+}

@@ -2610,8 +2610,8 @@ impl ContextSnapshot {
     /// be produced even before the user has explicitly initialized the
     /// three files on disk.
     pub fn collect(project_root: &Path) -> Result<Self> {
-        let constitution = Constitution::read(project_root).unwrap_or_default();
-        let protocol = Protocol::read(project_root).unwrap_or_default();
+        let constitution = Constitution::read(project_root)?;
+        let protocol = Protocol::read(project_root)?;
         let registry = ReferenceRegistry::read(project_root)?;
 
         let mut entries_sem: Vec<ReferenceSemanticView> = registry
@@ -2656,10 +2656,10 @@ impl ContextSnapshot {
             sha256_hex(&bytes)
         };
         // Read active profile for context differentiation
-        let profile_id = crate::ProfileStore::active_id(project_root).ok().flatten();
+        let profile_id = crate::ProfileStore::active_id(project_root)?;
         let workflow_ids = match profile_id.as_deref() {
             Some(pid) => {
-                let store = crate::ProfileStore::load(project_root).unwrap_or_default();
+                let store = crate::ProfileStore::load(project_root)?;
                 store
                     .profiles
                     .iter()

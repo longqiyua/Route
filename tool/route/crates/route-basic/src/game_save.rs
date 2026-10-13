@@ -4613,9 +4613,34 @@ mod tests {
             .map(std::path::PathBuf::from)
     }
 
+    // These tests inspect the environment AFTER Drop releases the shared lock.
+    // Reacquiring it would not prove restoration: another test may already have
+    // changed the baseline. Run each in its own process, keeping the actual Drop
+    // and panic assertions unchanged rather than serializing the entire suite.
+    fn run_env_restoration_in_child(test_name: &str) -> bool {
+        const MARKER: &str = "ROUTE_TEST_ENV_RESTORATION_CHILD";
+        if std::env::var(MARKER).as_deref() == Ok(test_name) {
+            return false;
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test_name, "--nocapture"])
+            .env(MARKER, test_name)
+            .status()
+            .expect("start isolated environment restoration test");
+        assert!(
+            status.success(),
+            "isolated test failed: {test_name}: {status}"
+        );
+        true
+    }
+
     /// P6-A: previously unset → guard → temp root → drop → unset again.
     #[test]
     fn test_p6a_guard_unset_restores_to_unset() {
+        if run_env_restoration_in_child("game_save::tests::test_p6a_guard_unset_restores_to_unset")
+        {
+            return;
+        }
         let lock = acquire_lock();
         std::env::remove_var("ROUTE_ARCHIVE_ROOT");
         assert!(current_root().is_none(), "baseline must be unset");
@@ -4642,6 +4667,10 @@ mod tests {
     /// P6-B: previously set → guard → temp root → drop → previous value restored.
     #[test]
     fn test_p6b_guard_restores_previous_value() {
+        if run_env_restoration_in_child("game_save::tests::test_p6b_guard_restores_previous_value")
+        {
+            return;
+        }
         let lock = acquire_lock();
         const PREV: &str = "route_archive_test_previous_root_sentinel";
         std::env::set_var("ROUTE_ARCHIVE_ROOT", PREV);
@@ -4699,6 +4728,11 @@ mod tests {
 
     #[test]
     fn test_p7_guard_restores_env_even_on_panic() {
+        if run_env_restoration_in_child(
+            "game_save::tests::test_p7_guard_restores_env_even_on_panic",
+        ) {
+            return;
+        }
         let lock = acquire_lock();
         std::env::remove_var("ROUTE_ARCHIVE_ROOT"); // unset baseline
 

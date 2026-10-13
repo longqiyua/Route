@@ -1184,6 +1184,19 @@ pub fn worker_presences(root: &Path) -> Result<Vec<WorkerPresence>> {
         &load_ledger_readonly(root)?.0.events,
     ))
 }
+
+/// Read both Worker projections from one fully verified ledger snapshot.
+/// No cross-request cache: corruption and newly appended state are checked anew.
+pub fn worker_descriptors_and_presences(
+    root: &Path,
+) -> Result<(Vec<WorkerDescriptor>, Vec<WorkerPresence>)> {
+    let (ledger, _, _) = load_ledger_readonly(root)?;
+    Ok((
+        project_worker_descriptors(&ledger.events),
+        project_worker_presences(&ledger.events),
+    ))
+}
+
 pub(crate) fn project_worker_presences(events: &[DevelopmentEvent]) -> Vec<WorkerPresence> {
     let mut presences = BTreeMap::<String, WorkerPresence>::new();
     for event in events {
@@ -1535,6 +1548,61 @@ mod tests {
         assert_eq!(workers[0].metadata.provider.as_deref(), Some("b"));
         assert_eq!(workers[0].metadata.model.as_deref(), Some("two"));
         assert_eq!(global_development_revision(root.path()).unwrap(), 2);
+    }
+
+    #[test]
+    fn combined_worker_snapshot_matches_projections_and_rechecks_integrity() {
+        let source = tempdir().unwrap();
+        let attached = tempdir().unwrap();
+        register_worker(
+            source.path(),
+            Some("stable-worker".into()),
+            metadata("a", "one"),
+            None,
+        )
+        .unwrap();
+        attach(attached.path(), source.path()).unwrap();
+        update_worker_presence(
+            source.path(),
+            "stable-worker",
+            WorkerPresenceInput {
+                status: WorkerStatus::Active,
+                current_intent_ref: None,
+                current_task_ref: None,
+                current_session_ref: None,
+                current_workspace_ref: None,
+                current_activity_summary: Some("bounded fixture".into()),
+                observed_global_revision: 1,
+            },
+            None,
+        )
+        .unwrap();
+        let path = development_ledger_path(source.path()).unwrap();
+        let before = fs::read(&path).unwrap();
+        let pair = worker_descriptors_and_presences(attached.path()).unwrap();
+        assert_eq!(pair.0, worker_descriptors(source.path()).unwrap());
+        assert_eq!(pair.1, worker_presences(source.path()).unwrap());
+        assert_eq!(pair.1[0].status, WorkerStatus::Active);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        register_worker(
+            source.path(),
+            Some("stable-worker".into()),
+            metadata("b", "two"),
+            None,
+        )
+        .unwrap();
+        let refreshed = worker_descriptors_and_presences(attached.path()).unwrap();
+        assert_eq!(refreshed.0[0].metadata.model.as_deref(), Some("two"));
+        // Alter an old event without updating its digest; every query must reject it.
+        let mut corrupt = load_ledger_readonly(source.path()).unwrap().0;
+        corrupt.events[0].timestamp += 1;
+        let bytes = serde_json::to_vec_pretty(&corrupt).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        assert!(worker_descriptors_and_presences(attached.path())
+            .unwrap_err()
+            .to_string()
+            .contains("content hash mismatch"));
+        assert_eq!(fs::read(path).unwrap(), bytes);
     }
 
     #[test]

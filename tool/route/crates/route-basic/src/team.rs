@@ -46,6 +46,8 @@ pub enum RunState {
     Failed,
     Cancelled,
     TimedOut,
+    /// Operator explicitly released a terminated Run whose result was lost.
+    LostResult,
 }
 impl RunState {
     pub fn active(&self) -> bool {
@@ -244,6 +246,156 @@ pub fn status(root: &Path, goal: &str) -> Result<TeamView> {
     let (ledger, _, _) = development::load_ledger_readonly(root)?;
     project(&ledger.events, goal).ok_or_else(|| anyhow!("TEAM_NOT_CONFIGURED"))
 }
+
+/// Project-wide persisted reservations, not OS process liveness or permission.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct ProjectConcurrencySnapshot {
+    pub revision: u64,
+    pub active_workers: usize,
+    pub effective_concurrent_limit: usize,
+    pub remaining_concurrent_slots: usize,
+}
+
+fn project_concurrency(
+    events: &[DevelopmentEvent],
+    candidate: &TeamView,
+) -> ProjectConcurrencySnapshot {
+    // Borrow IDs from this immutable snapshot. Do not clone complete TeamViews,
+    // routing decisions, host paths or extraction jobs just to count slots.
+    #[derive(Clone, Copy)]
+    enum CapacityState {
+        Reserved,
+        Running,
+        Terminal,
+    }
+    struct CapacityTeam<'a> {
+        limit: usize,
+        runs: BTreeMap<&'a str, CapacityState>,
+    }
+    let mut teams: BTreeMap<&str, CapacityTeam<'_>> = BTreeMap::new();
+    for event in events {
+        let Payload::Team { action } = &event.payload else {
+            continue;
+        };
+        match action {
+            TeamAction::Configure {
+                goal_id, budget, ..
+            } => {
+                // Full replay resets the team on Configure, including all runs.
+                teams.insert(
+                    goal_id,
+                    CapacityTeam {
+                        limit: budget.max_concurrent_workers,
+                        runs: BTreeMap::new(),
+                    },
+                );
+            }
+            TeamAction::Reserve {
+                goal_id,
+                reservation,
+            } => {
+                if let Some(team) = teams.get_mut(goal_id.as_str()) {
+                    team.runs
+                        .insert(&reservation.run_id, CapacityState::Reserved);
+                }
+            }
+            TeamAction::Transition {
+                goal_id,
+                run_id,
+                state,
+            } => {
+                if let Some(run) = teams
+                    .get_mut(goal_id.as_str())
+                    .and_then(|team| team.runs.get_mut(run_id.as_str()))
+                {
+                    *run = match state {
+                        RunState::Reserved => CapacityState::Reserved,
+                        RunState::Running => CapacityState::Running,
+                        _ => CapacityState::Terminal,
+                    };
+                }
+            }
+            TeamAction::CancelAll { goal_id } => {
+                if let Some(team) = teams.get_mut(goal_id.as_str()) {
+                    for run in team.runs.values_mut() {
+                        if matches!(run, CapacityState::Reserved) {
+                            *run = CapacityState::Terminal;
+                        }
+                    }
+                }
+            }
+            TeamAction::Decide { .. }
+            | TeamAction::QueueExtraction { .. }
+            | TeamAction::FinishExtraction { .. } => {}
+        }
+    }
+    let mut active_workers = 0;
+    let mut effective_concurrent_limit = candidate.budget.max_concurrent_workers;
+    for team in teams.values() {
+        let active = team
+            .runs
+            .values()
+            .filter(|state| !matches!(state, CapacityState::Terminal))
+            .count();
+        active_workers += active;
+        if active != 0 {
+            effective_concurrent_limit = effective_concurrent_limit.min(team.limit);
+        }
+    }
+    ProjectConcurrencySnapshot {
+        revision: events.last().map(|e| e.sequence).unwrap_or(0),
+        active_workers,
+        effective_concurrent_limit,
+        remaining_concurrent_slots: effective_concurrent_limit.saturating_sub(active_workers),
+    }
+}
+
+// Independent legacy full replay oracle; intentionally not used by production.
+#[cfg(test)]
+fn project_concurrency_full_replay(
+    events: &[DevelopmentEvent],
+    candidate: &TeamView,
+) -> ProjectConcurrencySnapshot {
+    let goals: std::collections::BTreeSet<_> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            Payload::Team {
+                action: TeamAction::Configure { goal_id, .. },
+            } => Some(goal_id),
+            _ => None,
+        })
+        .collect();
+    let views: Vec<_> = goals.iter().filter_map(|g| project(events, g)).collect();
+    let active_workers = views
+        .iter()
+        .map(|v| v.runs.values().filter(|r| r.state.active()).count())
+        .sum();
+    let effective_concurrent_limit = views
+        .iter()
+        .filter(|v| v.runs.values().any(|r| r.state.active()))
+        .map(|v| v.budget.max_concurrent_workers)
+        .chain(std::iter::once(candidate.budget.max_concurrent_workers))
+        .min()
+        .unwrap();
+    ProjectConcurrencySnapshot {
+        revision: events.last().map(|e| e.sequence).unwrap_or(0),
+        active_workers,
+        effective_concurrent_limit,
+        remaining_concurrent_slots: effective_concurrent_limit.saturating_sub(active_workers),
+    }
+}
+
+/// One verified ledger snapshot supplies both Goal and project capacity.
+/// Reservation validation re-evaluates this under its authoritative write boundary.
+pub fn status_with_project_concurrency(
+    root: &Path,
+    goal: &str,
+) -> Result<(TeamView, ProjectConcurrencySnapshot)> {
+    let (ledger, _, _) = development::load_ledger_readonly(root)?;
+    let view = project(&ledger.events, goal).ok_or_else(|| anyhow!("TEAM_NOT_CONFIGURED"))?;
+    let capacity = project_concurrency(&ledger.events, &view);
+    Ok((view, capacity))
+}
 pub fn role_grants(role: &Role) -> Vec<String> {
     let mut grants = vec![
         "work.claim",
@@ -265,6 +417,16 @@ pub fn role_grants(role: &Role) -> Vec<String> {
     }
     grants.into_iter().map(String::from).collect()
 }
+/// Validate routing intent, not permission, capacity, capability or model choice.
+pub fn validate_routing_mode(decision: &RoutingDecision) -> Result<()> {
+    ensure!(
+        matches!((decision.split, &decision.role),
+            (false, Role::Planner) | (true, Role::Implementer | Role::IndependentReviewer)),
+        "INVALID_ROUTING_MODE: split=false requires PLANNER; split=true requires IMPLEMENTER or INDEPENDENT_REVIEWER"
+    );
+    Ok(())
+}
+
 pub(crate) fn validate_shape(action: &TeamAction) -> Result<()> {
     ensure!(
         !action.goal_id().is_empty() && action.goal_id().len() <= 128,
@@ -299,6 +461,7 @@ pub(crate) fn validate_shape(action: &TeamAction) -> Result<()> {
         );
     }
     if let TeamAction::Decide { decision: d } = action {
+        validate_routing_mode(d)?;
         ensure!(
             !d.reason.trim().is_empty() && d.reason.len() <= 1000 && d.work_ids.len() <= 16,
             "INVALID_ROUTING_DECISION"
@@ -411,29 +574,9 @@ pub(crate) fn validate_transition(
             v.runs.values().filter(|r| r.state.active()).count() < v.budget.max_concurrent_workers,
             "AGENT_BUDGET_DENIED: max_concurrent_workers"
         );
-        let goals: std::collections::BTreeSet<_> = events
-            .iter()
-            .filter_map(|e| match &e.payload {
-                Payload::Team {
-                    action: TeamAction::Configure { goal_id, .. },
-                } => Some(goal_id),
-                _ => None,
-            })
-            .collect();
-        let views: Vec<_> = goals.iter().filter_map(|g| project(events, g)).collect();
-        let global_active: usize = views
-            .iter()
-            .map(|v| v.runs.values().filter(|r| r.state.active()).count())
-            .sum();
-        let global_limit = views
-            .iter()
-            .filter(|v| v.runs.values().any(|r| r.state.active()))
-            .map(|v| v.budget.max_concurrent_workers)
-            .chain(std::iter::once(v.budget.max_concurrent_workers))
-            .min()
-            .unwrap();
+        let capacity = project_concurrency(events, &v);
         ensure!(
-            global_active < global_limit,
+            capacity.active_workers < capacity.effective_concurrent_limit,
             "AGENT_BUDGET_DENIED: global max_concurrent_workers"
         );
         let same: Vec<_> = v
@@ -490,7 +633,9 @@ pub(crate) fn validate_transition(
                 );
             } else {
                 ensure!(
-                    v.decisions.iter().any(|d| d.role == r.role
+                    v.decisions.iter().any(|d| d.split
+                        && validate_routing_mode(d).is_ok()
+                        && d.role == r.role
                         && r.work_id.as_ref().is_some_and(|id| d.work_ids.contains(id))),
                     "ROUTING_DECISION_REQUIRED"
                 );
@@ -578,6 +723,256 @@ mod tests {
         .unwrap();
         (tmp, goal.goal_id)
     }
+
+    // Synthetic projection inputs, not authenticated ledger or AI-host evidence.
+    fn capacity_replay_fixture(count: usize, goals: usize) -> (Vec<DevelopmentEvent>, TeamView) {
+        let (dir, goal) = setup(AgentBudget::default());
+        let (ledger, _, _) = development::load_ledger_readonly(dir.path()).unwrap();
+        let candidate = project(&ledger.events, &goal).unwrap();
+        let template = ledger.events.last().unwrap();
+        let unrelated = ledger
+            .events
+            .iter()
+            .find(|e| !matches!(e.payload, Payload::Team { .. }))
+            .unwrap()
+            .payload
+            .clone();
+        let mut events = Vec::new();
+        for i in 0..count {
+            let goal_id = format!("goal-{}", (i * 7 + i / 13) % goals);
+            let run_id = format!("run-{}", i / 11 % 8);
+            let action = match i % 11 {
+                0 => TeamAction::Configure {
+                    goal_id,
+                    budget: AgentBudget {
+                        max_concurrent_workers: 1 + i % 8,
+                        ..AgentBudget::default()
+                    },
+                    host_path: "fixture-host".into(),
+                    host_sha256: "0".repeat(64),
+                },
+                1 | 7 => TeamAction::Reserve {
+                    goal_id,
+                    reservation: Reservation {
+                        run_id,
+                        worker_id: "fixture-worker".into(),
+                        parent_run_id: None,
+                        work_id: None,
+                        role: Role::Planner,
+                        grants: vec![],
+                    },
+                },
+                2 | 8 | 9 => TeamAction::Transition {
+                    goal_id,
+                    run_id: if i % 11 == 9 {
+                        "unknown-run".into()
+                    } else {
+                        run_id
+                    },
+                    state: [
+                        RunState::Reserved,
+                        RunState::Running,
+                        RunState::Succeeded,
+                        RunState::Failed,
+                        RunState::Cancelled,
+                        RunState::TimedOut,
+                    ][i / 11 % 6]
+                        .clone(),
+                },
+                3 => TeamAction::Decide {
+                    decision: RoutingDecision {
+                        goal_id,
+                        split: false,
+                        role: Role::Planner,
+                        work_ids: vec![],
+                        reason: "bounded fixture".into(),
+                        independence_required: false,
+                        capability_status: crate::cooperation::EpistemicStatus::Declared,
+                    },
+                },
+                4 => TeamAction::QueueExtraction {
+                    goal_id,
+                    job_id: "job".into(),
+                    finding_event_id: "finding".into(),
+                },
+                5 => TeamAction::FinishExtraction {
+                    goal_id,
+                    job_id: "job".into(),
+                    succeeded: i % 2 == 0,
+                },
+                6 => TeamAction::CancelAll { goal_id },
+                _ => {
+                    let mut event = template.clone();
+                    event.sequence = i as u64 + 1;
+                    event.payload = unrelated.clone();
+                    events.push(event);
+                    continue;
+                }
+            };
+            let mut event = template.clone();
+            event.sequence = i as u64 + 1;
+            event.payload = Payload::Team { action };
+            events.push(event);
+        }
+        (events, candidate)
+    }
+
+    #[test]
+    fn narrow_capacity_matches_full_replay_at_every_prefix() {
+        for goals in [1, 16] {
+            let (events, mut candidate) = capacity_replay_fixture(600, goals);
+            for limit in [1, 2, 8] {
+                candidate.budget.max_concurrent_workers = limit;
+                for end in 0..=events.len() {
+                    assert_eq!(
+                        project_concurrency(&events[..end], &candidate),
+                        project_concurrency_full_replay(&events[..end], &candidate),
+                        "goals={goals}, prefix={end}, candidate limit={limit}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "explicit synthetic debug projection timing; not an end-to-end RSS benchmark"]
+    fn capacity_projection_timing() {
+        let (mut events, candidate) = capacity_replay_fixture(10_000, 16);
+        for event in &mut events {
+            if let Payload::Team {
+                action: TeamAction::Decide { decision },
+            } = &mut event.payload
+            {
+                decision.reason = "x".repeat(16 * 1024);
+            }
+        }
+        assert_eq!(
+            project_concurrency(&events, &candidate),
+            project_concurrency_full_replay(&events, &candidate)
+        );
+        for (name, project_fn) in [
+            (
+                "full_replay",
+                project_concurrency_full_replay
+                    as fn(&[DevelopmentEvent], &TeamView) -> ProjectConcurrencySnapshot,
+            ),
+            ("narrow_replay", project_concurrency),
+        ] {
+            let mut samples = Vec::new();
+            for _ in 0..30 {
+                let start = std::time::Instant::now();
+                std::hint::black_box(project_fn(std::hint::black_box(&events), &candidate));
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "CAPACITY_TIMING {name} events={} goals=16 samples=30 p50_ms={:.3} p95_ms={:.3}",
+                events.len(),
+                samples[14],
+                samples[28]
+            );
+        }
+    }
+
+    #[test]
+    fn project_snapshot_matches_reservation_gate_and_ignores_idle_low_limits() {
+        let (dir, first) = setup(AgentBudget {
+            max_concurrent_workers: 1,
+            ..AgentBudget::default()
+        });
+        let root = dir.path();
+        let configure = |key: &str, limit: usize| {
+            let created = crate::general_work::operator_action(root, &CallerContext::trusted_operator(), "goal.create",
+                json!({"expected_revision":development::global_development_revision(root).unwrap(),"goal":{"title":key,"domain":"DEVELOPMENT"}}), key).unwrap();
+            let Payload::GeneralWork { action } = created.event.payload else {
+                panic!()
+            };
+            let crate::general_work::GeneralChange::GoalCreated { goal } = action.change else {
+                panic!()
+            };
+            apply(
+                root,
+                TeamAction::Configure {
+                    goal_id: goal.goal_id.clone(),
+                    budget: AgentBudget {
+                        max_concurrent_workers: limit,
+                        ..AgentBudget::default()
+                    },
+                    host_path: std::env::current_exe()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    host_sha256: "0".repeat(64),
+                },
+            )
+            .unwrap();
+            goal.goal_id
+        };
+        let second = configure("project-capacity-second", 2);
+        let _idle = configure("project-capacity-idle", 1);
+        reserve(
+            root,
+            &first,
+            "first-run",
+            "first-worker",
+            None,
+            None,
+            Role::Planner,
+        )
+        .unwrap();
+        let path = development::development_ledger_path(root).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let (view, full) = status_with_project_concurrency(root, &second).unwrap();
+        assert!(view.runs.is_empty());
+        assert_eq!(full.active_workers, 1);
+        assert_eq!(full.effective_concurrent_limit, 1);
+        assert_eq!(full.remaining_concurrent_slots, 0);
+        assert_eq!(
+            full.revision,
+            development::global_development_revision(root).unwrap()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(reserve(
+            root,
+            &second,
+            "denied-run",
+            "second-worker",
+            None,
+            None,
+            Role::Planner
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("global max_concurrent_workers"));
+        transition(root, &first, "first-run", RunState::Failed);
+        let (_, free) = status_with_project_concurrency(root, &second).unwrap();
+        assert_eq!(free.active_workers, 0);
+        assert_eq!(
+            free.effective_concurrent_limit, 2,
+            "idle low-limit teams must not cap the candidate"
+        );
+        assert_eq!(free.remaining_concurrent_slots, 2);
+        reserve(
+            root,
+            &second,
+            "accepted-run",
+            "second-worker",
+            None,
+            None,
+            Role::Planner,
+        )
+        .unwrap();
+        assert_eq!(
+            status_with_project_concurrency(root, &second)
+                .unwrap()
+                .1
+                .active_workers,
+            1
+        );
+        std::fs::write(&path, b"invalid-json").unwrap();
+        assert!(status_with_project_concurrency(root, &second).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"invalid-json");
+    }
     fn apply(root: &Path, action: TeamAction) -> Result<development::AppendDevelopmentEventResult> {
         broker_action(
             root,
@@ -651,6 +1046,102 @@ mod tests {
         crate::principal::worker_action(root,caller,"team.decide",json!({"goal_id":g,"split":true,"role":role,"work_ids":[work.work_id],"reason":"Implementation and independent checks warrant separate bounded Workers","independence_required":role==Role::IndependentReviewer,"capability_status":"DECLARED"}),&format!("route-{key}")).unwrap();
         work.work_id
     }
+    #[test]
+    fn routing_mode_matrix_and_legacy_decision_cannot_authorize_child() {
+        let (dir, goal) = setup(AgentBudget::default());
+        let root = dir.path();
+        let caller = planner(root, &goal);
+        let work_id = work(root, &goal, &caller, "legacy-mode-work", Role::Implementer);
+        let (mut ledger, _, _) = development::load_ledger_readonly(root).unwrap();
+        let decision = status(root, &goal).unwrap().decisions[0].clone();
+        for split in [false, true] {
+            for role in [
+                Role::Planner,
+                Role::Implementer,
+                Role::IndependentReviewer,
+                Role::Knowledge,
+            ] {
+                let mut d = decision.clone();
+                d.split = split;
+                d.role = role.clone();
+                assert_eq!(
+                    validate_routing_mode(&d).is_ok(),
+                    matches!(
+                        (split, role),
+                        (false, Role::Planner)
+                            | (true, Role::Implementer | Role::IndependentReviewer)
+                    )
+                );
+            }
+        }
+        let reservation = TeamAction::Reserve {
+            goal_id: goal.clone(),
+            reservation: Reservation {
+                run_id: "delegated-mode-run".into(),
+                worker_id: "delegated-mode-worker".into(),
+                parent_run_id: Some("planner".into()),
+                work_id: Some(work_id),
+                role: Role::Implementer,
+                grants: role_grants(&Role::Implementer),
+            },
+        };
+        assert!(validate_transition(root, &ledger.events, None, &reservation).is_ok());
+        // Test-only old-record fixture: no history or hash is rewritten on disk.
+        for event in &mut ledger.events {
+            if let Payload::Team {
+                action: TeamAction::Decide { decision },
+            } = &mut event.payload
+            {
+                decision.split = false;
+            }
+        }
+        let legacy = project(&ledger.events, &goal).unwrap();
+        assert_eq!(legacy.decisions.len(), 1, "legacy history stays readable");
+        assert!(!legacy.decisions[0].split);
+        assert!(
+            validate_transition(root, &ledger.events, None, &reservation)
+                .unwrap_err()
+                .to_string()
+                .contains("ROUTING_DECISION_REQUIRED")
+        );
+    }
+
+    #[test]
+    fn routing_mode_rejects_contradictory_delegation_before_append() {
+        let (dir, goal) = setup(AgentBudget::default());
+        let root = dir.path();
+        let caller = planner(root, &goal);
+        let work_id = work(root, &goal, &caller, "routing-mode-work", Role::Implementer);
+        let path = development::development_ledger_path(root).unwrap();
+        for (split, role) in [
+            (false, Role::Implementer),
+            (false, Role::IndependentReviewer),
+            (false, Role::Knowledge),
+            (true, Role::Planner),
+            (true, Role::Knowledge),
+        ] {
+            let before = std::fs::read(&path).unwrap();
+            let result = crate::principal::worker_action(
+                root,
+                &caller,
+                "team.decide",
+                json!({"goal_id":goal,"split":split,"role":role,"work_ids":[work_id],
+                    "reason":"Routing mode regression fixture","independence_required":false,
+                    "capability_status":"DECLARED"}),
+                &route_core::new_id(),
+            );
+            assert!(
+                result.is_err(),
+                "contradictory mode was accepted: split={split}, role={role:?}"
+            );
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("INVALID_ROUTING_MODE"));
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+    }
+
     #[test]
     fn budget_retries_depth_authority_and_cancellation() {
         let (tmp, g) = setup(AgentBudget::default());

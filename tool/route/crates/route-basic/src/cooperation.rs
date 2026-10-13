@@ -1220,7 +1220,8 @@ mod tests {
             "stale",
         ] {
             let mut record = valid.clone();
-            let mut store = original_store.clone();
+            let mut store = crate::execution::EvidenceStore::load(root.path()).unwrap();
+            store.evidence = original_store.evidence.clone();
             match case {
                 "missing" => record.evidence_refs.clear(),
                 "message" => record.evidence_refs = vec!["worker-message-not-evidence".into()],
@@ -1261,7 +1262,11 @@ mod tests {
             }
         }
         assert_eq!(load_ledger(root.path()).unwrap().0.events.len(), before);
-        original_store.save(root.path()).unwrap();
+        crate::execution::EvidenceStore::update(root.path(), |store| {
+            store.evidence = original_store.evidence.clone();
+            Ok(())
+        })
+        .unwrap();
         record_cooperation_capability(root.path(), valid, None, Some("valid".into())).unwrap();
         assert_eq!(
             cooperation_resource(root.path(), "tool")

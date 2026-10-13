@@ -301,8 +301,8 @@ fn artifact_path(root: &Path, relative: &str) -> Result<PathBuf> {
 fn artifact_current(root: &Path, artifact: &ArtifactRecord) -> bool {
     artifact_path(root, &artifact.path)
         .ok()
-        .and_then(|path| std::fs::read(path).ok())
-        .is_some_and(|bytes| route_core::sha256_hex(&bytes) == artifact.sha256)
+        .and_then(|path| route_core::hash::content_hash_file(&path).ok())
+        .is_some_and(|(hash, _)| hash == artifact.sha256)
 }
 
 pub fn validate_shape(action: &GeneralAction) -> Result<()> {
@@ -1360,4 +1360,39 @@ pub fn verify_step(
     }))?;
     development::append_operator_general_event(root, draft)?;
     Ok(json!({"evidence_ref":evidence_ref,"replay":false,"check_id":step.proof.check_id}))
+}
+
+#[cfg(test)]
+mod artifact_stream_tests {
+    use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+
+    #[test]
+    fn artifact_digest_detects_tail_changes_missing_and_unsafe_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("delivery.bin");
+        let bytes = vec![0x5a; 3 * 1024 * 1024 + 7];
+        std::fs::write(&path, &bytes).unwrap();
+        let artifact = ArtifactRecord {
+            artifact_id: "fixture-artifact".into(),
+            goal_id: "fixture-goal".into(),
+            step_id: None,
+            path: "delivery.bin".into(),
+            sha256: route_core::sha256_hex(&bytes),
+            state: ArtifactState::Final,
+            description: "Synthetic bounded hashing regression".into(),
+        };
+        assert!(artifact_current(tmp.path(), &artifact));
+        let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.seek(SeekFrom::End(-1)).unwrap();
+        file.write_all(b"x").unwrap();
+        drop(file);
+        assert!(!artifact_current(tmp.path(), &artifact));
+        let mut missing = artifact.clone();
+        missing.path = "missing.bin".into();
+        assert!(!artifact_current(tmp.path(), &missing));
+        let mut unsafe_path = artifact;
+        unsafe_path.path = "../delivery.bin".into();
+        assert!(!artifact_current(tmp.path(), &unsafe_path));
+    }
 }

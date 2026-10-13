@@ -79,14 +79,27 @@ pub fn write_state_hash(project_root: &Path, hash: &str) -> Result<()> {
 pub fn compute_state_hash(project_root: &Path) -> Result<String> {
     // Collect the latest snapshot info if available.
     let mut components = Vec::new();
-    if let Ok(repo) = crate::repository::BasicRepository::open(project_root) {
-        if let Ok(history) = repo.history(1) {
+    let basic_present = match std::fs::symlink_metadata(project_root.join(".route-basic")) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error).context("reading basic repository metadata"),
+    };
+    if basic_present {
+        let repo = crate::repository::BasicRepository::open(project_root)
+            .context("opening repository for working-state fingerprint")?;
+        {
+            let history = repo
+                .history(1)
+                .context("reading fingerprint snapshot history")?;
             if let Some(latest) = history.first() {
                 components.push(format!("snapshot:{}", latest.snapshot.id));
             }
         }
         // Include working tree changes hash.
-        if let Ok(changes) = repo.working_dir_status() {
+        {
+            let changes = repo
+                .working_dir_status()
+                .context("reading fingerprint working tree")?;
             let changes_str = changes
                 .iter()
                 // Bind evidence to bytes, not merely to the set of dirty
@@ -109,10 +122,28 @@ pub fn compute_state_hash(project_root: &Path) -> Result<String> {
             }
         }
     }
-    // Include context hash.
-    if let Ok(snap) = ContextSnapshot::collect(project_root) {
-        components.push(format!("context:{}", snap.fingerprint));
+    if !basic_present {
+        // Sidecar mode must bind source bytes without creating a snapshot DB
+        // or storing file contents. Reuse the canonical scanner's ignore rules.
+        let scan = route_core::storage::ProjectScanner::new(project_root)
+            .with_threads(1)
+            .scan()
+            .context("reading sidecar source fingerprint")?;
+        let mut files: Vec<_> = scan.files.iter().collect();
+        files.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+        let fields = std::iter::once(b"route-sidecar-source-v1".as_slice()).chain(
+            files
+                .iter()
+                .flat_map(|(path, hash)| [path.as_bytes(), hash.as_bytes()]),
+        );
+        components.push(format!(
+            "source-tree-v1:{}",
+            route_core::hash::framed_content_hash(fields)
+        ));
     }
+    // Include context hash.
+    let snap = ContextSnapshot::collect(project_root).context("collecting fingerprint context")?;
+    components.push(format!("context:{}", snap.fingerprint));
     if components.is_empty() {
         return Ok(String::new());
     }
@@ -827,37 +858,9 @@ impl VerificationPolicy {
 }
 
 /// Check whether the verification policy is satisfied for a session.
-/// Returns true if all required evidence kinds are present.
+/// Uses the same current-state and outcome rules as explicit verification.
 fn check_verification_policy(project_root: &Path, session_id: &str) -> Result<bool> {
-    // Read the current Protocol for verification policy.
-    let protocol = crate::constitutive::Protocol::read(project_root)?;
-    let policy = VerificationPolicy::from_protocol_body(&protocol.body);
-
-    if policy.success_requires.is_empty() {
-        // No specific requirements — success is allowed.
-        return Ok(true);
-    }
-
-    // Load evidence for this session.
-    let evidence_store = EvidenceStore::load(project_root)?;
-    let session_evidence: Vec<&Evidence> = evidence_store
-        .evidence
-        .iter()
-        .filter(|e| e.session_id == session_id)
-        .collect();
-
-    // Check that each required evidence kind is present as System evidence.
-    for required in &policy.success_requires {
-        let has_system_evidence = session_evidence
-            .iter()
-            .any(|e| e.kind.as_str() == required.as_str() && e.source == EvidenceSource::System);
-        if !has_system_evidence {
-            // AI claims don't count — only System evidence satisfies the policy.
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
+    Ok(verify_session(project_root, session_id)? == VerifyResult::Verified)
 }
 
 // ---------------------------------------------------------------------------
@@ -993,9 +996,25 @@ pub struct Evidence {
 // ---------------------------------------------------------------------------
 
 /// Persistent store for execution evidence.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct EvidenceStore {
     pub evidence: Vec<Evidence>,
+    #[serde(skip)]
+    loaded_fingerprint: std::sync::Mutex<Option<String>>,
+}
+
+impl Clone for EvidenceStore {
+    fn clone(&self) -> Self {
+        Self {
+            evidence: self.evidence.clone(),
+            loaded_fingerprint: std::sync::Mutex::new(
+                self.loaded_fingerprint
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone(),
+            ),
+        }
+    }
 }
 
 impl EvidenceStore {
@@ -1015,11 +1034,15 @@ impl EvidenceStore {
     /// Load evidence from disk. Returns empty store if file missing.
     pub fn load(project_root: &Path) -> Result<Self> {
         let p = evidence_path(project_root);
-        if !p.exists() {
-            return Ok(Self::default());
-        }
-        let raw = std::fs::read_to_string(&p)
-            .with_context(|| format!("reading evidence from {}", p.display()))?;
+        let raw = match std::fs::read_to_string(&p) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default())
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("reading evidence from {}", p.display()))
+            }
+        };
         let store: Self = serde_json::from_str(&raw)
             .with_context(|| format!("invalid evidence store at {}", p.display()))?;
         let mut ids = std::collections::BTreeSet::new();
@@ -1030,18 +1053,57 @@ impl EvidenceStore {
         {
             anyhow::bail!("invalid or duplicate Evidence identity");
         }
+        *store
+            .loaded_fingerprint
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Evidence version lock poisoned"))? =
+            Some(route_core::sha256_hex(raw.as_bytes()));
         Ok(store)
     }
 
-    /// Persist evidence atomically.
+    /// Atomically persist only if the loaded disk version is still current.
     pub fn save(&self, project_root: &Path) -> Result<()> {
+        let _lock = Self::writer_lock(project_root)?;
+        self.save_locked(project_root)
+    }
+
+    fn writer_lock(project_root: &Path) -> Result<crate::ownership_lock::OwnershipLock> {
+        let dir = execution_dir(project_root);
+        std::fs::create_dir_all(&dir)?;
+        crate::ownership_lock::OwnershipLock::acquire(&dir.join(".evidence-write-lock"))
+    }
+
+    /// Read, mutate and commit under one cross-process lock. Do not run commands
+    /// or re-enter Evidence storage inside the callback. Return only after persistence.
+    pub fn update<T>(
+        project_root: &Path,
+        mutate: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let _lock = Self::writer_lock(project_root)?;
+        let mut store = Self::load(project_root)?;
+        let result = mutate(&mut store)?;
+        store.save_locked(project_root)?;
+        Ok(result)
+    }
+
+    fn save_locked(&self, project_root: &Path) -> Result<()> {
         let p = evidence_path(project_root);
-        if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating directory {}", parent.display()))?;
-        }
+        let current = match route_core::hash::content_hash_file(&p) {
+            Ok((hash, _)) => Some(hash),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error).context("reading Evidence version"),
+        };
+        let mut expected = self
+            .loaded_fingerprint
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Evidence version lock poisoned"))?;
+        anyhow::ensure!(
+            *expected == current,
+            "EVIDENCE_WRITE_CONFLICT: reload Evidence before saving"
+        );
         let json = serde_json::to_vec_pretty(self)?;
         constitutive::write_atomic(&p, &json)?;
+        *expected = Some(route_core::sha256_hex(&json));
         Ok(())
     }
 
@@ -1154,6 +1216,9 @@ impl EvidenceStore {
     pub fn is_pass_stale(&self, evidence: &Evidence, current_state_hash: &str) -> bool {
         if evidence.kind != EvidenceKind::TestPass && evidence.kind != EvidenceKind::CheckPass {
             return false;
+        }
+        if current_state_hash.is_empty() {
+            return true; // Unknown state cannot validate even an old empty fingerprint.
         }
         match &evidence.state_hash {
             Some(h) => h != current_state_hash,
@@ -1847,6 +1912,18 @@ pub fn exec_command(
     argv: &[String],
     check_id: Option<&str>,
 ) -> Result<CommandEvidence> {
+    exec_command_with_evidence(project_root, session_id, argv, check_id).map(|(output, _)| output)
+}
+
+/// Execute once and return the exact Evidence identity, only after its atomic
+/// commit succeeds. A physical rerun produces a distinct identity even when
+/// argv and check_id match. This is not a durable request-replay API.
+pub fn exec_command_with_evidence(
+    project_root: &Path,
+    session_id: &str,
+    argv: &[String],
+    check_id: Option<&str>,
+) -> Result<(CommandEvidence, String)> {
     // Validate session exists and is Active.
     let store = SessionStore::load(project_root)?;
     if let Some(session) = store.get(session_id) {
@@ -1867,6 +1944,49 @@ pub fn exec_command(
     }
     drop(store);
 
+    let (cmd_evidence, metadata) = observe_command(project_root, argv, check_id)?;
+    let evidence_id = commit_command_observation(
+        project_root,
+        session_id,
+        &cmd_evidence,
+        metadata,
+        &route_core::new_id(),
+    )?;
+    Ok((cmd_evidence, evidence_id))
+}
+
+/// Trusted execution control-plane observation; not an external Evidence ingress.
+pub(crate) fn observe_command(
+    project_root: &Path,
+    argv: &[String],
+    check_id: Option<&str>,
+) -> Result<(CommandEvidence, HashMap<String, String>)> {
+    observe_command_controlled(
+        project_root,
+        argv,
+        check_id,
+        std::time::Duration::from_secs(900),
+        || Ok(false),
+    )
+}
+
+pub(crate) fn observe_command_controlled(
+    project_root: &Path,
+    argv: &[String],
+    check_id: Option<&str>,
+    deadline: std::time::Duration,
+    cancelled: impl FnMut() -> Result<bool>,
+) -> Result<(CommandEvidence, HashMap<String, String>)> {
+    observe_command_owned(project_root, argv, check_id, deadline, cancelled, None)
+}
+pub(crate) fn observe_command_owned(
+    project_root: &Path,
+    argv: &[String],
+    check_id: Option<&str>,
+    deadline: std::time::Duration,
+    cancelled: impl FnMut() -> Result<bool>,
+    run: Option<crate::process_supervision::RunIdentity>,
+) -> Result<(CommandEvidence, HashMap<String, String>)> {
     if argv.is_empty() {
         anyhow::bail!("argv is empty — nothing to execute");
     }
@@ -1875,33 +1995,66 @@ pub fn exec_command(
     // completed while this command runs must require a fresh verification.
     let check_started_revision =
         crate::development::global_development_revision(project_root).unwrap_or(0);
-    let state_hash_before = compute_state_hash(project_root).unwrap_or_default();
+    let state_hash_before =
+        compute_state_hash(project_root).context("capturing state before command")?;
+    anyhow::ensure!(
+        !state_hash_before.is_empty(),
+        "STATE_HASH_UNAVAILABLE: command not started"
+    );
 
     // Spawn process (no shell).
     let start = Instant::now();
-    let output = StdCommand::new(&argv[0])
-        .args(&argv[1..])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .current_dir(project_root)
-        .output()
-        .with_context(|| format!("failed to execute: {}", argv.join(" ")))?;
+    let mut process_command = StdCommand::new(&argv[0]);
+    process_command.args(&argv[1..]).current_dir(project_root);
+    #[cfg(windows)]
+    let output = if let Some(run) = run {
+        crate::bounded_runner::capture_owned(
+            project_root,
+            run,
+            &process_command,
+            deadline,
+            cancelled,
+        )
+    } else {
+        crate::bounded_runner::capture(&mut process_command, deadline, cancelled)
+    }
+    .context("CHECK_EXECUTION_FAILED")?;
+    #[cfg(unix)]
+    let output = crate::bounded_runner::capture(
+        StdCommand::new(&argv[0])
+            .args(&argv[1..])
+            .current_dir(project_root),
+        deadline,
+        cancelled,
+    )
+    .context("CHECK_EXECUTION_FAILED")?;
+    #[cfg(not(windows))]
+    let _ = run;
+    #[cfg(not(any(windows, unix)))]
+    let output = {
+        let _ = (deadline, cancelled);
+        crate::command_output::capture(
+            StdCommand::new(&argv[0])
+                .args(&argv[1..])
+                .current_dir(project_root),
+        )?
+    };
     let duration_ms = start.elapsed().as_millis() as u64;
 
     let exit_code = output.status.code().unwrap_or(-1);
-    let stdout_bytes = output.stdout;
-    let stderr_bytes = output.stderr;
-
-    // Hash and truncate.
-    let stdout_hash = route_core::sha256_hex(&stdout_bytes);
-    let stderr_hash = route_core::sha256_hex(&stderr_bytes);
-    let stdout_preview =
-        String::from_utf8_lossy(&stdout_bytes[..stdout_bytes.len().min(2048)]).to_string();
-    let stderr_preview =
-        String::from_utf8_lossy(&stderr_bytes[..stderr_bytes.len().min(2048)]).to_string();
+    let stdout_hash = output.stdout_hash;
+    let stderr_hash = output.stderr_hash;
+    let stdout_preview = output.stdout_preview;
+    let stderr_preview = output.stderr_preview;
 
     // Compute state hash.
-    let state_hash = compute_state_hash(project_root).unwrap_or_default();
+    let (state_hash, state_hash_error) = match compute_state_hash(project_root) {
+        Ok(hash) => (hash, None),
+        Err(error) => (
+            String::new(),
+            Some(format!("{error:#}").chars().take(512).collect::<String>()),
+        ),
+    };
     let check_finished_revision =
         crate::development::global_development_revision(project_root).unwrap_or(0);
     let state_stable = !state_hash_before.is_empty() && state_hash_before == state_hash;
@@ -1922,19 +2075,15 @@ pub fn exec_command(
         stderr_preview,
     };
 
-    // Record evidence.
-    let mut evidence_store = EvidenceStore::load(project_root)?;
-    let kind = if exit_code == 0 && state_stable {
-        EvidenceKind::CheckPass
-    } else {
-        EvidenceKind::CheckFail
-    };
     let mut metadata = HashMap::new();
     metadata.insert("argv".to_string(), argv.join(" "));
     metadata.insert("exit_code".to_string(), exit_code.to_string());
     metadata.insert("duration_ms".to_string(), duration_ms.to_string());
     metadata.insert("state_stable".to_string(), state_stable.to_string());
     metadata.insert("state_hash_before".to_string(), state_hash_before.clone());
+    if let Some(error) = state_hash_error {
+        metadata.insert("state_hash_error".into(), error);
+    }
     metadata.insert(
         "check_started_revision".to_string(),
         check_started_revision.to_string(),
@@ -1946,36 +2095,66 @@ pub fn exec_command(
     if let Some(cid) = check_id {
         metadata.insert("check_id".to_string(), cid.to_string());
     }
+    Ok((cmd_evidence, metadata))
+}
+
+pub(crate) fn commit_command_observation(
+    project_root: &Path,
+    session_id: &str,
+    observation: &CommandEvidence,
+    metadata: HashMap<String, String>,
+    run_key: &str,
+) -> Result<String> {
+    let kind = if observation.exit_code == 0 && observation.state_stable {
+        EvidenceKind::CheckPass
+    } else {
+        EvidenceKind::CheckFail
+    };
     // A check spanning completion is ineligible for that completion. Its
     // later rerun must not deduplicate to it merely because both ended at
     // the same revision and produced the same working-state hash.
-    let dedup_key = format!(
-        "exec:{}:{}:{}:{check_started_revision}:{}:{}",
-        argv.join(" "),
-        state_hash_before,
-        state_hash,
-        check_id.unwrap_or(""),
-        route_core::new_id() // A physical rerun is new Evidence, not a request replay.
-    );
-    evidence_store.record_dedup(
-        session_id,
-        kind,
-        EvidenceSource::System,
-        route_core::sha256_hex(format!("{}:{}", argv.join(" "), exit_code).as_bytes()),
-        metadata,
-        &dedup_key,
-        if state_hash.is_empty() {
-            None
-        } else {
-            Some(state_hash)
-        },
-        None,
-        None,
-        None,
-    );
-    evidence_store.save(project_root)?;
+    let dedup_key = format!("physical-run:{run_key}");
+    let evidence_id =
+        EvidenceStore::update(project_root, |evidence_store| {
+            if let Some(existing) = evidence_store.evidence.iter().find(|e| {
+                e.session_id == session_id && e.metadata.get("dedup_key") == Some(&dedup_key)
+            }) {
+                anyhow::ensure!(
+                    existing.kind == kind
+                        && existing.payload_hash
+                            == route_core::sha256_hex(&serde_json::to_vec(observation)?)
+                        && existing.metadata == {
+                            let mut expected = metadata.clone();
+                            expected.insert("dedup_key".into(), dedup_key.clone());
+                            expected
+                        }
+                        && existing.state_hash.as_deref()
+                            == Some(observation.state_hash.as_str()).filter(|s| !s.is_empty()),
+                    "CHECKRUN_EVIDENCE_CONFLICT"
+                );
+                return Ok(existing.id.clone());
+            }
+            evidence_store
+                .record_dedup(
+                    session_id,
+                    kind,
+                    EvidenceSource::System,
+                    route_core::sha256_hex(serde_json::to_vec(observation)?.as_slice()),
+                    metadata,
+                    &dedup_key,
+                    if observation.state_hash.is_empty() {
+                        None
+                    } else {
+                        Some(observation.state_hash.clone())
+                    },
+                    None,
+                    None,
+                    None,
+                )
+                .context("physical command execution must create new Evidence")
+        })?;
 
-    Ok(cmd_evidence)
+    Ok(evidence_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -2026,7 +2205,46 @@ pub fn verify_session(project_root: &Path, session_id: &str) -> Result<VerifyRes
         .collect();
 
     // Compute current state hash for staleness check.
-    let current_state_hash = compute_state_hash(project_root).unwrap_or_default();
+    let current_state_hash =
+        compute_state_hash(project_root).context("capturing state for verification")?;
+
+    // Index failures once: success_requires must not scan the full suffix for
+    // every historical PASS. Durable vector order, never timestamps, wins.
+    let mut failure_by_check = HashMap::new();
+    let mut failure_by_argv = HashMap::new();
+    let mut latest_failure = None;
+    if policy
+        .success_requires
+        .iter()
+        .any(|kind| matches!(kind.as_str(), "check_pass" | "test_pass"))
+    {
+        for (index, evidence) in session_evidence.iter().enumerate() {
+            if evidence.source == EvidenceSource::System
+                && matches!(
+                    evidence.kind,
+                    EvidenceKind::CheckFail | EvidenceKind::TestFail
+                )
+            {
+                latest_failure = Some(index);
+                if let Some(check) = evidence.metadata.get("check_id") {
+                    failure_by_check.insert(check.as_str(), index);
+                }
+                if let Some(argv) = evidence.metadata.get("argv") {
+                    failure_by_argv.insert(argv.as_str(), index);
+                }
+            }
+        }
+    }
+
+    fn matches_required(e: &Evidence, required: &str) -> bool {
+        match e.metadata.get("check_id") {
+            Some(check) => check == required,
+            None => e
+                .metadata
+                .get("argv")
+                .map_or(false, |argv| argv.contains(required)),
+        }
+    }
 
     // Check required_checks: each check must have a corresponding
     // CheckPass or TestPass with matching check_id, as System evidence,
@@ -2035,34 +2253,26 @@ pub fn verify_session(project_root: &Path, session_id: &str) -> Result<VerifyRes
     let mut any_stale = false;
 
     for required in &policy.required_checks {
-        let has_valid = session_evidence.iter().any(|e| {
-            // Match by check_id in metadata or by argv containing the required string.
-            let check_matches = match e.metadata.get("check_id") {
-                Some(cid) => cid == required,
-                None => e
-                    .metadata
-                    .get("argv")
-                    .map_or(false, |argv| argv.contains(required)),
-            };
-            if !check_matches {
-                return false;
-            }
-            // Must be System evidence and not stale.
+        let latest_outcome = session_evidence.iter().rev().find(|e| {
             e.source == EvidenceSource::System
+                && matches_required(e, required)
+                && matches!(
+                    e.kind,
+                    EvidenceKind::CheckPass
+                        | EvidenceKind::TestPass
+                        | EvidenceKind::CheckFail
+                        | EvidenceKind::TestFail
+                )
+        });
+        let has_valid = latest_outcome.map_or(false, |e| {
+            matches!(e.kind, EvidenceKind::CheckPass | EvidenceKind::TestPass)
                 && !evidence_store.is_pass_stale(e, &current_state_hash)
         });
         if !has_valid {
             // Check if there's stale evidence — if so, mark as stale.
-            let has_stale = session_evidence.iter().any(|e| {
-                let check_matches = match e.metadata.get("check_id") {
-                    Some(cid) => cid == required,
-                    None => e
-                        .metadata
-                        .get("argv")
-                        .map_or(false, |argv| argv.contains(required)),
-                };
-                check_matches && e.source == EvidenceSource::System
-            });
+            let has_stale = session_evidence
+                .iter()
+                .any(|e| matches_required(e, required) && e.source == EvidenceSource::System);
             if has_stale {
                 any_stale = true;
             } else {
@@ -2074,10 +2284,22 @@ pub fn verify_session(project_root: &Path, session_id: &str) -> Result<VerifyRes
     // Check success_requires: each required evidence kind must be present
     // as System evidence and not stale.
     for required in &policy.success_requires {
-        let has_valid = session_evidence.iter().any(|e| {
+        let has_valid = session_evidence.iter().enumerate().any(|(index, e)| {
+            let superseded = if matches!(e.kind, EvidenceKind::CheckPass | EvidenceKind::TestPass) {
+                let failure = match (e.metadata.get("check_id"), e.metadata.get("argv")) {
+                    (Some(check), _) => failure_by_check.get(check.as_str()).copied(),
+                    (None, Some(argv)) => failure_by_argv.get(argv.as_str()).copied(),
+                    // Anonymous legacy proof cannot identify an unrelated failure.
+                    (None, None) => latest_failure,
+                };
+                failure.map_or(false, |failed_index| failed_index > index)
+            } else {
+                false
+            };
             e.kind.as_str() == required.as_str()
                 && e.source == EvidenceSource::System
                 && !evidence_store.is_pass_stale(e, &current_state_hash)
+                && !superseded
         });
         if !has_valid {
             let has_stale = session_evidence.iter().any(|e| {
@@ -3028,6 +3250,16 @@ impl SessionStatus {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[path = "evidence_storage_tests.rs"]
+mod evidence_storage_tests;
+#[cfg(test)]
+#[path = "session_verification_tests.rs"]
+mod session_verification_tests;
+#[cfg(test)]
+#[path = "state_hash_failure_tests.rs"]
+mod state_hash_failure_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::repository::BasicRepository;
@@ -3279,6 +3511,10 @@ mod tests {
         protocol.write(&root).unwrap();
 
         // Should pass — we have system test_pass evidence.
+        // Bind this synthetic fixture to the current state after policy setup;
+        // hashless legacy proof must not authorize successful completion.
+        store.evidence.last_mut().unwrap().state_hash = Some(compute_state_hash(&root).unwrap());
+        store.save(&root).unwrap();
         let ended = end_session(&root, &s.id, "success").unwrap();
         assert_eq!(ended.status, SessionStatus::Succeeded);
     }

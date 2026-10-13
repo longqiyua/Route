@@ -29,6 +29,9 @@ pub enum Action {
     },
     Status {
         goal_id: String,
+        /// Read-only Goal-local resource usage; not a launch authorization.
+        #[arg(long)]
+        budget: bool,
     },
     Cancel {
         goal_id: String,
@@ -52,6 +55,9 @@ pub enum Action {
         goal_id: String,
         #[arg(long)]
         checks_file: PathBuf,
+        /// Reuse this key after interruption; a new key approves a fresh observation.
+        #[arg(long)]
+        operation_key: Option<String>,
     },
 }
 fn append(root: &Path, action: TeamAction) -> Result<()> {
@@ -147,11 +153,14 @@ pub fn run(action: Action) -> Result<()> {
             Ok(())
         }
         Action::Run { goal_id } => execute(&root, &goal_id),
-        Action::Status { goal_id } => {
-            println!(
-                "{}",
-                serde_json::to_string(&team::status(&root, &goal_id)?)?
-            );
+        Action::Status { goal_id, budget } => {
+            if budget {
+                let (view, capacity) = team::status_with_project_concurrency(&root, &goal_id)?;
+                println!("{}", budget_summary_with_project(&view, &capacity));
+            } else {
+                let view = team::status(&root, &goal_id)?;
+                println!("{}", serde_json::to_value(&view)?);
+            }
             Ok(())
         }
         Action::Cancel { goal_id } => append(&root, TeamAction::CancelAll { goal_id }),
@@ -186,7 +195,11 @@ pub fn run(action: Action) -> Result<()> {
         Action::Verify {
             goal_id,
             checks_file,
-        } => crate::team_verify::verify(&root, &goal_id, &checks_file),
+            operation_key,
+        } => match operation_key {
+            Some(key) => crate::team_verify::verify_keyed(&root, &goal_id, &checks_file, &key),
+            None => crate::team_verify::verify(&root, &goal_id, &checks_file),
+        },
     }
 }
 fn launch(
@@ -233,8 +246,9 @@ fn launch(
         };
         let route = std::env::current_exe()?;
         let api = format!("& '{}' sidecar --host {}", route.display(), host);
+        let planner_budget = planner_budget_guidance(&before.budget);
         let role_instructions=match role {
-            Role::Planner=>format!("You are a temporary planning Worker, not a permanent manager. Decide whether splitting helps this Goal. Create only necessary existing WorkItems using {api} call work.create_child '<JSON>' --key UNIQUE. Work JSON: intent_ref and goal_id both '{goal}', kind 'GENERAL', title, scope_paths (relative paths), dependencies (existing work IDs), verification_requirements, overlap_mode 'EXCLUSIVE'. Read returned work IDs. Publish bounded routing via {api} call team.decide '<JSON>' --key UNIQUE. Decision JSON: goal_id '{goal}', split boolean, role IMPLEMENTER or INDEPENDENT_REVIEWER or PLANNER, work_ids, reason (short structured explanation, no private reasoning), independence_required boolean, capability_status 'DECLARED'. For a trivial task prefer split=false, role=PLANNER, reason=DO_NOT_SPLIT with a short explanation; claim that Work yourself with work.claim, implement/test it, publish a Finding (payload.kind FINDING, payload.data.summary, intent_ref Goal), and finish with work.finish. No second Worker is then created. For nontrivial work you may choose separate implementer and independent reviewer; if split=true do not edit source yourself. Review has value but is not mandatory. Budget allows at most 3 Workers including you, depth 1; prefer at most two WorkItems. No raw transcript/CoT. Do not launch Workers yourself, curate knowledge, or ask Human to assign Workers/files."),
+            Role::Planner=>format!("You are a temporary planning Worker, not a permanent manager. Decide whether splitting helps this Goal. Create only necessary existing WorkItems using {api} call work.create_child '<JSON>' --key UNIQUE. Work JSON: intent_ref and goal_id both '{goal}', kind 'GENERAL', title, scope_paths (relative paths), dependencies (existing work IDs), verification_requirements, overlap_mode 'EXCLUSIVE'. Read returned work IDs. Publish bounded routing via {api} call team.decide '<JSON>' --key UNIQUE. Decision JSON: goal_id '{goal}', split boolean, role IMPLEMENTER or INDEPENDENT_REVIEWER or PLANNER, work_ids, reason (short structured explanation, no private reasoning), independence_required boolean, capability_status 'DECLARED'. For a trivial task prefer split=false, role=PLANNER, reason=DO_NOT_SPLIT with a short explanation; claim that Work yourself with work.claim, implement/test it, publish a Finding (payload.kind FINDING, payload.data.summary, intent_ref Goal), and finish with work.finish. No second Worker is then created. For nontrivial work you may choose separate implementer and independent reviewer; if split=true do not edit source yourself. Review has value but is not mandatory. {planner_budget} No raw transcript/CoT. Do not launch Workers yourself, curate knowledge, or ask Human to assign Workers/files."),
             Role::Implementer=>format!("Execute only this WorkItem and Goal. Claim via {api} call work.claim '{{\"work_id\":\"{}\"}}' --key UNIQUE. Implement and test within the provided scope. Publish one concise sourced Finding via {api} call development.event.record '<JSON>' --key UNIQUE, with payload.kind FINDING, payload.data.summary, payload.data.source_refs [], intent_ref '{goal}', task_ref work ID. Finish the claim with work.finish (claim_id, reason) when work is done. Reports are not System Evidence. Do not spawn Workers, summarize history, extract lessons or curate Base.",work.as_deref().unwrap_or_default()),
             Role::IndependentReviewer=>format!("Independently inspect the actual change and requirements; previous rationale/Base conclusions are intentionally withheld. Do not edit source. Claim using {api} call work.claim JSON --key UNIQUE, publish your independent Finding through {api} call development.event.record '<JSON>' --key UNIQUE (payload.kind FINDING, payload.data.summary, payload.data.source_refs [], intent_ref '{goal}', task_ref current work ID); finish claim using work.finish. Check actual tests and explain failures honestly. Do not ask for previous solution reasoning. Reports are not System Evidence. Do not spawn or extract lessons."),
             Role::Knowledge=>format!("You are a separate deferred knowledge Worker, not an implementer. Read only the ExtractionPacket, never repository/history/transcripts. If it cannot support an actionable, specific, falsifiable, plausibly reusable narrowly scoped lesson, publish nothing. Existing CooperationKnowledge is the only canonical knowledge path: {api} call cooperation.knowledge.record JSON --key UNIQUE. A lesson requires actual Goal, Work, Finding, System Evidence, source events, narrow component/environment, condition, concrete action and falsification_check. Do not invent resource IDs, evidence, observations or broaden scope. Remain CANDIDATE/INFERRED; never assert VALIDATED_LOCAL without independent review and current matching System Evidence. No source edits, no Workers, no generic advice. Returning zero candidates is healthy."),
@@ -259,7 +273,20 @@ fn launch(
             path: Path::new(&before.host_path),
             approved_sha256: &before.host_sha256,
         };
-        let launched = host.spawn(root, &prompt)?;
+        // Reservation is durable before this launch; a failed/unknown spawn
+        // must quarantine the slot, not convert it into an ordinary failure.
+        child_unreaped = true;
+        let launched = host.spawn(
+            root,
+            &prompt,
+            route_basic::process_supervision::RunIdentity {
+                run_id: run_id.clone(),
+                operation_id: format!("team:{goal}:{run_id}"),
+                owner: worker_id.clone(),
+                attempt: 1,
+                team_goal: Some(goal.into()),
+            },
+        )?;
         let mut child = launched.child;
         child_unreaped = true;
         println!(
@@ -307,10 +334,129 @@ fn launch(
     );
     Ok(run_id)
 }
+fn budget_summary(view: &team::TeamView) -> serde_json::Value {
+    let used_attempts = view.runs.len();
+    let used_workers = view
+        .runs
+        .values()
+        .map(|r| &r.reservation.worker_id)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let active = view.runs.values().filter(|r| r.state.active()).count();
+    let attempts_left = view.budget.max_spawn_attempts.saturating_sub(used_attempts);
+    let workers_left = view
+        .budget
+        .max_workers_per_goal
+        .saturating_sub(used_workers);
+    let slots_left = view.budget.max_concurrent_workers.saturating_sub(active);
+    let mut reasons = Vec::new();
+    if view.cancelled {
+        reasons.push("cancel_all");
+    }
+    if attempts_left == 0 {
+        reasons.push("max_spawn_attempts");
+    }
+    if workers_left == 0 {
+        reasons.push("max_workers_per_goal");
+    }
+    if slots_left == 0 {
+        reasons.push("max_concurrent_workers");
+    }
+    json!({
+        "goal_id":view.goal_id,
+        "scope":"GOAL_LOCAL_SNAPSHOT",
+        "limits":view.budget,
+        "usage":{"spawn_attempts":used_attempts,"distinct_workers":used_workers,"active_workers":active},
+        "capacity_blocked_by_uncertain_run":active > 0,
+        "process_inspection":"Use route run inspect RUN_ID; active reservations remain quarantined after broker restart",
+        "remaining":{"spawn_attempts":attempts_left,"new_distinct_workers":workers_left,"local_concurrent_slots":slots_left},
+        "new_worker_local_limit_reasons":reasons,
+        "cancelled":view.cancelled,
+        "launch_authorized":false,
+        "project_global_capacity":"NOT_EVALUATED",
+        "role_depth_work_and_retry_eligibility":"NOT_EVALUATED",
+        "token_budget":"NOT_TRACKED",
+        "monetary_budget":"NOT_TRACKED"
+    })
+}
+
+fn budget_summary_with_project(
+    view: &team::TeamView,
+    capacity: &team::ProjectConcurrencySnapshot,
+) -> serde_json::Value {
+    let mut summary = budget_summary(view);
+    summary["scope"] = json!("GOAL_AND_PROJECT_SNAPSHOT");
+    summary["project_global_capacity"] = json!("SNAPSHOT_EVALUATED");
+    summary["project_concurrency"] = json!(capacity);
+    summary["new_worker_project_limit_reasons"] = if capacity.remaining_concurrent_slots == 0 {
+        json!(["global_max_concurrent_workers"])
+    } else {
+        json!([])
+    };
+    summary
+}
+
+fn planner_budget_guidance(budget: &AgentBudget) -> String {
+    // The initial Planner consumes one distinct Worker and one launch attempt.
+    // This is an upper bound, not a reservation: transactional checks remain authoritative.
+    let delegated = if budget.max_spawn_depth == 0 {
+        0
+    } else {
+        budget
+            .max_workers_per_goal
+            .saturating_sub(1)
+            .min(budget.max_spawn_attempts.saturating_sub(1))
+    };
+    format!(
+        "Configured budget: at most {} Workers including you, depth {}, {} total launch attempts, {} concurrent Workers, {} retries per Worker, {} seconds per Worker. At most {delegated} additional Workers can be launched after this initial Planner; failed launches also consume attempts. These are ceilings, not guaranteed available slots. If additional Workers is 0, choose split=false and complete the scoped Work yourself; otherwise split only when useful and within these limits, preferring at most two WorkItems. This is a Worker/process budget, not a token or monetary spending guarantee.",
+        budget.max_workers_per_goal,
+        budget.max_spawn_depth,
+        budget.max_spawn_attempts,
+        budget.max_concurrent_workers,
+        budget.retry_limit,
+        budget.worker_timeout_seconds,
+    )
+}
+
+trait BrokerChild {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>>;
+    fn kill(&mut self) -> Result<()>;
+    fn wait(&mut self) -> Result<std::process::ExitStatus>;
+}
+impl BrokerChild for Child {
+    fn id(&self) -> u32 {
+        Child::id(self)
+    }
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>> {
+        Ok(Child::try_wait(self)?)
+    }
+    fn kill(&mut self) -> Result<()> {
+        Ok(Child::kill(self)?)
+    }
+    fn wait(&mut self) -> Result<std::process::ExitStatus> {
+        Ok(Child::wait(self)?)
+    }
+}
+#[cfg(windows)]
+impl BrokerChild for route_basic::process_supervision::OwnedProcess {
+    fn id(&self) -> u32 {
+        self.id()
+    }
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>> {
+        self.try_wait()
+    }
+    fn kill(&mut self) -> Result<()> {
+        self.kill()
+    }
+    fn wait(&mut self) -> Result<std::process::ExitStatus> {
+        self.wait()
+    }
+}
 fn wait_owned_child(
     root: &Path,
     goal: &str,
-    child: &mut Child,
+    child: &mut impl BrokerChild,
     timeout: Duration,
 ) -> Result<RunState> {
     let start = Instant::now();
@@ -427,6 +573,8 @@ fn execute(root: &Path, goal: &str) -> Result<()> {
                         .any(|w| &w.work.work_id == *id && w.claimable)
             });
         let Some((decision, id)) = next else { break };
+        // Old contradictory records remain readable but must not launch a child.
+        team::validate_routing_mode(decision)?;
         ensure!(
             decision.role != Role::Planner,
             "PLANNER_SELF_WORK_NOT_COMPLETED: do not spawn a second planner"
@@ -448,6 +596,114 @@ fn execute(root: &Path, goal: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn budget_summary_counts_failed_attempts_retries_and_active_reservations() {
+        let (dir, goal) = fixture();
+        let mut view = team::status(dir.path(), &goal).unwrap();
+        let original = view.runs["fixture-run"].clone();
+        view.runs.clear();
+        for (id, worker, state) in [
+            ("failed", "a", RunState::Failed),
+            ("retry", "a", RunState::TimedOut),
+            ("reserved", "b", RunState::Reserved),
+            ("running", "c", RunState::Running),
+            ("done", "d", RunState::Succeeded),
+            ("cancelled", "e", RunState::Cancelled),
+        ] {
+            let mut run = original.clone();
+            run.reservation.run_id = id.into();
+            run.reservation.worker_id = worker.into();
+            run.state = state;
+            view.runs.insert(id.into(), run);
+        }
+        view.budget.max_spawn_attempts = 8;
+        view.budget.max_workers_per_goal = 8;
+        view.budget.max_concurrent_workers = 2;
+        let summary = budget_summary(&view);
+        assert_eq!(
+            summary["usage"],
+            json!({"spawn_attempts":6,"distinct_workers":5,"active_workers":2})
+        );
+        assert_eq!(
+            summary["remaining"],
+            json!({"spawn_attempts":2,"new_distinct_workers":3,"local_concurrent_slots":0})
+        );
+        assert_eq!(
+            summary["new_worker_local_limit_reasons"],
+            json!(["max_concurrent_workers"])
+        );
+        // Legacy/over-limit inputs must never wrap into a huge remaining budget.
+        view.budget.max_spawn_attempts = 1;
+        view.budget.max_workers_per_goal = 1;
+        view.cancelled = true;
+        let denied = budget_summary(&view);
+        assert_eq!(denied["remaining"]["spawn_attempts"], 0);
+        assert_eq!(denied["remaining"]["new_distinct_workers"], 0);
+        assert_eq!(
+            denied["new_worker_local_limit_reasons"],
+            json!([
+                "cancel_all",
+                "max_spawn_attempts",
+                "max_workers_per_goal",
+                "max_concurrent_workers"
+            ])
+        );
+        assert_eq!(denied["usage"]["active_workers"], 2);
+        assert_eq!(denied["launch_authorized"], false);
+        assert_eq!(denied["project_global_capacity"], "NOT_EVALUATED");
+        assert_eq!(denied["token_budget"], "NOT_TRACKED");
+        assert_eq!(denied["monetary_budget"], "NOT_TRACKED");
+    }
+
+    #[test]
+    fn budget_summary_does_not_mutate_ledger_or_view() {
+        let (dir, goal) = fixture();
+        let view = team::status(dir.path(), &goal).unwrap();
+        let before = serde_json::to_value(&view).unwrap();
+        let revision = route_basic::global_development_revision(dir.path()).unwrap();
+        let summary = budget_summary(&view);
+        assert_eq!(summary["usage"]["spawn_attempts"], 1);
+        assert_eq!(summary["remaining"]["new_distinct_workers"], 2);
+        assert_eq!(serde_json::to_value(&view).unwrap(), before);
+        assert_eq!(
+            route_basic::global_development_revision(dir.path()).unwrap(),
+            revision
+        );
+    }
+
+    #[test]
+    fn planner_guidance_reflects_configured_budget_and_delegation_ceiling() {
+        use super::*;
+        let defaults = planner_budget_guidance(&AgentBudget::default());
+        assert!(defaults.contains("at most 3 Workers including you, depth 1"));
+        assert!(defaults.contains("At most 2 additional Workers"));
+        let mut budget = AgentBudget {
+            max_workers_per_goal: 8,
+            max_spawn_attempts: 2,
+            max_concurrent_workers: 1,
+            worker_timeout_seconds: 60,
+            retry_limit: 0,
+            ..Default::default()
+        };
+        let limited = planner_budget_guidance(&budget);
+        assert!(limited.contains("at most 8 Workers including you"));
+        assert!(limited.contains("At most 1 additional Workers"));
+        assert!(limited.contains("1 concurrent Workers, 0 retries per Worker, 60 seconds"));
+        for limit in 0..3 {
+            budget.max_workers_per_goal = 8;
+            budget.max_spawn_attempts = 8;
+            budget.max_spawn_depth = 1;
+            match limit {
+                0 => budget.max_workers_per_goal = 1,
+                1 => budget.max_spawn_attempts = 1,
+                _ => budget.max_spawn_depth = 0,
+            }
+            let single = planner_budget_guidance(&budget);
+            assert!(single.contains("At most 0 additional Workers"));
+            assert!(single.contains("choose split=false"));
+            assert!(single.contains("not a token or monetary spending guarantee"));
+        }
+    }
     use super::*;
     #[test]
     fn sleep_helper() {

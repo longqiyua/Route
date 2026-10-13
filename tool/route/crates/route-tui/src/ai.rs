@@ -11,7 +11,7 @@
 //!
 //! | Variable | Default | Description |
 //! |---|---|---|
-//! | `ROUTE_AI_PROVIDER` | `openai` | Provider: `openai`, `anthropic`, `ollama` |
+//! | `ROUTE_AI_PROVIDER` | `openai` | Display label; endpoint must speak OpenAI-compatible chat |
 //! | `ROUTE_AI_ENDPOINT` | `https://api.openai.com/v1` | API endpoint |
 //! | `ROUTE_AI_KEY` | — | API key (required) |
 //! | `ROUTE_AI_MODEL` | `gpt-4o` | Model name |
@@ -25,7 +25,7 @@ use crate::fmt::{accent, dim, err, faint, warn};
 // ---------------------------------------------------------------------------
 
 /// AI provider configuration read from environment variables.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AiConfig {
     pub provider: String,
     pub endpoint: String,
@@ -37,30 +37,42 @@ impl AiConfig {
     /// Read AI config from environment variables.
     /// Returns `None` when the key is not set (AI is disabled).
     pub fn from_env() -> Option<Self> {
+        let config = Self::read_env();
+        (!config.key.is_empty()).then_some(config)
+    }
+    fn read_env() -> Self {
         let key = std::env::var("ROUTE_AI_KEY").unwrap_or_default();
-        if key.is_empty() {
-            return None;
-        }
-        Some(Self {
+        Self {
             provider: std::env::var("ROUTE_AI_PROVIDER").unwrap_or_else(|_| "openai".to_string()),
             endpoint: std::env::var("ROUTE_AI_ENDPOINT")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
             key,
             model: std::env::var("ROUTE_AI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()),
-        })
+        }
     }
 
     /// Print the current config (masked key).
     pub fn print(&self) {
-        let masked = if self.key.len() > 8 {
-            format!("{}...{}", &self.key[..4], &self.key[self.key.len() - 4..])
+        let masked = if self.key.is_empty() {
+            "not configured"
         } else {
-            "****".to_string()
+            "[configured; hidden]"
         };
         println!("  {} {}", dim("Provider:"), accent(&self.provider));
-        println!("  {} {}", dim("Endpoint:"), faint(&self.endpoint));
+        // URL userinfo/query may contain credentials; never echo either.
+        let endpoint = reqwest::Url::parse(&self.endpoint)
+            .ok()
+            .map(|mut url| {
+                let _ = url.set_username("");
+                let _ = url.set_password(None);
+                url.set_query(None);
+                url.set_fragment(None);
+                url.to_string()
+            })
+            .unwrap_or_else(|| "[invalid endpoint; hidden]".into());
+        println!("  {} {}", dim("Endpoint:"), faint(&endpoint));
         println!("  {} {}", dim("Model:"), accent(&self.model));
-        println!("  {} {}", dim("Key:"), faint(&masked));
+        println!("  {} {}", dim("Key:"), faint(masked));
     }
 }
 
@@ -220,7 +232,11 @@ pub fn ai_chat(
     system_prompt: &str,
     user_message: &str,
 ) -> Result<String, String> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|_| "cannot initialize AI client".to_string())?;
     let url = format!("{}/chat/completions", config.endpoint.trim_end_matches('/'));
 
     let body = serde_json::json!({
@@ -239,19 +255,23 @@ pub fn ai_chat(
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("request failed: {e}"))?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "AI_REQUEST_TIMEOUT".to_string()
+            } else {
+                "AI_REQUEST_FAILED (endpoint and credentials hidden)".to_string()
+            }
+        })?;
 
     let status = response.status();
-    let body_text = response
-        .text()
-        .map_err(|e| format!("cannot read response: {e}"))?;
+    let body_text = read_bounded_response(response)?;
 
     if !status.is_success() {
-        return Err(format!("API error ({}): {}", status.as_u16(), body_text));
+        return Err(format!("API error ({}) (body hidden)", status.as_u16()));
     }
 
     let parsed: serde_json::Value =
-        serde_json::from_str(&body_text).map_err(|e| format!("cannot parse response: {e}"))?;
+        serde_json::from_str(&body_text).map_err(|_| "invalid AI response JSON".to_string())?;
 
     let content = parsed["choices"][0]["message"]["content"]
         .as_str()
@@ -263,6 +283,63 @@ pub fn ai_chat(
 // ---------------------------------------------------------------------------
 // Danger Detection
 // ---------------------------------------------------------------------------
+
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
+fn read_bounded_response(reader: impl std::io::Read) -> Result<String, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_RESPONSE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "AI_RESPONSE_READ_FAILED".to_string())?;
+    if bytes.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err("AI_RESPONSE_TOO_LARGE".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "AI_RESPONSE_INVALID_UTF8".into())
+}
+fn wrap_utf8(mut line: &str, width: usize) -> Vec<&str> {
+    let mut parts = Vec::new();
+    while !line.is_empty() {
+        let boundary = line
+            .char_indices()
+            .nth(width.max(1))
+            .map(|(index, _)| index)
+            .unwrap_or(line.len());
+        parts.push(&line[..boundary]);
+        line = &line[boundary..];
+    }
+    if parts.is_empty() {
+        parts.push("");
+    }
+    parts
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    #[test]
+    fn unicode_wrap_never_slices_inside_character_or_loops_at_zero_width() {
+        let text = "你好Route🦀é世界";
+        for width in [0, 1, 2, 5, 80] {
+            assert_eq!(wrap_utf8(text, width).concat(), text);
+        }
+    }
+    #[test]
+    fn response_reader_rejects_oversize_and_invalid_utf8() {
+        assert_eq!(read_bounded_response(&b"hello"[..]).unwrap(), "hello");
+        assert!(read_bounded_response(std::io::repeat(b'x'))
+            .unwrap_err()
+            .contains("TOO_LARGE"));
+        assert!(read_bounded_response(&[0xff][..])
+            .unwrap_err()
+            .contains("INVALID_UTF8"));
+    }
+    #[test]
+    fn help_and_config_are_local_commands() {
+        assert!(handle_ai_command(Path::new("."), &["help".into()]));
+        assert!(handle_ai_command(Path::new("."), &["config".into()]));
+    }
+}
 
 /// List of dangerous operations that the AI should warn about.
 const DANGEROUS_OPERATIONS: &[(&str, &str, &str)] = &[
@@ -336,25 +413,26 @@ pub fn detect_danger(input: &str) -> Option<&'static str> {
 /// `project_path` is the project directory.
 /// `args` is everything after `ai`.
 pub fn handle_ai_command(project_path: &Path, args: &[String]) -> bool {
-    let config = match AiConfig::from_env() {
-        Some(c) => c,
-        None => {
-            eprintln!(
-                "{}",
-                err("✗ AI not configured. Set ROUTE_AI_KEY (and optionally ROUTE_AI_ENDPOINT, ROUTE_AI_MODEL, ROUTE_AI_PROVIDER).")
-            );
-            println!(
-                "  {} {}",
-                dim("Example:"),
-                faint("set ROUTE_AI_KEY=sk-... && route-tui ai tell me about this project")
-            );
-            return false;
-        }
-    };
-
+    let config = AiConfig::read_env();
     if args.is_empty() || (args.len() == 1 && (args[0] == "help" || args[0] == "?")) {
         print_ai_help(&config);
         return true;
+    }
+    if args.len() == 1 && args[0] == "config" {
+        config.print();
+        return true;
+    }
+    if config.key.is_empty() {
+        eprintln!(
+                "{}",
+                err("✗ AI not configured. Set ROUTE_AI_KEY (and optionally ROUTE_AI_ENDPOINT, ROUTE_AI_MODEL, ROUTE_AI_PROVIDER).")
+            );
+        println!(
+            "  {} {}",
+            dim("Example:"),
+            faint("set ROUTE_AI_KEY=sk-... && route-tui ai tell me about this project")
+        );
+        return false;
     }
 
     // Check for danger
@@ -410,15 +488,8 @@ When you detect a potentially dangerous operation being discussed, explicitly wa
             // Print response with word wrapping at terminal width
             let width = terminal_width().unwrap_or(80);
             for line in response.lines() {
-                if line.len() > width {
-                    let mut remaining = line;
-                    while !remaining.is_empty() {
-                        let split_at = remaining.len().min(width);
-                        println!("  {}", remaining[..split_at].trim());
-                        remaining = &remaining[split_at..];
-                    }
-                } else {
-                    println!("  {}", line);
+                for part in wrap_utf8(line, width) {
+                    println!("  {}", part);
                 }
             }
             println!();

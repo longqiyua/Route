@@ -380,6 +380,58 @@ fn foreign_project_inspection_and_fresh_reads_are_non_mutating() {
 }
 
 #[test]
+fn worker_list_keeps_wire_shape_and_rejects_tampered_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    route_basic::register_worker(
+        root,
+        Some("snapshot-worker".into()),
+        route_basic::WorkerMetadata::default(),
+        None,
+    )
+    .unwrap();
+    route_basic::update_worker_presence(
+        root,
+        "snapshot-worker",
+        route_basic::WorkerPresenceInput {
+            status: route_basic::WorkerStatus::Active,
+            current_intent_ref: None,
+            current_task_ref: None,
+            current_session_ref: None,
+            current_workspace_ref: None,
+            current_activity_summary: Some("native read-only fixture".into()),
+            observed_global_revision: 1,
+        },
+        None,
+    )
+    .unwrap();
+    let before = snapshot(root);
+    let response = ok(root, "worker.list", json!({}), None);
+    assert_eq!(
+        response,
+        json!({
+            "workers":route_basic::worker_descriptors(root).unwrap(),
+            "presences":route_basic::worker_presences(root).unwrap(),
+        })
+    );
+    assert_eq!(response["presences"][0]["status"], "ACTIVE");
+    assert_eq!(snapshot(root), before);
+    let path = route_basic::development::development_ledger_path(root).unwrap();
+    let mut ledger: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    ledger["events"][0]["timestamp"] = json!(0);
+    fs::write(&path, serde_json::to_vec(&ledger).unwrap()).unwrap();
+    let corrupted = snapshot(root);
+    let rejected = call(root, "worker.list", json!({}), None);
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "WORKER_STATE_UNAVAILABLE");
+    assert!(rejected["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("content hash mismatch"));
+    assert_eq!(snapshot(root), corrupted);
+}
+
+#[test]
 fn bounded_adversarial_resources_and_evidence_gate() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -672,6 +724,7 @@ fn resource_budget_real_binary() {
             "cooperation.list",
             "development.events.query",
             "development.state",
+            "worker.list",
         ] {
             let before = snapshot(root);
             let durable: usize = before.values().map(|v| v.0.len()).sum();

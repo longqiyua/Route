@@ -5346,9 +5346,19 @@ pub fn task_exec(session: String, argv: Vec<String>, check_id: Option<String>) -
     println!("  exit_code: {}", evidence.exit_code);
     println!("  duration:  {}ms", evidence.duration_ms);
     println!("  status:    {}", status_str);
-    println!("  state:     {}", &evidence.state_hash[..16]);
+    println!(
+        "  state:     {}",
+        if evidence.state_hash.is_empty() {
+            "UNKNOWN"
+        } else {
+            evidence
+                .state_hash
+                .get(..16)
+                .unwrap_or(&evidence.state_hash)
+        }
+    );
     if !evidence.state_stable {
-        anyhow::bail!("working state changed during check; zero exit code is not passing evidence");
+        anyhow::bail!("working state changed or could not be read during check; zero exit code is not passing evidence");
     }
     if evidence.exit_code != 0 {
         // Show stderr preview on failure.
@@ -5395,7 +5405,7 @@ pub fn task_verify(id: String, json: bool) -> Result<()> {
             println!("✓ All required checks are satisfied with valid system evidence.");
         }
         route_basic::VerifyResult::Failed => {
-            println!("✗ One or more checks have stale evidence. Re-run required checks.");
+            println!("✗ One or more checks failed or have stale evidence. Re-run required checks.");
         }
         route_basic::VerifyResult::Incomplete => {
             println!("! Some required checks are missing. Run `route task exec` to execute them.");

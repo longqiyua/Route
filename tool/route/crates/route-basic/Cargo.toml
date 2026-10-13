@@ -22,12 +22,19 @@ ulid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 getrandom = "0.2"
+sha2.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
 route-memory = { path = "../route-memory", version = "1.0.0" }
 tempfile.workspace = true
 rstest.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Pipes"] }
 
 [features]
 default = []

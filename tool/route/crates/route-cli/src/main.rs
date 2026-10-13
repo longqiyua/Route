@@ -6,10 +6,12 @@ mod host_adapter;
 mod institution_commands;
 mod plugin_commands;
 mod principal_commands;
+mod run_commands;
 mod sidecar_commands;
 mod sync_commands;
 mod team_commands;
 mod team_verify;
+mod team_verify_journal;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -41,6 +43,11 @@ enum AssistantAction {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect/recover locally owned OS processes; not AI session reconnect.
+    Run {
+        #[command(subcommand)]
+        action: run_commands::Action,
+    },
     /// Explicit opt-in bounded Codex coordination; no daemon or provider setup.
     Team {
         #[command(subcommand)]
@@ -2864,6 +2871,7 @@ fn main() -> Result<()> {
         Commands::Rpc { .. }
             | Commands::Attach { .. }
             | Commands::Team { .. }
+            | Commands::Run { .. }
             | Commands::Sidecar { .. }
             | Commands::Handoff { shared: true, .. }
             | Commands::WorkerBinding { .. }
@@ -2892,6 +2900,7 @@ fn main() -> Result<()> {
     };
     let result = match cli.command {
         Commands::Team { action } => team_commands::run(action),
+        Commands::Run { action } => run_commands::run(action),
         Commands::Attach { host } => sidecar_commands::attach(&host),
         Commands::Sidecar { host, action } => sidecar_commands::run(&host, action),
         Commands::Assistant { action } => {

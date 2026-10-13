@@ -223,3 +223,32 @@ main merge, tag, Release and public-version decision.
 - Existing unfinished RPC helper warnings remain. No commit, push, history
   rewrite, release, or change to Yuich was performed by this audit. Preexisting
   worktree deletions were left untouched.
+
+## 2026-10-12 Execution Trust I supplement
+
+See [the execution trust report](execution-trust-i.md) for current CheckRun,
+deduplication, Evidence commit recovery, finalization recovery and Windows
+bounded-runner evidence. This supplement does not rewrite earlier acceptances.
+CheckRunIdentity/PhysicalCheckDedup/EvidenceCommitRecovery/FinalizationRecovery
+have real-process fixture tests, not new AI daily-use certification.
+RunRecovery and RestartContinuity remain PARTIAL: active Codex Host reconnect
+is not implemented and the installed CLI reports `Not logged in`.
+CancellationSemantics is PARTIAL: only the owned direct child is terminated;
+unknown descendants are never killed. Unix runner behavior is NOT_RUN here.
+CrossHost/CrossModel statuses remain unchanged.
+
+## 2026-10-12 Run Continuity I supplement
+
+See [Run Continuity I](run-continuity-i.md) for the Windows Job Object ownership
+model, query-only lifetime lease, actual Route CLI restart fixture, keyed tree
+cancellation and explicit LOST_RESULT acknowledgement. Process continuity is
+separate from AI Host session continuity. Codex remains unauthenticated;
+RealAIHostRestart is NOT_RUN, not a product-code blocker. Final acceptance on
+2026-10-13: ROUTE_RUN_CONTINUITY_I PASS for the documented Windows OS substrate.
+Fmt/core/basic/CLI/workspace excluding pyo3, docs, PowerShell parsing and diff
+checks passed. Basic: 476 passed / 14 ignored; CLI: 94 passed / 5 ignored.
+ProcessIdentity, ProcessOwnership, ProcessTreeContainment,
+RestartProcessInspection, CancellationSemantics, RunRecovery, RunFencing and
+RestartContinuity are DAILY_USE_VERIFIED only within that Windows fixture/CLI
+scope. Missing termination proof remains quarantined; no AI session reconnect
+or other-platform readiness is inferred. Historical supplements stay unchanged.

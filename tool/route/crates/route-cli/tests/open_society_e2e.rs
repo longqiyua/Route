@@ -395,7 +395,11 @@ fn concurrent_processes_append_once_in_one_total_order() {
         })
         .collect::<Vec<_>>();
     for child in children {
-        assert_eq!(finish_rpc(child)["ok"], true);
+        let response = finish_rpc(child);
+        assert_eq!(
+            response["ok"], true,
+            "concurrent append response: {response}"
+        );
     }
 
     let events = rpc(
