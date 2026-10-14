@@ -16,16 +16,19 @@ route-ai attach
 route-ai enter --json
 ```
 
-Now ask your preferred AI to continue the project. It reads the stable `ROUTE.md`
-and uses the same `enter` command. No context copying, host-specific prompt files
-or configuration fields are required. Attach creates small ignored local state,
-not a source snapshot/database. Existing `ROUTE.md` is preserved and flagged for
-Human integration if unmanaged. If Route is absent, ordinary development continues.
+Now open your preferred AI coding tool and say: **“读取 ROUTE.md，继续这个项目。”**
+An AI Host that actually supports automatic `ROUTE.md` discovery may not need that
+prompt; universal automatic discovery is not claimed. A Host without file or shell
+access cannot use this path. No context copying, host-specific prompt files or
+configuration fields are required. Attach creates small ignored local state, not a
+source snapshot/database. Existing `ROUTE.md` is preserved and flagged for Human
+integration if unmanaged. If Route is absent, ordinary development continues.
 
 Publish a fact when useful: `route-ai sidecar note "progress; next action"`.
 Claims are not Evidence. Discovery grants no authority. No auto AI scheduling.
 
-Source build/install and measured boundaries: [basic entry acceptance](docs/basic-encapsulation-i.md).
+Source build/install and measured boundaries: [basic entry acceptance](docs/basic-encapsulation-i.md)
+and [delivery optimization](docs/basic-delivery-optimization-ii.md).
 Advanced commands remain available through the same executable: `route-ai help`.
 Legacy product `route.exe` remains compatible when explicitly invoked; real AI
 session acceptance for this new doorway is NOT_RUN, not implied by fixture tests.

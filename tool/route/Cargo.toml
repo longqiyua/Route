@@ -91,7 +91,10 @@ rstest = "0.18"
 tempfile = "3.10"
 
 [profile.release]
-opt-level = 3
+# The complete CLI is intentionally one executable. Size optimization reduces
+# monomorphized/codegen output without removing commands or changing panic,
+# validation, recovery, supervision, identity or error-reporting semantics.
+opt-level = "z"
 lto = "thin"
 codegen-units = 1
 strip = true
