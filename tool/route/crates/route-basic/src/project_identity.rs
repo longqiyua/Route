@@ -83,7 +83,7 @@ pub fn discover_project_root(start: &Path) -> Option<PathBuf> {
             return Some(current);
         }
         // A nested independent Git repository is a discovery boundary.
-        if current.join(".git").exists() {
+        if current.join(".git").exists() || current.join("ROUTE.md").exists() {
             return None;
         }
         if !current.pop() {

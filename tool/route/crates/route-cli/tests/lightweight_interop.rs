@@ -102,7 +102,10 @@ fn existing_repo_zero_config_handoff_absence_and_restart() {
         .success());
     // Temporarily disable local integration without deleting history.
     fs::rename(root.join(".route"), root.join("route-disabled")).unwrap();
-    fs::rename(root.join(".route-basic"), root.join("basic-disabled")).unwrap();
+    let had_basic = root.join(".route-basic").exists();
+    if had_basic {
+        fs::rename(root.join(".route-basic"), root.join("basic-disabled")).unwrap();
+    }
     assert!(!cli(&root, &home, &["handoff", "--shared"]).status.success());
     assert!(Command::new("git")
         .args(["status", "--porcelain"])
@@ -117,7 +120,9 @@ fn existing_repo_zero_config_handoff_absence_and_restart() {
         "work while absent"
     );
     fs::rename(root.join("route-disabled"), root.join(".route")).unwrap();
-    fs::rename(root.join("basic-disabled"), root.join(".route-basic")).unwrap();
+    if had_basic {
+        fs::rename(root.join("basic-disabled"), root.join(".route-basic")).unwrap();
+    }
     assert_eq!(
         ok(cli(&root, &home, &["handoff", "--shared"])),
         handoff,
@@ -150,8 +155,7 @@ fn metadata_only_goal_checks_bind_source_without_basic_archive() {
         .unwrap()
         .success());
     let git_before = files(&root.join(".git"));
-    // attach currently initializes Basic metadata. Exercise the genuinely
-    // archive-free domain entry, rather than assuming attach has no Basic DB.
+    // Exercise the metadata-only domain entry without requiring the CLI adapter.
     route_basic::ensure_identity(&root).unwrap();
     let created = route_basic::general_work::operator_action(&root, &route_basic::principal::CallerContext::trusted_operator(), "goal.create",
         json!({"expected_revision":route_basic::global_development_revision(&root).unwrap(),"goal":{"title":"Source-bound sidecar regression","domain":"DEVELOPMENT"}}), "source-bound-goal").unwrap();

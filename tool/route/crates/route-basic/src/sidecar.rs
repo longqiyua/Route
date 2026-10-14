@@ -49,7 +49,7 @@ pub fn safe_text(text: &str) -> String {
     out
 }
 
-fn bounded(value: Value) -> Value {
+pub(crate) fn bounded(value: Value) -> Value {
     match value {
         Value::String(s) => {
             let locator = [

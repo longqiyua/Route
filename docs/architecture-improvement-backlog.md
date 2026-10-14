@@ -365,3 +365,25 @@ PARTIAL 内部不假定恰好完成一半。真实 AI 的 NOT_RUN 单列，不�
 
 汇总：IMPLEMENTED=2 / PARTIAL=4 / NOT_RUN=1 / DEFERRED=8 /
 BLOCKED_EXTERNAL=0。上述 IMPLEMENTED 指限定实现，不表示真实 AI 日用已认证。
+
+## 2026-10-14：Basic Encapsulation I
+
+本批只收敛默认入口，不新建内部组织/路由架构。原有 13 项核对与 15 项愿景表是
+此前阶段快照，不因增加 façade 就升级底层未完项。证据见
+[基本封装验收](basic-encapsulation-i.md)。
+
+| 能力 | 当前状态 | 范围 |
+|---|---|---|
+| BasicEncapsulation | IMPLEMENTED | 同一 CLI/backend，metadata-only attach + readonly enter |
+| SingleProjectDoorway | IMPLEMENTED | 新项目仅需认识 ROUTE.md；既有用户文件不覆盖 |
+| RouteMdBootstrap | IMPLEMENTED | 内嵌稳定模板、版本识别、幂等和显式人工整合 |
+| MachineEntryFacade | IMPLEMENTED | 16 KiB 硬执行界限、复用 handoff/Base/sidecar、无自动授权 |
+| MinimalPackage | IMPLEMENTED_PROFILE | 内部三文件、一主程序 route-ai.exe；非公开发布/许可再认证 |
+| ProjectFootprint | VERIFIED_FIXTURE | attach 不预建 SQLite/源码档案；实际字节与 100 读写在报告中单列 |
+| GracefulAbsence | VERIFIED_FIXTURE | copy/clone 请求 attach；无 Route 状态的正常 Git/rustc/edit 测试 |
+
+- REAL_AI_GOLDEN_PATH / 第二真实 AI session：NOT_RUN，当前 Codex CLI 未登录。
+- CrossHost：NOT_RUN；Model/Provider routing、token billing、DAG：OPEN/DEFERRED。
+- AIKnowledgeSynthesis：NOT_RUN；不将基本入口成功包装成真实 AI 提取通过。
+- First-run 结构流程已验证，但不将全套产品 demo、Console timeline 或 Benchmark 标成完成。
+- ledger 全量回放/重写和通用单 revision 快照仍是既有 T5/T6 待办；本批只测量并暴露边界。

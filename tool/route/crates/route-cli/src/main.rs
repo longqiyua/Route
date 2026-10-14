@@ -2,6 +2,7 @@
 
 mod base_commands;
 mod commands;
+mod entry_commands;
 mod git_commands;
 mod host_adapter;
 mod institution_commands;
@@ -44,6 +45,18 @@ enum AssistantAction {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// One bounded read-only project doorway; never attaches or grants authority.
+    Enter {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        independent: bool,
+    },
+    /// Print the stable host-neutral doorway template, without changing a file.
+    Doorway {
+        #[arg(long, required = true)]
+        template: bool,
+    },
     /// Inspect/recover locally owned OS processes; not AI session reconnect.
     Run {
         #[command(subcommand)]
@@ -2862,6 +2875,8 @@ fn main() -> Result<()> {
         && !matches!(
             &cli.command,
             Commands::Rpc { .. }
+                | Commands::Enter { .. }
+                | Commands::Doorway { .. }
                 | Commands::Sidecar { .. }
                 | Commands::Handoff { shared: true, .. }
         )
@@ -2873,6 +2888,9 @@ fn main() -> Result<()> {
     let read_or_domain_audited = matches!(
         &cli.command,
         Commands::Rpc { .. }
+            | Commands::Enter { .. }
+            | Commands::Doorway { .. }
+            | Commands::Status { .. }
             | Commands::Attach { .. }
             | Commands::Team { .. }
             | Commands::Run { .. }
@@ -2904,6 +2922,11 @@ fn main() -> Result<()> {
         route_history_operation()
     };
     let result = match cli.command {
+        Commands::Enter { json, independent } => entry_commands::run(json, independent),
+        Commands::Doorway { template: _ } => {
+            print!("{}", route_basic::entry::TEMPLATE);
+            Ok(())
+        }
         Commands::Team { action } => team_commands::run(action),
         Commands::Run { action } => run_commands::run(action),
         Commands::Attach { host } => sidecar_commands::attach(&host),
@@ -2952,7 +2975,13 @@ fn main() -> Result<()> {
             ProjectAction::Identity => commands::project_identity(),
         },
         Commands::Init { path, scan } => commands::init(path, scan),
-        Commands::Status { json } => commands::status(json),
+        Commands::Status { json } => {
+            if entry_commands::metadata_only_status(json)? {
+                Ok(())
+            } else {
+                commands::status(json)
+            }
+        }
         Commands::Commit {
             message,
             author,

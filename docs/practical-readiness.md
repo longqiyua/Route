@@ -283,3 +283,27 @@ cross-project Base, Console GUI and daemon are not delivered by this supplement.
 Existing observed-capability and completion Evidence semantics are unchanged.
 Final regression commands/exit codes and retained dogfood IDs are in the linked
 report/local acceptance receipts, not inferred from the existence of this table.
+
+## 2026-10-14 Basic Encapsulation I supplement
+
+See [basic entry acceptance](basic-encapsulation-i.md). New-project default surface
+is a stable, embedded ROUTE.md plus the collision-safe route-ai executable name;
+existing advanced commands and canonical stores remain the implementation.
+
+| Capability | Readiness | Boundary |
+|---|---|---|
+| BasicEncapsulation | VERIFIED_FIXTURE | Real CLI processes, no separate beginner backend |
+| SingleProjectDoorway | VERIFIED_FIXTURE | Canonical new doorway <=2 KiB; existing larger user documents preserved |
+| RouteMdBootstrap | VERIFIED_FIXTURE | Create-new only; version/managed/unmanaged safety; no dynamic state |
+| MachineEntryFacade | VERIFIED_FIXTURE | Readonly valid JSON <=16 KiB; no implicit attach/credential creation |
+| MinimalPackage | INTERNAL_PROFILE | One executable and retained license/notices; not public Release certification |
+| ProjectFootprint | VERIFIED_FIXTURE | No default archive DB, source copy, host files, daemon or vector index |
+| GracefulAbsence | VERIFIED_FIXTURE | Copy/clone isolation and ordinary Git/build/edit without local Route state |
+| REAL_AI_GOLDEN_PATH | NOT_RUN | Current available Codex CLI is unauthenticated |
+
+This does not upgrade CrossHost, model/provider routing, AIKnowledgeSynthesis,
+safe DAG, Benchmark or public licensing readiness. The 100 normal events and
+two-process continuity checks are controlled fixtures, not two authenticated AI
+sessions. Measured wall-clock numbers include process startup and are not an OS
+page-cache-flushed or large-project benchmark. Existing required permissions and
+current-Evidence completion gates are unchanged.

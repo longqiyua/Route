@@ -1,72 +1,34 @@
 # Route
 
-## Keep your tools. Keep your repo. Add Route.
+Optional local-first work continuity for your existing AI tool, editor and Git.
+Route shares concise project facts, not your previous chat or raw reasoning.
 
-Route is an optional, local-first AI work sidecar: a small shared work record
-beside your existing project. Keep using your AI terminal, editor and Git.
-Route helps the next session see what happened, what stopped, and what remains
-verified — without copying the previous chat.
+## Start here
 
-No migration. No central GUI. No account for local mode. No master agent.
-Route does not replace Codex, Claude Code, Cursor, Git or your terminal.
-Real terminal acceptance in this phase covers **Codex CLI**; other names describe
-the tool-neutral design, not tested integrations.
-
-## Get value before learning the architecture
-
-The lightweight commands below are **fruit development features**, not commands
-in the already-published v1.0.0 binary. Build this source first:
+Install the **fruit development** binary once as `route-ai` in a user CLI
+directory you chose (or use its absolute path). These commands are not in the
+previously published v1.0.0 package. No installer or PATH change runs automatically.
+Windows `route.exe` is a different system networking utility: do not replace it.
 
 ```sh
-git clone --branch fruit https://github.com/longqiyua/Route.git
-cd Route
-cargo install --path tool/route/crates/route-cli --locked
+cd your-project
+route-ai attach
+route-ai enter --json
 ```
 
-Then, in the existing repository you actually want to use:
+Now ask your preferred AI to continue the project. It reads the stable `ROUTE.md`
+and uses the same `enter` command. No context copying, host-specific prompt files
+or configuration fields are required. Attach creates small ignored local state,
+not a source snapshot/database. Existing `ROUTE.md` is preserved and flagged for
+Human integration if unmanaged. If Route is absent, ordinary development continues.
 
-Windows also ships an unrelated network utility named route.exe. Verify
-`route --version`, or call `$env:USERPROFILE\.cargo\bin\route.exe` explicitly;
-do not change system networking settings to install Route.
+Publish a fact when useful: `route-ai sidecar note "progress; next action"`.
+Claims are not Evidence. Discovery grants no authority. No auto AI scheduling.
 
-```sh
-route attach
-route handoff --shared
-```
-
-That's the basic setup: one attach action, no configuration fields. Attach creates
-local state without scanning or archiving your source. Existing files, Git
-history, hooks and configuration stay intact. A short ROUTE.md is created only
-if absent; your existing one is never replaced.
-
-Leave a useful fact, not a transcript:
-
-```sh
-route sidecar note "Found missing boundary test; next add Unicode coverage"
-```
-
-A fresh AI session in that same project reads `route handoff --shared` and sees
-the published finding, work/claim state, blockers and next actions. Nothing from
-your old chat needs to be copied. If structured work already exists:
-
-```sh
-route sidecar whoami
-route sidecar claim WORK_ID
-route handoff --shared
-route sidecar interrupt CLAIM_ID "Stopping here; boundary test remains"
-```
-
-The next trusted local host can explicitly `route attach --host reviewer`, then
-use `route sidecar --host reviewer claim WORK_ID --resumes-claim-id CLAIM_ID`.
-This records independent identity and predecessor-linked continuation without
-creating an organization or a new execution framework.
-
-See the [real acceptance record](docs/lightweight-interop-acceptance.md) for what
-was actually exercised, timings and limitations. Model startup/inference time
-is separate from local attach/read latency; this is not a claim that two AI
-sessions finish their reasoning within 30 seconds.
-Reusable [normal-terminal prompts](examples/lightweight-interop/README.md) need
-no extension or transcript copying.
+Source build/install and measured boundaries: [basic entry acceptance](docs/basic-encapsulation-i.md).
+Advanced commands remain available through the same executable: `route-ai help`.
+Legacy product `route.exe` remains compatible when explicitly invoked; real AI
+session acceptance for this new doorway is NOT_RUN, not implied by fixture tests.
 
 ## What you get
 
