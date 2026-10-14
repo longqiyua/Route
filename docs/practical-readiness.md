@@ -252,3 +252,34 @@ RestartProcessInspection, CancellationSemantics, RunRecovery, RunFencing and
 RestartContinuity are DAILY_USE_VERIFIED only within that Windows fixture/CLI
 scope. Missing termination proof remains quarantined; no AI session reconnect
 or other-platform readiness is inferred. Historical supplements stay unchanged.
+
+## 2026-10-13 Route Base Positive Chain I supplement
+
+See [the positive-chain implementation/acceptance report](base-positive-chain-i.md).
+The following is source-backed **controlled fixture** readiness, not real AI
+extraction or a claim that arbitrary learned prose is correct. VERIFIED_FIXTURE
+means the implemented deterministic/manual pipeline has actual source,
+authenticated identities, subprocess FAIL/fix/PASS and independent-review tests.
+It is intentionally not an unqualified DAILY_USE_VERIFIED product assertion.
+
+| Capability | Readiness | Scope |
+|---|---|---|
+| KnowledgeTrigger | VERIFIED_FIXTURE | Structured attributed investigation + required-check FAIL/fresh PASS; ordinary PASS yields zero |
+| ExtractionPacket | VERIFIED_FIXTURE | Bounded 8192B, actual source/event/revision/Evidence refs; no repository/chat dump |
+| KnowledgeCandidateFiltering | VERIFIED_FIXTURE | Generic/overbroad/malformed/secret-looking fields rejected; human semantic review still required |
+| KnowledgeProvenance | VERIFIED_FIXTURE | Goal/Work/Finding/worker/events/System Evidence and component fingerprint |
+| KnowledgeLifecycle | VERIFIED_FIXTURE | Candidate/reviewed/reused, append-only supersession, no self-promotion/retired revival |
+| KnowledgeStaleness | VERIFIED_FIXTURE | Scoped resource drift/missing proof/later FAIL; unrelated file alone does not stale |
+| KnowledgeBackpressure | VERIFIED_FIXTURE | Existing Team queue, 1 job/Goal, 2 pending, 0 auto retries, 2 candidates/Goal; optional failure does not block Goal |
+| KnowledgeRetrieval | VERIFIED_FIXTURE | <=3 units/8192B, exact component/environment, 12-unit recent probe window, read-only |
+| KnowledgeContextProjection | VERIFIED_FIXTURE | Later Work receives bounded historical units with provenance, never completion authority |
+| KnowledgeHerdingDefense | VERIFIED_FIXTURE | IndependentReviewer/independent query receives no prior Base conclusion |
+| RouteBasePositiveChain | VERIFIED_FIXTURE | Fresh controlled source incident through a distinct later Work and real reuse check |
+| AIKnowledgeSynthesis | NOT_RUN | No authenticated AI Host; FIXTURE/MANUAL synthesis labels only |
+
+RealAIHostRestart and CrossHost remain NOT_RUN. Other detector families, semantic
+search, automatic extraction scheduling, provider/model/token routing, safe DAG,
+cross-project Base, Console GUI and daemon are not delivered by this supplement.
+Existing observed-capability and completion Evidence semantics are unchanged.
+Final regression commands/exit codes and retained dogfood IDs are in the linked
+report/local acceptance receipts, not inferred from the existence of this table.

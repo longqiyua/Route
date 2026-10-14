@@ -500,6 +500,7 @@ fn extract(root: &Path, goal: &str) -> Result<()> {
     if let Err(error) = append(
         root,
         TeamAction::QueueExtraction {
+            positive_packet: None,
             goal_id: goal.into(),
             job_id: job.clone(),
             finding_event_id: finding,

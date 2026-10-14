@@ -14,6 +14,7 @@ use std::path::Path;
 pub enum LessonState {
     Candidate,
     ValidatedLocal,
+    ReusedConfirmed,
     Stale,
     Disputed,
     Superseded,
@@ -22,6 +23,8 @@ pub enum LessonState {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Lesson {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub positive: Option<crate::positive_base::PositiveLesson>,
     pub state: LessonState,
     pub goal_id: String,
     pub work_id: String,
@@ -64,12 +67,7 @@ pub(crate) fn validate_shape(record: &CooperationKnowledgeRecord) -> Result<()> 
         serde_json::to_vec(l)?.len() <= 4096,
         "KNOWLEDGE_PACKET_TOO_LARGE"
     );
-    for s in [
-        &l.condition,
-        &l.action,
-        &l.falsification_check,
-        &l.component,
-    ] {
+    for s in [&l.condition, &l.action, &l.falsification_check] {
         ensure!(
             s.trim().len() >= 12 && s.len() <= 512,
             "KNOWLEDGE_GATE: actionable specific falsifiable fields required"
@@ -80,13 +78,26 @@ pub(crate) fn validate_shape(record: &CooperationKnowledgeRecord) -> Result<()> 
                 "testing is important",
                 "understand requirements before coding",
                 "be careful with edge cases",
-                "review code for quality"
+                "review code for quality",
+                "testing is important",
+                "understand requirements first",
+                "review code carefully",
+                "handle edge cases",
+                "use good error handling",
+                "be careful with concurrency",
+                "use robust error handling",
+                "always read documentation",
+                "all rust filesystem"
             ]
             .iter()
             .any(|g| s.contains(g)),
             "KNOWLEDGE_GATE: generic advice"
         );
     }
+    ensure!(
+        !l.component.trim().is_empty() && l.component.len() <= 512,
+        "KNOWLEDGE_GATE: bounded component identifier required"
+    );
     ensure!(
         !l.environment.is_empty()
             && l.environment.len() <= 4
@@ -104,14 +115,23 @@ pub(crate) fn validate_shape(record: &CooperationKnowledgeRecord) -> Result<()> 
             "testing is important",
             "understand requirements before coding",
             "be careful with edge cases",
-            "review code for quality"
+            "review code for quality",
+            "understand requirements first",
+            "review code carefully",
+            "handle edge cases",
+            "use good error handling",
+            "be careful with concurrency",
+            "use robust error handling",
+            "always read documentation",
+            "all rust filesystem"
         ]
         .iter()
         .any(|g| statement.contains(g)),
         "KNOWLEDGE_GATE: generic advice"
     );
     ensure!(
-        l.state != LessonState::ValidatedLocal
+        l.positive.is_some()
+            || l.state != LessonState::ValidatedLocal
             || (record.epistemic_status == EpistemicStatus::Observed && l.review_source.is_some()),
         "KNOWLEDGE_GATE: validation requires observed Evidence and review"
     );
@@ -126,6 +146,9 @@ pub(crate) fn validate_transition(
         return Ok(());
     };
     validate_shape(record)?;
+    if l.positive.is_some() {
+        return crate::positive_base::validate(root, events, record);
+    }
     let finding = events
         .iter()
         .find(|e| e.event_id == l.finding_event_id)
@@ -217,12 +240,13 @@ mod tests {
             statement:"Under restricted Windows path access, retry with an explicitly approved local boundary".into(),
             epistemic_status:EpistemicStatus::Inferred,provenance:"synthetic validator fixture, not project knowledge".into(),
             capability_refs:vec![],source_refs:vec![],evidence_refs:vec!["missing-evidence".into()],observed_at:0,resource_fingerprint:None,supersedes:None,
-            lesson:Some(Lesson {state:LessonState::Candidate,goal_id:"fixture-goal".into(),work_id:"fixture-work".into(),creator_worker_id:"fixture-creator".into(),finding_event_id:"missing-finding".into(),source_event_ids:vec!["missing-event".into()],review_source:None,component:"path canonicalization".into(),environment:vec!["Windows".into(),"restricted sandbox".into()],condition:"When canonicalization returns access denied in restricted sandbox".into(),action:"Request an explicit local authority boundary and retry canonicalization".into(),falsification_check:"Repeat canonicalization under the same restricted sandbox and compare exit code".into()})
+            lesson:Some(Lesson {positive:None,state:LessonState::Candidate,goal_id:"fixture-goal".into(),work_id:"fixture-work".into(),creator_worker_id:"fixture-creator".into(),finding_event_id:"missing-finding".into(),source_event_ids:vec!["missing-event".into()],review_source:None,component:"path canonicalization".into(),environment:vec!["Windows".into(),"restricted sandbox".into()],condition:"When canonicalization returns access denied in restricted sandbox".into(),action:"Request an explicit local authority boundary and retry canonicalization".into(),falsification_check:"Repeat canonicalization under the same restricted sandbox and compare exit code".into()})
         }
     }
     #[test]
     fn generic_missing_sources_and_fake_validation_rejected() {
         let mut f = fixture();
+        f.lesson.as_mut().unwrap().component = "src/main.rs".into();
         assert!(validate_shape(&f).is_ok());
         f.statement = "Testing is important.".into();
         assert!(validate_shape(&f).is_err());
@@ -295,6 +319,11 @@ pub fn retrieve(
         .filter(|k| !k.stale && k.superseded_by.is_none())
     {
         let Some(l) = &k.record.lesson else { continue };
+        // Positive units require the current-world/contradiction-aware surface.
+        // Never leak them through the older cached-fingerprint-only projection.
+        if l.positive.is_some() {
+            continue;
+        }
         if l.state != LessonState::ValidatedLocal
             || l.component != component
             || &l.environment != environment

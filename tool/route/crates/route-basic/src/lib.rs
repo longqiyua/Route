@@ -57,6 +57,7 @@ pub mod pack;
 pub mod passive_base;
 pub mod pattern;
 pub mod plan;
+pub mod positive_base;
 pub mod principal;
 pub mod principle;
 pub mod process_supervision;

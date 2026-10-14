@@ -1,5 +1,6 @@
 //! Route CLI — command-line interface for basic mode.
 
+mod base_commands;
 mod commands;
 mod git_commands;
 mod host_adapter;
@@ -2333,6 +2334,9 @@ enum PermissionAction {
 
 #[derive(Subcommand)]
 enum BaseAction {
+    /// Source-backed optional project learning; historical knowledge is not Evidence.
+    #[command(flatten)]
+    Learning(base_commands::Action),
     /// Show assembled AI context (project memory + structure + causal chain)
     Context {
         /// Maximum token budget for context (default: 3000)
@@ -2872,6 +2876,7 @@ fn main() -> Result<()> {
             | Commands::Attach { .. }
             | Commands::Team { .. }
             | Commands::Run { .. }
+            | Commands::Base(BaseAction::Learning(_))
             | Commands::Sidecar { .. }
             | Commands::Handoff { shared: true, .. }
             | Commands::WorkerBinding { .. }
@@ -3149,6 +3154,7 @@ fn main() -> Result<()> {
             PermissionAction::Set { level } => commands::permission_set(level),
         },
         Commands::Base(action) => match action {
+            BaseAction::Learning(action) => base_commands::run(action),
             BaseAction::Context { max_tokens } => commands::base_context(max_tokens),
             BaseAction::Guard => commands::guard_status(),
         },

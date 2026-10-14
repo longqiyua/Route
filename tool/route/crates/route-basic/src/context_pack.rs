@@ -68,6 +68,39 @@ pub fn build(root: &Path, goal: &str, work_id: Option<&str>, role: &Role) -> Res
         .filter(|e| e.intent_ref.as_deref().is_some_and(|id| id != goal))
         .count();
     let evidence = crate::execution::EvidenceStore::load(root)?;
+    // Exact Work component/OS match only. Independent reviewers receive no
+    // historical conclusion; they may explicitly query Base after publishing.
+    let mut base_unavailable = false;
+    let base_units = if !reviewer {
+        if let Some(w) = item {
+            if let Some(component) = w.work.scope_paths.first() {
+                match crate::positive_base::query_events(
+                    root,
+                    &ledger.events,
+                    component,
+                    &[if cfg!(windows) {
+                        "Windows"
+                    } else {
+                        std::env::consts::OS
+                    }
+                    .into()],
+                    false,
+                ) {
+                    Ok(units) => units,
+                    Err(_) => {
+                        base_unavailable = true;
+                        vec![]
+                    }
+                }
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
     let mut out = json!({"schema":"route.context/1","goal_id":goal,"role":role,
         "goal":goal_title,"requirements":goal_description,"constraints":status.current_plan.as_ref().map(|p|p.constraints.iter().take(8).map(|s|safe_text(s)).collect::<Vec<_>>()).unwrap_or_default(),"work":item.map(|w|json!({"work_id":w.work.work_id,
         "title":safe_text(&w.work.title),"scope_paths":w.work.scope_paths,"dependencies":w.work.dependencies,
@@ -75,7 +108,7 @@ pub fn build(root: &Path, goal: &str, work_id: Option<&str>, role: &Role) -> Res
         "findings":findings,"artifacts":status.artifacts.iter().rev().take(4).map(|a|json!({"artifact_id":a.artifact_id,"path":safe_text(&a.path),"state":a.state})).collect::<Vec<_>>(),
         "verification":{"completion":status.review.completion,"required_satisfied":status.required_satisfied,
             "required_total":status.required_total,"missing":status.review.required_next_actions.iter().take(4).map(|s|safe_text(s)).collect::<Vec<_>>()},
-        "base_units":[],"previous_rationale_withheld":reviewer,"raw_history_included":false,
+        "base_units":base_units,"base_projection_unavailable":base_unavailable,"previous_rationale_withheld":reviewer,"raw_history_included":false,
         "evidence":evidence.evidence.iter().rev().filter(|e|e.session_id==goal || e.metadata.get("goal_id").is_some_and(|id|id==goal)).take(8).map(|e|json!({"evidence_id":e.id,"kind":e.kind,"source":e.source,"check_id":e.metadata.get("check_id").map(|s|safe_text(s)),"exit_code":e.metadata.get("exit_code")})).collect::<Vec<_>>(),
         "raw_transcript_included":false,"knowledge_extraction_prompt_included":false,
         "excluded_unrelated_events":unrelated_count,"unscoped_history_events_not_injected":ledger.events.iter().filter(|e|e.intent_ref.is_none()).count(),"revision":ledger.events.last().map_or(0,|e|e.sequence),
@@ -97,6 +130,7 @@ pub fn build(root: &Path, goal: &str, work_id: Option<&str>, role: &Role) -> Res
     if serde_json::to_vec(&out)?.len() > MAX_BYTES {
         out["artifacts"] = json!([]);
         out["findings"] = json!([]);
+        out["base_units"] = json!([]);
     }
     ensure!(
         serde_json::to_vec(&out)?.len() <= MAX_BYTES,

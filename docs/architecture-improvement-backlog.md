@@ -311,3 +311,57 @@ Q17 已得到真实 RED（fixture 修复后 2 次物理执行）和 GREEN（1 �
 - Linux/macOS 进程连续性仍 NOT_RUN/UNSUPPORTED；不从 Windows 测试推断。
 - 可执行文件 pin/hash 与 O(n) 扫描成本保留为后续有测量依据的优化项。
 - 不增加 daemon、模型/预算产品功能，不修改 Yuich 或 Git 历史。
+
+## 2026-10-13：Base Positive Chain I 当前状态核对
+
+保留上文历史 T0–T9/Q1–Q17 文字。以下仅核对本批要求的 13 个范围，不代表整个
+产品的完成百分比。证据见 [Base 正向链报告](base-positive-chain-i.md)、
+[Execution Trust](execution-trust-i.md)、[Run Continuity](run-continuity-i.md)。
+
+| 优先级 | 项目 | 当前状态 | 已有证据与未完成边界 |
+|---|---|---|---|
+| P0 | Q17 重复检查 | DONE | 兼容批准命令单次物理执行、独立逻辑证明与 RED/GREEN |
+| P0 | Run 中断恢复 | PARTIAL | Windows OS 归属/重启/取消通过；真实 AI Host 重启 NOT_RUN |
+| P0 | Evidence/Workflow/Integration finalization | DONE | journal、崩溃恢复、幂等重放测试；不声称跨文件原子事务 |
+| P0 | bounded runner | PARTIAL | 有界输出/超时/Windows owned-tree；其他 OS、Host 全路径尚未认证 |
+| P1 | TUI AI 稳定性/输出界限 | DONE | UTF-8 安全、deadline、响应大小边界回归 |
+| P1 | Artifact 文件/目录/删除 | PARTIAL | 文件与指纹有效；目录/删除完整发布闭环仍缺 |
+| P1 | 同 revision 查询/增量投影 | PARTIAL | 并发摘要/本批 Base 使用同载入 ledger；全局 Context 快照/增量索引未实现 |
+| P1 | Knowledge 正向提取 | PARTIAL | 确定性/人工/fixture 正向闭环；真实 AI 合成 NOT_RUN，不升级整个 T7 |
+| P1 | 文档真值收敛 | PARTIAL | 本批逐项核对；既有历史文档仍保留，不能当所有旧愿景均已认证 |
+| P2 | Model/Provider routing | OPEN | 本批禁止实现 |
+| P2 | token/cost budget | OPEN | Worker 数量/超时预算不等于 token 账本 |
+| P2 | safe DAG parallelism | OPEN | 本批禁止实现；不把串行 launch 包装成安全 DAG |
+| P2 | 应用服务/依赖收敛 | PARTIAL | 部分执行能力已下沉；CLI/服务分层及可选依赖还未全量整理 |
+
+P0：4 total / 2 DONE / 2 PARTIAL / 0 OPEN。
+P1：5 total / 1 DONE / 4 PARTIAL / 0 OPEN。
+P2：4 total / 0 DONE / 1 PARTIAL / 3 OPEN。
+合计：13 total / 3 DONE / 7 PARTIAL / 3 OPEN / 0 NOT_RUN / 0 BLOCKED_EXTERNAL。
+严格完成率：3/13 = 23.08%。
+加权口径：P0=3、P1=2、P2=1；DONE=1、PARTIAL=0.5、其余=0。
+分母 26，得分 15.5，加权完成率 59.62%。这是明确的管理折算，不是质量置信度；
+PARTIAL 内部不假定恰好完成一半。真实 AI 的 NOT_RUN 单列，不伪装成代码 blocker。
+
+### 聊天愿景与实际交付差距（15 项）
+
+| 曾讨论能力 | 状态 | 当前边界 |
+|---|---|---|
+| real cross-tool handoff | NOT_RUN | 通用协议 fixture 不等于第二真实 Host 日用 |
+| autonomous Goal decomposition | PARTIAL | Work/Goal 结构与有限协调；非通用自治规划 |
+| dynamic Worker routing | PARTIAL | 固定角色/现有预算；非动态模型路由 |
+| model/effort profiles | DEFERRED | 本批不实现 |
+| user-defined workflow | PARTIAL | 现有 contract/验证面；非完整自定义工作流产品 |
+| role-specific Context Pack | IMPLEMENTED | 有界角色投影与独立 reviewer 策略 |
+| Route Console timeline | DEFERRED | 只有既有 events/history 与 Base query |
+| contribution provenance UX | PARTIAL | canonical refs 可追溯，非完整可视交互 |
+| Route Base positive learning | IMPLEMENTED | 本批 deterministic/manual/deferred/fixture；AI 合成 NOT_RUN |
+| Default vs Full policy | DEFERRED | 非本批范围 |
+| first-run demo | DEFERRED | 非本批范围 |
+| token/cost routing | DEFERRED | 非本批范围 |
+| safe DAG parallelism | DEFERRED | 非本批范围 |
+| cross-project Personal Base | DEFERRED | 只有项目范围 |
+| Benchmark/Arena | DEFERRED | 非本批范围 |
+
+汇总：IMPLEMENTED=2 / PARTIAL=4 / NOT_RUN=1 / DEFERRED=8 /
+BLOCKED_EXTERNAL=0。上述 IMPLEMENTED 指限定实现，不表示真实 AI 日用已认证。

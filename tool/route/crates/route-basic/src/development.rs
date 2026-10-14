@@ -958,6 +958,12 @@ fn append_event_inner(
         )?;
     }
     if let DevelopmentEventPayload::CooperationKnowledgeRecorded { record } = &draft.payload {
+        if record.lesson.as_ref().is_some_and(|l| {
+            l.positive.is_some() && l.state != crate::passive_base::LessonState::Candidate
+        }) && draft.actor_worker_id.is_some()
+        {
+            bail!("OPERATOR_KNOWLEDGE_REVIEW_REQUIRED: AI cannot promote itself");
+        }
         if let (Some(actor), Some(lesson)) = (draft.actor_worker_id.as_deref(), &record.lesson) {
             if actor != lesson.creator_worker_id
                 || !crate::team::project(&ledger.events, &lesson.goal_id).is_some_and(|v| {

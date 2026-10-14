@@ -82,6 +82,8 @@ pub enum TeamAction {
         goal_id: String,
         job_id: String,
         finding_event_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        positive_packet: Option<crate::positive_base::ExtractionPacket>,
     },
     FinishExtraction {
         goal_id: String,
@@ -512,6 +514,7 @@ pub(crate) fn validate_transition(
     if let TeamAction::QueueExtraction {
         job_id,
         finding_event_id,
+        positive_packet,
         ..
     } = action
     {
@@ -546,7 +549,15 @@ pub(crate) fn validate_transition(
             "KNOWLEDGE_BUDGET_DENIED: pending_jobs"
         );
         let evidence = crate::execution::EvidenceStore::load(root)?;
-        ensure!(events.iter().any(|e|e.event_id==*finding_event_id && e.intent_ref.as_deref()==Some(action.goal_id()) && crate::passive_base::supported_source(&evidence,e) && matches!(&e.payload,Payload::Finding {summary,..} if summary.starts_with("REUSABLE:"))),"HIGH_SIGNAL_REQUIRED");
+        if let Some(packet) = positive_packet {
+            ensure!(
+                packet.finding == *finding_event_id
+                    && crate::positive_base::packets(root, action.goal_id())?.contains(packet),
+                "HIGH_SIGNAL_REQUIRED"
+            );
+        } else {
+            ensure!(events.iter().any(|e|e.event_id==*finding_event_id && e.intent_ref.as_deref()==Some(action.goal_id()) && crate::passive_base::supported_source(&evidence,e) && matches!(&e.payload,Payload::Finding {summary,..} if summary.starts_with("REUSABLE:"))),"HIGH_SIGNAL_REQUIRED");
+        }
     }
     if let TeamAction::FinishExtraction { job_id, .. } = action {
         ensure!(
@@ -791,6 +802,7 @@ mod tests {
                     },
                 },
                 4 => TeamAction::QueueExtraction {
+                    positive_packet: None,
                     goal_id,
                     job_id: "job".into(),
                     finding_event_id: "finding".into(),
@@ -1424,6 +1436,7 @@ mod tests {
         apply(
             root,
             TeamAction::QueueExtraction {
+                positive_packet: None,
                 goal_id: g.clone(),
                 job_id: "job-1".into(),
                 finding_event_id: event.event.event_id.clone(),
@@ -1433,6 +1446,7 @@ mod tests {
         assert!(apply(
             root,
             TeamAction::QueueExtraction {
+                positive_packet: None,
                 goal_id: g.clone(),
                 job_id: "job-2".into(),
                 finding_event_id: event.event.event_id
@@ -1659,7 +1673,7 @@ mod tests {
         );
         store.save(root).unwrap();
         let finding=development::append_development_event(root,serde_json::from_value(json!({"payload":Payload::Finding {summary:"REUSABLE: Windows restricted sandbox path canonicalization failed, then explicit local boundary retry recovered. Synthetic validator only.".into(),source_refs:vec![]},"intent_ref":g,"task_ref":w,"evidence_refs":[evidence]})).unwrap()).unwrap().event.event_id;
-        let record=CooperationKnowledgeRecord {lesson:Some(Lesson {state:LessonState::Candidate,goal_id:g.clone(),work_id:w,creator_worker_id:"p".into(),finding_event_id:finding.clone(),source_event_ids:vec![finding],review_source:None,component:"path canonicalization".into(),environment:vec!["Windows".into(),"restricted sandbox".into()],condition:"When Windows restricted sandbox path canonicalization reports access denied".into(),action:"Request an explicitly approved local path boundary before retrying canonicalization".into(),falsification_check:"Repeat the same restricted path test and compare exit code with approved local retry".into()}),knowledge_id:"candidate".into(),cooperation_id:"fixture-resource".into(),statement:"Narrow synthetic validator lesson; not actual project knowledge".into(),capability_refs:vec![],epistemic_status:EpistemicStatus::Inferred,provenance:"synthetic validator fixture only".into(),source_refs:vec![],evidence_refs:vec![evidence],observed_at:0,resource_fingerprint:Some(fp),supersedes:None};
+        let record=CooperationKnowledgeRecord {lesson:Some(Lesson {positive:None,state:LessonState::Candidate,goal_id:g.clone(),work_id:w,creator_worker_id:"p".into(),finding_event_id:finding.clone(),source_event_ids:vec![finding],review_source:None,component:"path canonicalization".into(),environment:vec!["Windows".into(),"restricted sandbox".into()],condition:"When Windows restricted sandbox path canonicalization reports access denied".into(),action:"Request an explicitly approved local path boundary before retrying canonicalization".into(),falsification_check:"Repeat the same restricted path test and compare exit code with approved local retry".into()}),knowledge_id:"candidate".into(),cooperation_id:"fixture-resource".into(),statement:"Narrow synthetic validator lesson; not actual project knowledge".into(),capability_refs:vec![],epistemic_status:EpistemicStatus::Inferred,provenance:"synthetic validator fixture only".into(),source_refs:vec![],evidence_refs:vec![evidence],observed_at:0,resource_fingerprint:Some(fp),supersedes:None};
         let mut broad = record.clone();
         broad.lesson.as_mut().unwrap().environment = vec!["all Rust platforms".into()];
         assert!(

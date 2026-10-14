@@ -977,7 +977,7 @@ pub fn update_cooperation_discovery(
     )
 }
 
-fn project_cooperation_resources(
+pub(crate) fn project_cooperation_resources(
     events: &[crate::development::DevelopmentEvent],
 ) -> BTreeMap<String, CooperationResource> {
     let mut resources = BTreeMap::<String, CooperationResource>::new();
@@ -1056,7 +1056,7 @@ pub fn cooperation_resource(root: &Path, id: &str) -> Result<Option<CooperationR
         .find(|resource| resource.cooperation_id == id))
 }
 
-fn project_cooperation_knowledge(
+pub(crate) fn project_cooperation_knowledge(
     events: &[crate::development::DevelopmentEvent],
     resources: &BTreeMap<String, CooperationResource>,
 ) -> Vec<CooperationKnowledge> {
