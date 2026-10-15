@@ -19,7 +19,20 @@ fn command(
 }
 fn init() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
-    crate::ensure_identity(d.path()).unwrap();
+    let identity = crate::ensure_identity(d.path()).unwrap();
+    let development = d.path().join(".route/development");
+    fs::create_dir_all(&development).unwrap();
+    fs::write(
+        development.join("ledger.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema": 2,
+            "project_id": identity.project_id,
+            "head_hash": "0".repeat(64),
+            "events": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     d
 }
 fn activate(root: &Path, id: &str, version: &str, grants: Value, key: &str) -> u64 {

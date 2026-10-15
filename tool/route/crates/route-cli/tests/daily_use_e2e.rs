@@ -383,6 +383,19 @@ fn foreign_project_inspection_and_fresh_reads_are_non_mutating() {
 fn worker_list_keeps_wire_shape_and_rejects_tampered_history() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    let identity = route_basic::ensure_identity(root).unwrap();
+    fs::create_dir_all(root.join(".route/development")).unwrap();
+    fs::write(
+        root.join(".route/development/ledger.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema": 2,
+            "project_id": identity.project_id,
+            "head_hash": "0".repeat(64),
+            "events": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     route_basic::register_worker(
         root,
         Some("snapshot-worker".into()),
@@ -554,6 +567,8 @@ fn each_dedicated_mutation_has_durable_replay_and_changed_parameter_rejection() 
             .filter(|(path, _)| {
                 path.ends_with("registry.json")
                     || path.ends_with("ledger.json")
+                    || path.ends_with("ledger.manifest.json")
+                    || path.ends_with(".rlog")
                     || path.ends_with("rpc-idempotency.json")
             })
             .collect::<BTreeMap<_, _>>()

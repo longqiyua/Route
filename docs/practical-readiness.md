@@ -95,6 +95,27 @@ remains a separate phase.
 | Cross-host validation | Protocol design | No new claim | NOT_RUN | NOT_RUN |
 | Cross-model validation | Host-neutral design | No new claim | NOT_RUN | NOT_RUN |
 
+## DevelopmentEvent ledger storage
+
+The [framed journal contract and migration guide](ledger-storage-i.md) is the
+canonical storage reference. New projects use an incrementally appended,
+prepare/commit-framed journal; existing JSON projects continue unchanged until
+`route-ai storage migrate`. Real Windows subprocess crash windows, independent
+writers, same-key replay, corruption diagnostics, migration/rollback and
+independent restore are test gates. Whole-history replay remains linear and
+cross-store atomic snapshots remain open; power-loss durability is not claimed.
+
+| Storage gate | Verified scope |
+|---|---|
+| Append durability / crash recovery | Windows process crashes A-H, actual CLI lost-response retries, partial-tail recovery and acknowledged-prefix protection |
+| Concurrent writers | Eight process writers; same-key convergence, distinct keys, reader/writer and existing domain attempt fencing |
+| Legacy / migration safety | JSON schema 1/2 retained, explicit migration, interrupted cutover/rollback, new-events rollback refusal, old-binary rejection |
+| Backup / restore | Whole ledger file set plus verified Evidence store into an independent workspace; not a complete runtime/source save |
+| Projection equivalence | Exact event preservation and 11 identical source-backed projection results across migration |
+| Write scaling | Incremental event frames plus constant-sized acknowledged-head updates; 1,000-event debug storage bytes 348.49 MB → 1.11 MB |
+| Read scaling | OPEN: full replay and digest verification remain linear; no persistent cache or checkpoint index |
+| Cross-domain snapshot | PARTIAL: no global transaction across Sessions, CheckRuns, process/finalization receipts and all metadata |
+
 Evidence is bounded: E0/E1K/E10K contain history findings, not 10,000 resources;
 the benchmark project has no populated Git tree. The large resource is 256 MiB
 and remains external. Full per-method metrics and binary/machine identity are

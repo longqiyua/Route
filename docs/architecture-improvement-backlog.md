@@ -37,7 +37,7 @@ Canonical event/evidence storage
 | 编号 | 代码事实或风险 | 实际影响 |
 | --- | --- | --- |
 | F1 | 初始实现使用 `Command::output()`，完成后才截取 2 KiB；Q1 已改成双管道流式采集 | 输出缓冲不再随日志总量增长；显式超时、取消和进程树管理仍待办，尚未做整机 RSS 对比 |
-| F2 | `development.rs::load_ledger_at` 全量读取、反序列化、校验 ledger；append 全量序列化替换。`context_pack::build` 又分别调用多个会加载状态的查询 | Context 输出有界，但构建成本随历史增长；独立查询可能跨 revision，不能视为统一快照 |
+| F2 | 新项目的 DevelopmentEvent 已使用 framed journal，普通 append 不再整体重写；旧 JSON 保持至显式迁移。写入前和读取仍全量 replay/校验；`context_pack::build` 仍可能多次查询 | 写放大已关闭，`READ_SCALING=OPEN_LINEAR_FULL_REPLAY`；独立存储之间仍不是统一事务快照，见 [存储契约](ledger-storage-i.md) |
 | F3 | 已确定性复现两个旧快照保存均成功却仅保留一条；Q8 增加跨进程锁内版本检查，并将 exec_command 记录改为锁内重读事务 | 新 API 写者不再静默覆盖其他提交；直接保存过期快照明确冲突。持久运行身份、跨存储关联及恢复仍待办 |
 | F4 | `team_commands::execute` 拒绝有 active run 的恢复，并排除所有已尝试过的 Work；失败 Planner 没有完整恢复路径 | 保守拒绝能避免重复启动，但 broker 异常退出后可能留下长期占位；领域 retry 不等于 CLI 可恢复 |
 | F5 | 验收、进程启动和调度主要在 CLI 模块；`team_verify` 分多次事件执行 Workflow/Plan/Integration/Artifact/Outcome/Close | 中间失败后的续跑需要稳定操作身份和逐步恢复；新增入口容易复制业务流程 |
@@ -67,6 +67,14 @@ Canonical event/evidence storage
 - [host_adapter.rs](../tool/route/crates/route-cli/src/host_adapter.rs)
 
 ## 小修复记录
+
+### 2026-10-15：DevelopmentEvent 增量存储
+
+- 普通追加改为 framed journal：PREPARE/COMMIT 两次刷盘，原事件 ID/revision/hash-chain/operation key 保持；小型 acknowledged-head manifest 防止把已确认历史截断当作尾部恢复。
+- 老 JSON 不自动迁移；新增 Operator storage inspect/migrate/rollback-migration/backup/restore。旧二进制被显式 fence 拒绝，迁移重试校验源备份 hash，回滚后再次迁移保留新写入，迁移后新事件存在时拒绝危险回滚。
+- Windows 真实测试进程 A-H、真实 CLI 四个 crash/retry 窗口、8 进程不同 key、同 key 竞争、损坏长度/中间记录/确认尾部截断、任意垃圾尾部、异常 I/O、迁移与独立恢复通过；来源受控的 11 个投影迁移前后逐字段相同。旧版本只读拒绝且不改权威历史也已实测。
+- 同一 debug 二进制的 100/400/1000 对照，计入 journal 和确认头 metadata：1000 次从 348,493,368 B 降至 1,111,623 B。写放大关闭；读取仍全量重放，1000 事件 warm replay p95 从 69.17 ms 增至 112.52 ms，`READ_SCALING=OPEN`，不宣称所有读写都加速。
+- 备份包括完整 ledger 文件集合和 Evidence；跨 Session/CheckRun/process/finalization 的统一事务快照仍 PARTIAL，完整运行时存档仍走原有游戏式备份。断电实测 NO，真实 AI Golden Path NOT_RUN。详细设计、边界和测量见 [Ledger Storage I](ledger-storage-i.md)。
 
 ### 2026-10-11：双通道 1 GiB 输出资源实测
 

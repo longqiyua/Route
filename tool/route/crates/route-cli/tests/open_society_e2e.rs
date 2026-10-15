@@ -460,8 +460,8 @@ fn attached_workspace_observes_owner_ledger_and_corruption_fails_closed() {
     );
 
     std::fs::write(
-        owner.path().join(".route/development/ledger.json"),
-        b"{not-json",
+        route_basic::development::development_ledger_path(owner.path()).unwrap(),
+        b"{not-journal",
     )
     .unwrap();
     let rejected = rpc(

@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Binary,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [ValidateRange(3,30)][int]$Samples=8,
-    [ValidateRange(100,1000)][int]$Events=400
+    [ValidateRange(100,1000)][int]$Events=400,
+    [switch]$LegacyLedger
 )
 # Isolated, bounded acceptance. Does not run AI, change PATH, install or clean.
 $ErrorActionPreference='Stop'
@@ -43,8 +44,13 @@ function SumBytes([string]$path){
     [long](Get-ChildItem -LiteralPath $path -Recurse -Force -File|Measure-Object Length -Sum).Sum
 }
 function Stats($values){$a=@($values|Sort-Object);[ordered]@{n=$a.Count;p50_ms=$a[[int][Math]::Ceiling($a.Count*.5)-1];p95_ms=$a[[int][Math]::Ceiling($a.Count*.95)-1]}}
+function ActiveLedger([string]$root){
+    $dir=Join-Path $root '.route/development'
+    if(Test-Path (Join-Path $dir 'ledger.manifest.json')){return Join-Path $dir 'ledger-000001.rlog'}
+    Join-Path $dir 'ledger.json'
+}
 function Footprint([string]$root){
-    $door=Join-Path $root 'ROUTE.md';$ledger=Join-Path $root '.route/development/ledger.json'
+    $door=Join-Path $root 'ROUTE.md';$ledger=ActiveLedger $root
     [ordered]@{doorway_bytes=$(if(Test-Path $door){(Get-Item $door).Length}else{0});ignored_bytes=((SumBytes (Join-Path $root '.route'))+(SumBytes (Join-Path $root '.route-basic')));external_bytes=(SumBytes $fixtureHost);ledger_bytes=$(if(Test-Path $ledger){(Get-Item $ledger).Length}else{0})}
 }
 $attach=@();$cold=@();$startup=@();$stages=[ordered]@{};$root=$null
@@ -56,6 +62,14 @@ for($i=0;$i -lt $Samples;$i++){
     $template=Run $project @('doorway','--template') -Text
     if($template.bytes -gt 1024){throw 'Preferred template size exceeded'}
     if($i -eq 0){$stages['template_discovery']=Footprint $root}
+    if($LegacyLedger){
+        # Controlled compatibility fixture: same domain semantics and current
+        # binary/profile, with the pre-migration writer explicitly selected.
+        $state=Join-Path $project '.route';New-Item -ItemType Directory -Path (Join-Path $state 'development') -Force|Out-Null
+        $pidFixture='prj_'+[guid]::NewGuid().ToString('N').Substring(0,26)
+        @{schema=1;project_id=$pidFixture;workspace_id=('ws_'+[guid]::NewGuid().ToString('N').Substring(0,26));created_at=0;attached_from=$null;bound_root=$project.Replace('\','/')}|ConvertTo-Json|Set-Content (Join-Path $state 'project-identity.json')
+        @{schema=2;project_id=$pidFixture;head_hash=('0'*64);events=@()}|ConvertTo-Json|Set-Content (Join-Path $state 'development/ledger.json')
+    }
     $a=Run $project @('attach');$attach+=$a.ms
     if($i -eq 0){$stages['attach']=Footprint $root}
     $c=Run $project @('enter','--json');$cold+=$c.ms
@@ -78,11 +92,14 @@ foreach($kind in @('enter','status','handoff')){
     }
     if((Snapshot $root) -ne $before -or (Snapshot $fixtureHost) -ne $hostBefore){throw "$kind mutated project or credentials"}
 }
-$ledger=Join-Path $root '.route/development/ledger.json';$initial=(Get-Item $ledger).Length
+$ledger=ActiveLedger $root;$initial=(Get-Item $ledger).Length
+$incremental=$ledger.EndsWith('.rlog');$previousSize=$initial;$metadataWrites=0L
 $writes=@();$rewrite=0L;$payload=0L;$scales=@();$first100=0L
 for($i=1;$i -le $Events;$i++){
     $fact="Fixture progress $i; next verify boundary $i";$payload+=[Text.Encoding]::UTF8.GetByteCount($fact)
-    $w=Run $root @('sidecar','note',$fact);$writes+=$w.ms;$size=(Get-Item $ledger).Length;$rewrite+=$size
+    $w=Run $root @('sidecar','note',$fact);$writes+=$w.ms;$size=(Get-Item $ledger).Length
+    if($incremental){$rewrite+=($size-$previousSize);$metadataWrites+=(Get-Item (Join-Path $root '.route/development/ledger.manifest.json')).Length}else{$rewrite+=$size}
+    $previousSize=$size
     if($i -eq 1){$stages['first_fact']=Footprint $root}
     if($i -eq 100){$stages['100_facts']=Footprint $root;$first100=$size-$initial}
     if($i -in @(1,100,$Events)){
@@ -112,7 +129,10 @@ $report=[ordered]@{
     facts=$Events;first_100_ledger_growth=$first100;ledger_growth=((Get-Item $ledger).Length-$initial);
     bytes_per_event=(((Get-Item $ledger).Length-$initial)/[double]$Events);payload_bytes=$payload;
     metadata_inclusive_growth_over_payload=(((Get-Item $ledger).Length-$initial)/[double]$payload);
-    cumulative_ledger_rewrite_estimate=$rewrite;rewrite_scope='Sum of resulting whole-ledger lengths, NOT measured physical disk IO';
+    ledger_format=$(if($incremental){'FRAMED_JOURNAL'}else{'LEGACY_JSON'});
+    cumulative_ledger_write_bytes=$rewrite;metadata_write_bytes=$metadataWrites;
+    cumulative_ledger_rewrite_estimate=$(if($incremental){$null}else{$rewrite});
+    rewrite_scope='Legacy: sum of resulting file lengths; journal: appended frame bytes plus separately reported manifest replacements. Excludes OS physical IO and lock/transport receipts';
     first_100_writes=(Stats @($writes|Select-Object -First 100));first_100_write_total_ms=(@($writes|Select-Object -First 100)|Measure-Object -Sum).Sum;
     scaling=$scales;sampled_rss_max_bytes=($rss|Measure-Object -Maximum).Maximum;
     rss_scope='Child process working set sampled about every 2ms: lower bound on peak, not exact peak RSS';

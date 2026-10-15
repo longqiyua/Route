@@ -44,6 +44,29 @@ enum AssistantAction {
 }
 
 #[derive(Subcommand)]
+enum StorageAction {
+    /// Inspect the canonical DevelopmentEvent storage without changing it.
+    Inspect {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explicitly migrate a verified legacy JSON ledger to the framed journal.
+    Migrate {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Return to legacy JSON only when no event was appended after migration.
+    RollbackMigration {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a verified, point-in-time DevelopmentEvent storage backup.
+    Backup { target: PathBuf },
+    /// Restore a verified storage backup into a new, empty project directory.
+    Restore { backup: PathBuf, target: PathBuf },
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// One bounded read-only project doorway; never attaches or grants authority.
     Enter {
@@ -83,6 +106,11 @@ enum Commands {
     Assistant {
         #[command(subcommand)]
         action: AssistantAction,
+    },
+    /// Inspect, migrate, back up, or restore the canonical event ledger.
+    Storage {
+        #[command(subcommand)]
+        action: StorageAction,
     },
     /// Trusted-host Worker binding bootstrap and diagnostics; never prints credentials.
     WorkerBinding {
@@ -2899,6 +2927,7 @@ fn main() -> Result<()> {
             | Commands::Handoff { shared: true, .. }
             | Commands::WorkerBinding { .. }
             | Commands::Assistant { .. }
+            | Commands::Storage { .. }
             | Commands::Institution { .. }
             | Commands::Cooperation {
                 action: CooperationAction::List
@@ -2962,6 +2991,66 @@ fn main() -> Result<()> {
                         serde_json::to_string_pretty(&route_basic::general_work::review(
                             &root, &goal_id
                         )?)?
+                    );
+                    Ok(())
+                }
+            }
+        }
+        Commands::Storage { action } => {
+            let root = std::env::current_dir()?;
+            match action {
+                StorageAction::Inspect { json } => {
+                    let value = route_basic::development::inspect_development_storage(&root)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&value)?);
+                    } else {
+                        println!(
+                            "{} v{} · revision {} · {} events",
+                            value.format, value.format_version, value.revision, value.event_count
+                        );
+                        println!("Head: {}", value.head_hash);
+                        println!("Files: {}", value.authoritative_files.join(", "));
+                        println!("Read scaling: {}", value.read_scaling);
+                    }
+                    Ok(())
+                }
+                StorageAction::Migrate { json } => {
+                    let value = route_basic::development::migrate_development_storage(&root)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&value)?);
+                    } else {
+                        println!(
+                            "Migrated DevelopmentEvent storage to {} at revision {}",
+                            value.format, value.revision
+                        );
+                    }
+                    Ok(())
+                }
+                StorageAction::RollbackMigration { json } => {
+                    let value = route_basic::development::rollback_development_migration(&root)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&value)?);
+                    } else {
+                        println!(
+                            "Rolled DevelopmentEvent storage back to {} at revision {}",
+                            value.format, value.revision
+                        );
+                    }
+                    Ok(())
+                }
+                StorageAction::Backup { target } => {
+                    let path =
+                        route_basic::development::backup_development_storage(&root, &target)?;
+                    println!("DevelopmentEvent storage backup: {}", path.display());
+                    Ok(())
+                }
+                StorageAction::Restore { backup, target } => {
+                    let value =
+                        route_basic::development::restore_development_storage(&backup, &target)?;
+                    println!(
+                        "Restored DevelopmentEvent storage to {} at revision {}",
+                        target.display(),
+                        value.revision
                     );
                     Ok(())
                 }

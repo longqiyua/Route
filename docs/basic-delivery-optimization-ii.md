@@ -159,7 +159,7 @@ is explicitly excluded/not tested. Documentation links, all 13 maintained root
 PowerShell scripts, `git diff --check`, final release execution/package/measurement,
 secret-pattern scan and all 133 preserved pre-phase working paths also passed.
 
-The next independently closeable priority is one canonical-ledger storage phase:
-design and test an append-safe format/migration with crash atomicity, concurrency,
-hash-chain validation, deterministic replay, recovery, backup/restore, rollback and
-old-format compatibility before replacing the whole-ledger writer.
+The follow-up canonical-ledger work is documented in
+[DevelopmentEvent ledger storage I](ledger-storage-i.md). It introduces an
+explicitly migrated framed journal without changing this delivery phase's binary,
+package or ROUTE.md measurements; whole-history read/replay scaling remains open.

@@ -2,15 +2,16 @@
 //!
 //! This module adds atomic development observations without replacing Route's
 //! existing ExecutionSession, Evidence, Git or locked command-history stores.
-//! The ledger is append-only through this API and is atomically replaced under
-//! a cross-process lock so readers observe a complete revision.
+//! The ledger is append-only through this API. New projects use a framed,
+//! crash-recoverable journal; legacy JSON ledgers remain readable and writable
+//! until an explicit operator migration.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::cooperation;
@@ -18,6 +19,12 @@ use crate::cooperation::*;
 use crate::execution::{Evidence, EvidenceStore, ExecutionSession, SessionStatus, SessionStore};
 use crate::game_save::KnownGoodTracker;
 use crate::project_identity::{ensure_identity, load_identity, ProjectIdentity};
+
+mod storage;
+pub use storage::{
+    backup_development_storage, inspect_development_storage, migrate_development_storage,
+    restore_development_storage, rollback_development_migration, DevelopmentStorageInspection,
+};
 
 const LEGACY_LEDGER_SCHEMA: u8 = 1;
 const LEDGER_SCHEMA: u8 = 2;
@@ -531,7 +538,7 @@ fn development_dir(owner: &Path) -> PathBuf {
 
 pub fn development_ledger_path(root: &Path) -> Result<PathBuf> {
     let (owner, _) = development_state_owner(root)?;
-    Ok(development_dir(&owner).join("ledger.json"))
+    storage::active_ledger_path(&development_dir(&owner))
 }
 
 pub(crate) fn load_ledger(root: &Path) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
@@ -561,18 +568,15 @@ fn load_ledger_at(
     owner: PathBuf,
     identity: ProjectIdentity,
 ) -> Result<(DevelopmentLedger, ProjectIdentity, PathBuf)> {
-    let path = development_dir(&owner).join("ledger.json");
-    if !path.exists() {
+    let dir = development_dir(&owner);
+    if !dir.try_exists()? {
         return Ok((
             DevelopmentLedger::empty(identity.project_id.clone()),
             identity,
             owner,
         ));
     }
-    let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    let ledger: DevelopmentLedger = serde_json::from_slice(&bytes)
-        .with_context(|| format!("parsing development ledger at {}", path.display()))?;
-    ledger.verify(&identity.project_id)?;
+    let ledger = storage::load(&dir, &identity.project_id, storage::LoadMode::ReadOnly)?;
     Ok((ledger, identity, owner))
 }
 
@@ -898,10 +902,21 @@ fn append_event_inner(
     let dir = development_dir(&owner);
     fs::create_dir_all(&dir)?;
     let _lock = DevelopmentAppendLock::acquire(&dir)?;
-    let (mut ledger, current_identity, _) = load_ledger(root)?;
-    if current_identity.project_id != identity.project_id {
+    let ledger_identity = load_identity(&owner)?
+        .ok_or_else(|| anyhow::anyhow!("ledger owner identity is missing"))?;
+    if ledger_identity.project_id != identity.project_id {
         bail!("project identity changed while acquiring development ledger lock");
     }
+    let current_identity = load_identity(root)?.ok_or_else(|| {
+        anyhow::anyhow!("project identity is missing after acquiring ledger lock")
+    })?;
+    if current_identity.project_id != identity.project_id
+        || current_identity.workspace_id != identity.workspace_id
+        || current_identity.attached_from != identity.attached_from
+    {
+        bail!("project identity changed while acquiring development ledger lock");
+    }
+    let mut ledger = storage::load(&dir, &identity.project_id, storage::LoadMode::RecoverTail)?;
     if let Some(caller) = caller {
         crate::principal::validate_caller(&ledger.events, &identity.project_id, caller, &draft)?;
     }
@@ -1066,10 +1081,7 @@ fn append_event_inner(
     // event is successfully committed.
     ledger.schema = LEDGER_SCHEMA;
     ledger.verify(&identity.project_id)?;
-    crate::constitutive::write_atomic(
-        &dir.join("ledger.json"),
-        &serde_json::to_vec_pretty(&ledger)?,
-    )?;
+    storage::commit_append(&dir, &identity.project_id, &ledger, &event)?;
     Ok(AppendDevelopmentEventResult {
         event,
         replay: false,
@@ -1082,7 +1094,11 @@ fn append_event_inner(
 #[cfg(feature = "test-utils")]
 pub fn seed_benchmark_events(root: &Path, count: usize) -> Result<()> {
     anyhow::ensure!(count <= 10_000, "benchmark fixture limit exceeded");
-    let (mut ledger, identity, owner) = load_ledger(root)?;
+    let (owner, identity) = development_state_owner(root)?;
+    let dir = development_dir(&owner);
+    fs::create_dir_all(&dir)?;
+    let _lock = DevelopmentAppendLock::acquire(&dir)?;
+    let mut ledger = storage::load(&dir, &identity.project_id, storage::LoadMode::RecoverTail)?;
     anyhow::ensure!(
         ledger.events.is_empty(),
         "benchmark requires an empty ledger"
@@ -1117,12 +1133,7 @@ pub fn seed_benchmark_events(root: &Path, count: usize) -> Result<()> {
         ledger.events.push(event);
     }
     ledger.verify(&identity.project_id)?;
-    let dir = development_dir(&owner);
-    fs::create_dir_all(&dir)?;
-    crate::constitutive::write_atomic(
-        &dir.join("ledger.json"),
-        &serde_json::to_vec_pretty(&ledger)?,
-    )
+    storage::seed_new_journal(&dir, &identity.project_id, &ledger)
 }
 
 pub fn query_development_events(
@@ -1560,6 +1571,14 @@ mod tests {
     fn combined_worker_snapshot_matches_projections_and_rechecks_integrity() {
         let source = tempdir().unwrap();
         let attached = tempdir().unwrap();
+        let identity = ensure_identity(source.path()).unwrap();
+        let dir = development_dir(source.path());
+        fs::create_dir_all(&dir).unwrap();
+        crate::constitutive::write_atomic(
+            &dir.join("ledger.json"),
+            &serde_json::to_vec_pretty(&DevelopmentLedger::empty(identity.project_id)).unwrap(),
+        )
+        .unwrap();
         register_worker(
             source.path(),
             Some("stable-worker".into()),
@@ -1757,6 +1776,16 @@ mod tests {
     #[test]
     fn schema_one_ledger_is_readable_and_upgrades_without_rewriting_events() {
         let root = tempdir().unwrap();
+        let identity = ensure_identity(root.path()).unwrap();
+        let dir = development_dir(root.path());
+        fs::create_dir_all(&dir).unwrap();
+        let mut legacy = DevelopmentLedger::empty(identity.project_id);
+        legacy.schema = LEGACY_LEDGER_SCHEMA;
+        crate::constitutive::write_atomic(
+            &dir.join("ledger.json"),
+            &serde_json::to_vec_pretty(&legacy).unwrap(),
+        )
+        .unwrap();
         register_worker(root.path(), Some("w".into()), metadata("p", "m"), None).unwrap();
         let path = development_ledger_path(root.path()).unwrap();
         let mut document: serde_json::Value =
